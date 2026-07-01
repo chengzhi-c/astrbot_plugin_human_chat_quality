@@ -33,16 +33,14 @@ def inject_stable_rules(system_prompt: str | None) -> str:
 
 
 def build_runtime_hint(state: SessionState, max_chars: int) -> str:
-    lines: list[str] = []
-    if state.avoid_openers:
-        lines.append("- avoid_openers: " + " / ".join(state.avoid_openers[:5]))
-    if not lines:
+    openers = [item for item in state.avoid_openers[:5] if item]
+    if not openers:
         return ""
 
     hint = (
         f"{RUNTIME_HINT_MARKER}\n"
-        "仅用于本轮回复的轻量状态：避免继续使用这些重复开头，不要提到字段名。\n"
-        + "\n".join(lines)
+        "仅用于本轮回复的轻量状态：避开这些重复开头，不要提到这条提示。\n"
+        + "、".join(openers)
     )
     return _clip(hint, max_chars)
 

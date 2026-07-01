@@ -73,6 +73,7 @@ try:
     from .quality_rules import (
         RUNTIME_HINT_MARKER,
         STABLE_RULE_MARKER,
+        build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
         make_text_part,
@@ -82,6 +83,7 @@ except ImportError:  # pragma: no cover
     from quality_rules import (
         RUNTIME_HINT_MARKER,
         STABLE_RULE_MARKER,
+        build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
         make_text_part,
@@ -131,8 +133,10 @@ def config_list(config: Any, key: str) -> list[str]:
 def _extract_response_text(resp: Any) -> str:
     """从 LLMResponse 中提取文本，兼容 completion_text 与 result_chain。"""
     completion = getattr(resp, "completion_text", None)
-    if completion:
-        return str(completion).strip()
+    if completion is not None:
+        completion_text = str(completion).strip()
+        if completion_text:
+            return completion_text
     # 兜底：遍历 result_chain / message chain 中的文本 part
     chain = getattr(resp, "result_chain", None) or getattr(resp, "message", None) or []
     chain_items = getattr(chain, "chain", None)
@@ -341,14 +345,19 @@ def extract_group_id(value: Any) -> str:
         return ""
     if isinstance(value, dict):
         for key in ("group_id", "id", "qq", "uin"):
-            if value.get(key) is not None and str(value[key]).strip():
-                return str(value[key]).strip()
+            group_id = normalize_group_id(value.get(key))
+            if group_id:
+                return group_id
         return ""
     for attr in ("group_id", "id", "qq", "uin"):
-        attr_value = getattr(value, attr, None)
-        if attr_value is not None and str(attr_value).strip():
-            return str(attr_value).strip()
-    if isinstance(value, bool):
+        group_id = normalize_group_id(getattr(value, attr, None))
+        if group_id:
+            return group_id
+    return normalize_group_id(value)
+
+
+def normalize_group_id(value: Any) -> str:
+    if value is None or isinstance(value, bool):
         return ""
     if isinstance(value, (str, int)):
         return str(value).strip()
@@ -410,7 +419,6 @@ class HumanChatQualityPlugin(Star):
     @permission_type(PermissionType.ADMIN)
     @humanq.command("rules")
     async def humanq_rules(self, event: AstrMessageEvent):
-        from .quality_rules import build_stable_rules
         yield event.plain_result(build_stable_rules())
 
     @permission_type(PermissionType.ADMIN)

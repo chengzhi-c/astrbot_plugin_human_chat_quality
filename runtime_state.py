@@ -127,7 +127,7 @@ class RuntimeStateStore:
     def _backup_corrupt_state_file(self) -> None:
         if not self.state_path.exists():
             return
-        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        timestamp = f"{time.strftime('%Y%m%d-%H%M%S')}-{time.time_ns()}"
         backup_path = self.state_path.with_name(f"{self.state_path.stem}.corrupt.{timestamp}{self.state_path.suffix}")
         try:
             shutil.copy2(self.state_path, backup_path)
