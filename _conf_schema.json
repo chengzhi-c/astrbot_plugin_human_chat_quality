@@ -1,0 +1,50 @@
+{
+  "enabled": {
+    "description": "启用质量层",
+    "type": "bool",
+    "default": true,
+    "hint": "关闭后插件仍加载，但不会注入隐藏规则或记录运行时状态。"
+  },
+  "inject_stable_rules": {
+    "description": "注入稳定质量规则",
+    "type": "bool",
+    "default": true,
+    "hint": "把去模板腔、人性化回复约束追加到 system_prompt，并用固定 marker 防重复。"
+  },
+  "inject_runtime_state": {
+    "description": "注入本轮运行时状态",
+    "type": "bool",
+    "default": true,
+    "hint": "把近期重复开头避用信息作为临时 extra_user_content_parts 注入。"
+  },
+  "max_runtime_hint_chars": {
+    "description": "运行时提示最大字符数",
+    "type": "int",
+    "default": 600,
+    "hint": "限制每轮动态提示长度，避免额外 token 过多。取值范围 80–3000，超出会被自动夹取。"
+  },
+  "recent_reply_window": {
+    "description": "最近回复窗口",
+    "type": "int",
+    "default": 8,
+    "hint": "用于判断重复开头的最近回复数量。取值范围 1–50。"
+  },
+  "state_retention_days": {
+    "description": "状态保留天数",
+    "type": "int",
+    "default": 14,
+    "hint": "轻量状态超过该天数未更新会被清理。取值范围 1–365。"
+  },
+  "disabled_sessions": {
+    "description": "禁用会话列表",
+    "type": "list",
+    "default": [],
+    "hint": "每行一个 QQ 群号或完整 unified_msg_origin。群聊可直接填群号，如 123456；也支持 group:123456、GroupMessage:123456、aiocqhttp:GroupMessage:123456。命令 /humanq off 会写入运行时状态，不会改此配置。"
+  },
+  "debug_log": {
+    "description": "调试日志",
+    "type": "bool",
+    "default": false,
+    "hint": "开启后每次注入会输出 debug 日志。"
+  }
+}

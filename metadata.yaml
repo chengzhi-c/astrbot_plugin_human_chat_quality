@@ -1,0 +1,8 @@
+﻿name: astrbot_plugin_human_chat_quality
+display_name: 回复去AI化质量层
+short_desc: 注入去模板腔规则与轻量运行时状态，让回复更自然
+desc: 在 LLM 请求阶段注入稳定规则与本轮状态的轻量提示插件
+version: v0.1.0
+author: chengzhi-c
+repo: ""
+astrbot_version: ">=4.16,<5"
