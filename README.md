@@ -1,0 +1,2 @@
+# astrbot_plugin_human_chat_quality
+回复去AI化质量层 在 LLM 请求阶段注入稳定规则与本轮状态的轻量提示插件
