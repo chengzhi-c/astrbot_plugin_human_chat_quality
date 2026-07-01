@@ -1,4 +1,4 @@
-﻿# astrbot_plugin_human_chat_quality
+﻿# 回复去AI化质量层
 
 在每次 LLM 请求时注入质量约束与本轮运行状态，减少 AI 回复的模板腔。
 
