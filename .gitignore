@@ -1,0 +1,10 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行时状态与临时/备份文件
+runtime_state.json
+*.tmp
+*.bak
+*.corrupt.*

@@ -63,7 +63,15 @@ class RuntimeStateStore:
         opener = extract_opener(text)
         if opener:
             state.recent_openers = [opener, *state.recent_openers][: self.recent_reply_window]
-            state.avoid_openers = repeated_items(state.recent_openers, limit=5)
+        # 两路合并进避用列表：① 最近窗口里重复出现的开头；② 本轮命中的 AI 套路词。
+        # 后者让运行时提示即使没有精确重复也能带电，避免常年空转。
+        repeated = repeated_items(state.recent_openers, limit=5)
+        cliches = detect_cliches(text)
+        merged: list[str] = []
+        for item in [*repeated, *cliches]:
+            if item and item not in merged:
+                merged.append(item)
+        state.avoid_openers = merged[:5]
 
         self.sessions[session_id] = state
         self._prune_expired()
@@ -146,6 +154,37 @@ def extract_opener(text: str) -> str:
     if not first:
         return ""
     return first[:8]
+
+
+# 日常聊天里最常见的 AI 套路词/收尾腔，命中即提示模型本轮避开。
+# 这些是“说明模型正在犯 AI 腔”的信号，不是要禁掉的功能词，故按短语精确匹配。
+DEFAULT_CLICHES: tuple[str, ...] = (
+    "希望能帮到你",
+    "希望这能帮到你",
+    "如果还有问题",
+    "总之",
+    "综上所述",
+    "未来可期",
+    "一起加油",
+    "需要注意的是",
+    "值得一提的是",
+    "首先",
+    "作为 AI",
+    "作为AI",
+    "让我们",
+)
+
+
+def detect_cliches(text: str, cliches: tuple[str, ...] = DEFAULT_CLICHES) -> list[str]:
+    """检测回复中出现的 AI 套路词，返回命中的短语（去重、保序）。"""
+    normalized = _normalize_text(text)
+    if not normalized:
+        return []
+    hits: list[str] = []
+    for phrase in cliches:
+        if phrase and phrase in normalized and phrase not in hits:
+            hits.append(phrase)
+    return hits
 
 
 def repeated_items(items: list[str], limit: int) -> list[str]:
