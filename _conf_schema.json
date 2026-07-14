@@ -5,11 +5,18 @@
     "default": true,
     "hint": "关闭后插件仍加载，但不会注入隐藏规则或记录运行时状态。"
   },
+  "prompt_injection_mode": {
+    "description": "注入模式（缓存友好）",
+    "type": "string",
+    "default": "cache_friendly",
+    "options": ["cache_friendly", "legacy_system"],
+    "hint": "cache_friendly：稳定规则与运行时提示都走 temp extra，不改 system_prompt（推荐）；legacy_system：稳定规则幂等写入 system_prompt（旧行为）。"
+  },
   "inject_stable_rules": {
     "description": "注入稳定质量规则",
     "type": "bool",
     "default": true,
-    "hint": "把去模板腔、人性化回复约束追加到 system_prompt，并用固定 marker 防重复。"
+    "hint": "注入去模板腔、人性化回复约束。cache_friendly 下走 temp extra；legacy_system 下写 system_prompt（marker 防重复）。"
   },
   "inject_runtime_state": {
     "description": "注入本轮运行时状态",

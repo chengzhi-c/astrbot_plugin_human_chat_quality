@@ -29,6 +29,7 @@ def build_stable_rules() -> str:
 
 
 def inject_stable_rules(system_prompt: str | None) -> str:
+    """兼容旧接口：幂等拼入 system_prompt。新路径请用 inject_stable_rules_to_request。"""
     prompt = system_prompt or ""
     if STABLE_RULE_MARKER in prompt:
         return prompt
@@ -76,15 +77,70 @@ def make_text_part(text: str, factory: Any | None = None) -> Any:
         marked = mark_as_temp()
         return marked if marked is not None else part
 
+    try:
+        setattr(part, "_is_temp", True)
+    except Exception:
+        pass
     setattr(part, "_no_save", True)
     return part
+
+
+def part_has_marker(part: Any, marker: str) -> bool:
+    text_val = getattr(part, "text", None)
+    if text_val is None and isinstance(part, dict):
+        text_val = part.get("text")
+    return isinstance(text_val, str) and marker in text_val
+
+
+def request_has_marker(req: Any, marker: str) -> bool:
+    try:
+        sp = getattr(req, "system_prompt", None) or ""
+        if marker in sp:
+            return True
+    except Exception:
+        pass
+    try:
+        parts = getattr(req, "extra_user_content_parts", None)
+        if isinstance(parts, list):
+            return any(part_has_marker(part, marker) for part in parts)
+    except Exception:
+        pass
+    return False
+
+
+def append_temp_text_part(
+    req: Any,
+    text: str,
+    factory: Any | None = None,
+    *,
+    marker: str | None = None,
+) -> bool:
+    """写入 temp extra；缺失 list 时创建。marker 已存在则跳过。"""
+    if not text:
+        return False
+    if marker and request_has_marker(req, marker):
+        return False
+    try:
+        if not hasattr(req, "extra_user_content_parts") or req.extra_user_content_parts is None:
+            req.extra_user_content_parts = []
+        parts = req.extra_user_content_parts
+        if not isinstance(parts, list):
+            return False
+        if marker and any(part_has_marker(part, marker) for part in parts):
+            return False
+        parts.append(make_text_part(text, factory))
+        return True
+    except Exception:
+        return False
 
 
 class _FallbackTextPart:
     def __init__(self, text: str) -> None:
         self.text = text
         self._no_save = True
+        self._is_temp = True
 
     def mark_as_temp(self) -> "_FallbackTextPart":
         self._no_save = True
+        self._is_temp = True
         return self

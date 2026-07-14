@@ -1,52 +1,45 @@
-﻿# 回复去AI化质量层
+# 回复去AI化质量层
 
 在每次 LLM 请求时注入质量约束与本轮运行状态，减少 AI 回复的模板腔。
+
+## 版本
+
+- **v0.2.0**：默认 **cache_friendly**——稳定规则 + 运行时提示都走 temp extra，避免改写 `system_prompt` 破坏 prompt cache；可回退 `legacy_system`。并修复 `extra_user_content_parts is None` 时运行时提示静默失败。
 
 ## 原理
 
 - `on_llm_request(priority=-100)`：
-  1. 向 `system_prompt` 追加稳定规则（见下方全文）。
-  2. 向 `extra_user_content_parts` 追加运行时提示（避开近期重复开头，以及本轮命中的 AI 套路词）。
+  1. **稳定规则**：默认注入 `extra_user_content_parts`（temp）；`legacy_system` 时幂等追加到 `system_prompt`。
+  2. **运行时提示**：始终注入 `extra_user_content_parts`（temp），缺失 list 时创建。
 - `on_llm_response()`：解析本轮回复，更新会话状态。
 
 规则在人设之后注入（`priority=-100`），只做减法去 AI 腔，不改变人设的性格、称呼、情绪和口头禅。
 
+## 缓存相关
+
+| 配置 | 默认 | 说明 |
+|------|------|------|
+| `prompt_injection_mode` | `cache_friendly` | `cache_friendly` / `legacy_system` |
+| `inject_stable_rules` | true | 是否注入稳定规则 |
+| `inject_runtime_state` | true | 是否注入运行时避用提示 |
+
+说明：稳定规则内容固定，放进 system 理论上可缓存；但与其它插件改写 system 叠加时仍易触发 `sp_changed`。默认 temp extra 的目标是 **不污染 system 前缀**。
+
 ## 注入的规则
 
-### 稳定规则（追加到 `system_prompt`）
+### 稳定规则
 
-```
-[Human Chat Quality Rules v1]
-聊天质量约束（在现有人设语气之上生效，不改变人设的性格、称呼、情绪和口头禅）：
-一、这是日常聊天，不是写报告。顺着对方的话自然接，别把闲聊答成讲义、作文或客服工单。
-   ❌“关于这个问题，首先…其次…最后总结一下” ✅ 直接说想说的，该短就一两句。
-二、别拔高、别升华。不给普通对话强行加意义、加金句、加结尾鼓励。
-   ❌“希望能帮到你～”“未来可期，一起加油！”“这不仅是…更是…” ✅ 话说完就停，不硬凑收尾。
-三、别谄媚开场。不用“好问题！”“你说得太对了！”“作为 AI…”这类套话起头，直接回应内容本身。
-四、别排比凑数、别否定平行。❌“有温度、有深度、有力度”“不是…而是…” ✅ 挑一个具体的说清楚就行。
-五、别复读对方原话，别每轮都总结。少用“需要注意的是”“值得一提的是”“让我们…”这类铺垫信号词。
-六、保持事实准确，口语化不等于牺牲关键信息、限制条件或安全边界。
-七、生成前自查一遍：有没有上面这些 AI 腔？有就地改成人会说的话，别提到这条自查。
-```
+见 `/humanq rules`。标记：`[Human Chat Quality Rules v1]`。
 
-第七条自查回路是效果关键：否定式指令模型容易忽略，而“生成前回头看一眼再改”能明显提升服从度。
+### 运行时提示
 
-可用 `/humanq rules` 查看当前生效的规则原文。
-
-### 运行时提示（追加到 `extra_user_content_parts`，仅本轮临时生效，不落长期记忆）
-
-命中以下任一情况时，把对应说法列进“本轮避用”提示，让模型换个自然说法：
-
-- **重复开头**：同一开头在最近回复窗口（`recent_reply_window`，默认 8）内反复出现。
-- **AI 套路词**：本轮回复命中内置套路词表即纳入，不依赖精确重复，避免这条腿常年空转。内置词表：`希望能帮到你`、`希望这能帮到你`、`如果还有问题`、`总之`、`综上所述`、`未来可期`、`一起加油`、`需要注意的是`、`值得一提的是`、`首先`、`作为 AI`、`作为AI`、`让我们`。
-
-提示最多取 5 项，超出 `max_runtime_hint_chars` 会截断。可用 `/humanq preview` 查看本轮将注入的运行时提示。
+命中重复开头 / AI 套路词时注入避用列表。标记：`[Human Chat Quality Runtime]`。
 
 ## 命令
 
 | 命令 | 作用 |
 |------|------|
-| `/humanq status` | 查看当前状态 |
+| `/humanq status` | 查看当前状态（含注入模式） |
 | `/humanq on` | 管理员：启用当前会话 |
 | `/humanq off` | 管理员：关闭当前会话 |
 | `/humanq preview` | 管理员：查看将注入的运行时提示 |
@@ -58,22 +51,19 @@
 | 配置项 | 说明 |
 |--------|------|
 | `enabled` | 总开关 |
+| `prompt_injection_mode` | 注入模式 |
 | `inject_stable_rules` | 注入稳定规则 |
 | `inject_runtime_state` | 注入运行时提示 |
 | `max_runtime_hint_chars` | 运行时提示最大字符数 |
 | `state_retention_days` | 状态保留天数 |
 | `recent_reply_window` | 判断重复开头的最近回复窗口 |
-| `disabled_sessions` | 禁用列表，支持群号或完整 `unified_msg_origin` |
-| `debug_log` | 输出注入与状态调试日志 |
+| `disabled_sessions` | 禁用列表 |
+| `debug_log` | 调试日志 |
 
 ## 数据
 
-状态保存在插件数据目录的 `runtime_state.json` 中，仅保留最近回复开头和命中的套路词用于识别重复套话，**不保存完整聊天记录**。实际注入给 LLM 的运行时提示只包含避用的开头和套路词。
+状态保存在插件数据目录的 `runtime_state.json` 中，仅保留最近回复开头和命中的套路词，**不保存完整聊天记录**。
 
 ## 卸载
 
-在 AstrBot WebUI 中禁用本插件，或删除目录：
-
-```powershell
-C:\Users\用户名\.astrbot\data\plugins\astrbot_plugin_human_chat_quality
-```
+在 AstrBot WebUI 中禁用本插件，或删除插件目录。

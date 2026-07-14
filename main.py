@@ -73,26 +73,30 @@ try:
     from .quality_rules import (
         RUNTIME_HINT_MARKER,
         STABLE_RULE_MARKER,
+        append_temp_text_part,
         build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
         make_text_part,
+        request_has_marker,
     )
     from .runtime_state import RuntimeStateStore
 except ImportError:  # pragma: no cover
     from quality_rules import (
         RUNTIME_HINT_MARKER,
         STABLE_RULE_MARKER,
+        append_temp_text_part,
         build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
         make_text_part,
+        request_has_marker,
     )
     from runtime_state import RuntimeStateStore
 
 
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
-PLUGIN_VERSION = "0.1.0"
+PLUGIN_VERSION = "0.2.0"
 
 
 def config_get(config: Any, key: str, default: Any) -> Any:
@@ -173,21 +177,27 @@ class HumanChatQualityCore:
         self.text_part_factory = text_part_factory
         self.injection_count = 0
 
+    def _injection_mode(self) -> str:
+        mode = str(config_get(self.config, "prompt_injection_mode", "cache_friendly") or "cache_friendly")
+        mode = mode.strip().lower()
+        if mode not in {"cache_friendly", "legacy_system"}:
+            return "cache_friendly"
+        return mode
+
     async def on_llm_request(self, event: Any, req: Any) -> None:
         session_id = self._session_id(event)
         if not self._is_effectively_active(session_id, event):
             return
 
-        # 阶段 1：system_prompt 注入稳定规则
-        # 阶段 2：extra_user_content_parts 注入本轮运行时提示
+        # v0.2.0: 默认 cache_friendly —— 稳定规则 + 运行时提示都走 temp extra，
+        # 避免改写 system_prompt 破坏 prefix cache。
+        # legacy_system：稳定规则仍幂等写 system（旧行为）。
+        mode = self._injection_mode()
         injected_rules = False
         injected_hint = ""
+
         if config_bool(self.config, "inject_stable_rules", True):
-            before = getattr(req, "system_prompt", "") or ""
-            after = inject_stable_rules(before)
-            if after != before:
-                req.system_prompt = after
-                injected_rules = True
+            injected_rules = self._inject_stable_rules(req, mode)
 
         state = self.store.get(session_id)
         if config_bool(self.config, "inject_runtime_state", True):
@@ -201,9 +211,14 @@ class HumanChatQualityCore:
         if injected_rules or injected_hint:
             self.injection_count += 1
             if config_bool(self.config, "debug_log", False):
-                logger.debug(f"[HumanChatQuality] injected quality hints for {session_id}")
+                logger.debug(
+                    f"[HumanChatQuality] injected quality hints for {session_id} mode={mode}"
+                )
                 if injected_rules:
-                    logger.debug(f"[HumanChatQuality] stable rules injected (marker={STABLE_RULE_MARKER})")
+                    logger.debug(
+                        f"[HumanChatQuality] stable rules injected "
+                        f"(marker={STABLE_RULE_MARKER}, mode={mode})"
+                    )
                 if injected_hint:
                     logger.debug(f"[HumanChatQuality] runtime hint injected:\n{injected_hint}")
                 logger.debug(
@@ -237,24 +252,62 @@ class HumanChatQualityCore:
         state = self.store.get(session_id)
         status = "启用" if self._is_effectively_active(session_id, event) else "关闭"
         avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无"
+        mode = self._injection_mode()
         return (
             "Human Chat Quality 状态：\n"
             f"- 当前会话：{status}\n"
+            f"- 注入模式：{mode}\n"
             f"- 稳定规则：{'启用' if config_bool(self.config, 'inject_stable_rules', True) else '关闭'}\n"
             f"- 运行时提示：{'启用' if config_bool(self.config, 'inject_runtime_state', True) else '关闭'}\n"
             f"- 本轮运行累计注入：{self.injection_count} 次\n"
             f"- 最近避用开头：{avoid}"
         )
 
+    def _inject_stable_rules(self, req: Any, mode: str) -> bool:
+        """注入稳定规则。返回本轮是否新写入。"""
+        if request_has_marker(req, STABLE_RULE_MARKER):
+            return False
+
+        rules = build_stable_rules()
+        if mode == "legacy_system":
+            before = getattr(req, "system_prompt", "") or ""
+            after = inject_stable_rules(before)
+            if after != before:
+                req.system_prompt = after
+                return True
+            return False
+
+        # cache_friendly：固定规则也走 temp extra，保护 system 前缀
+        if append_temp_text_part(
+            req,
+            rules,
+            self.text_part_factory,
+            marker=STABLE_RULE_MARKER,
+        ):
+            return True
+
+        # temp extra 不可用时回退 system（会破坏 cache，仅兜底）
+        try:
+            before = getattr(req, "system_prompt", "") or ""
+            after = inject_stable_rules(before)
+            if after != before:
+                req.system_prompt = after
+                logger.error(
+                    "[HumanChatQuality] temp extra 不可用，稳定规则已回退 system_prompt（会破坏 prompt cache）"
+                )
+                return True
+        except Exception as e:
+            logger.error(f"[HumanChatQuality] stable rules inject failed: {e}")
+        return False
+
     def _append_runtime_hint(self, req: Any, hint: str) -> bool:
-        # 运行时提示以临时 part 形式追加，避免污染长期记忆
-        parts = getattr(req, "extra_user_content_parts", None)
-        if not isinstance(parts, list):
-            return False
-        if any(hint_part_has_marker(part) for part in parts):
-            return False
-        parts.append(make_text_part(hint, self.text_part_factory))
-        return True
+        # v0.2.0：缺失 list 时创建，不再静默失败
+        return append_temp_text_part(
+            req,
+            hint,
+            self.text_part_factory,
+            marker=RUNTIME_HINT_MARKER,
+        )
 
     def _is_active(self, session_id: str) -> bool:
         if not config_bool(self.config, "enabled", True):
