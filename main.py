@@ -9,7 +9,7 @@ try:
     from astrbot.api.event.filter import PermissionType, permission_type
     from astrbot.api.provider import LLMResponse, ProviderRequest
     from astrbot.api.star import Context, Star, StarTools, register
-except Exception:  # pragma: no cover
+except ImportError:  # pragma: no cover — 仅用于无宿主环境下的静态分析
     AstrBotConfig = Any  # type: ignore
     AstrMessageEvent = Any  # type: ignore
     LLMResponse = Any  # type: ignore
@@ -77,10 +77,16 @@ try:
         build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
-        make_text_part,
+        replace_marker_in_contexts,
         request_has_marker,
     )
     from .runtime_state import RuntimeStateStore
+    from .voice_profile import (
+        VOICE_MARKER,
+        analyze_profile,
+        build_voice_hint,
+        extract_user_texts,
+    )
 except ImportError:  # pragma: no cover
     from quality_rules import (
         RUNTIME_HINT_MARKER,
@@ -89,14 +95,20 @@ except ImportError:  # pragma: no cover
         build_stable_rules,
         build_runtime_hint,
         inject_stable_rules,
-        make_text_part,
+        replace_marker_in_contexts,
         request_has_marker,
     )
     from runtime_state import RuntimeStateStore
+    from voice_profile import (
+        VOICE_MARKER,
+        analyze_profile,
+        build_voice_hint,
+        extract_user_texts,
+    )
 
 
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
-PLUGIN_VERSION = "0.2.0"
+PLUGIN_VERSION = "0.5.2"
 
 
 def config_get(config: Any, key: str, default: Any) -> Any:
@@ -186,6 +198,9 @@ class HumanChatQualityCore:
 
     async def on_llm_request(self, event: Any, req: Any) -> None:
         session_id = self._session_id(event)
+        if not session_id:
+            # 无来源事件不参与状态管理，避免全部挤进同一会话互相污染
+            return
         if not self._is_effectively_active(session_id, event):
             return
 
@@ -194,21 +209,46 @@ class HumanChatQualityCore:
         # legacy_system：稳定规则仍幂等写 system（旧行为）。
         mode = self._injection_mode()
         injected_rules = False
-        injected_hint = ""
 
         if config_bool(self.config, "inject_stable_rules", True):
             injected_rules = self._inject_stable_rules(req, mode)
 
         state = self.store.get(session_id)
+        injected_hint = ""
         if config_bool(self.config, "inject_runtime_state", True):
             hint = build_runtime_hint(
                 state,
                 max_chars=config_int(self.config, "max_runtime_hint_chars", 600, 80, 3000),
             )
-            if hint and self._append_runtime_hint(req, hint):
-                injected_hint = hint
+            if hint:
+                # 4.23+：历史已有旧块则原位替换（每轮更新避用列表，且不累积）；
+                # 首轮/4.16（历史无块）走 append 注入。
+                if replace_marker_in_contexts(req, RUNTIME_HINT_MARKER, hint):
+                    injected_hint = hint
+                elif self._append_runtime_hint(req, hint):
+                    injected_hint = hint
 
-        if injected_rules or injected_hint:
+        injected_voice = False
+        profile = None
+        if config_bool(self.config, "voice_match", False):
+            texts = extract_user_texts(getattr(req, "contexts", None))
+            profile = analyze_profile(texts)
+            if profile:
+                hint = build_voice_hint(
+                    profile,
+                    max_chars=config_int(self.config, "voice_max_chars", 200, 80, 500),
+                    # 与 runtime 避用开头重叠的不注入，避免同轮矛盾指令
+                    exclude_openers=set(state.avoid_openers),
+                )
+                if hint:
+                    if replace_marker_in_contexts(req, VOICE_MARKER, hint):
+                        injected_voice = True
+                    elif append_temp_text_part(
+                        req, hint, self.text_part_factory, marker=VOICE_MARKER
+                    ):
+                        injected_voice = True
+
+        if injected_rules or injected_hint or injected_voice:
             self.injection_count += 1
             if config_bool(self.config, "debug_log", False):
                 logger.debug(
@@ -221,6 +261,11 @@ class HumanChatQualityCore:
                     )
                 if injected_hint:
                     logger.debug(f"[HumanChatQuality] runtime hint injected:\n{injected_hint}")
+                if injected_voice:
+                    logger.debug(
+                        f"[HumanChatQuality] voice hint injected "
+                        f"(samples={profile.sample_count}, marker={VOICE_MARKER})"
+                    )
                 logger.debug(
                     f"[HumanChatQuality] runtime state for {session_id}: "
                     f"avoid_openers={state.avoid_openers}"
@@ -228,6 +273,8 @@ class HumanChatQualityCore:
 
     async def on_llm_response(self, event: Any, resp: Any) -> None:
         session_id = self._session_id(event)
+        if not session_id:
+            return
         if not self._is_effectively_active(session_id, event):
             return
         # 优先读取 completion_text，兼容 result_chain / message 对象
@@ -253,13 +300,15 @@ class HumanChatQualityCore:
         status = "启用" if self._is_effectively_active(session_id, event) else "关闭"
         avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无"
         mode = self._injection_mode()
+        voice = "启用" if config_bool(self.config, "voice_match", False) else "关闭"
         return (
             "Human Chat Quality 状态：\n"
             f"- 当前会话：{status}\n"
             f"- 注入模式：{mode}\n"
             f"- 稳定规则：{'启用' if config_bool(self.config, 'inject_stable_rules', True) else '关闭'}\n"
             f"- 运行时提示：{'启用' if config_bool(self.config, 'inject_runtime_state', True) else '关闭'}\n"
-            f"- 本轮运行累计注入：{self.injection_count} 次\n"
+            f"- 声音校准：{voice}\n"
+            f"- 自启动以来累计注入：{self.injection_count} 次\n"
             f"- 最近避用开头：{avoid}"
         )
 
@@ -326,16 +375,10 @@ class HumanChatQualityCore:
 
     @staticmethod
     def _session_id(event: Any) -> str:
-        return str(getattr(event, "unified_msg_origin", "") or "unknown")
+        return str(getattr(event, "unified_msg_origin", "") or "").strip()
 
 
-def hint_part_has_marker(part: Any) -> bool:
-    return RUNTIME_HINT_MARKER in str(getattr(part, "text", ""))
-
-
-def disabled_match_candidates(event: Any) -> set[str]:
-    session_id = str(getattr(event, "unified_msg_origin", "") or "").strip()
-    group_id = group_id_from_event(event)
+def _disabled_candidates(session_id: str, group_id: str) -> set[str]:
     candidates: set[str] = set()
     if session_id:
         candidates.add(session_id)
@@ -351,17 +394,16 @@ def disabled_match_candidates(event: Any) -> set[str]:
     return {candidate for candidate in candidates if candidate}
 
 
+def disabled_match_candidates(event: Any) -> set[str]:
+    return _disabled_candidates(
+        str(getattr(event, "unified_msg_origin", "") or "").strip(),
+        group_id_from_event(event),
+    )
+
+
 def disabled_match_candidates_from_session(session_id: str) -> set[str]:
-    candidates: set[str] = set()
     session_id = str(session_id or "").strip()
-    if session_id:
-        candidates.add(session_id)
-    group_id = group_id_from_session_id(session_id)
-    if group_id:
-        candidates.add(group_id)
-        candidates.add(f"group:{group_id}")
-        candidates.add(f"GroupMessage:{group_id}")
-    return {candidate for candidate in candidates if candidate}
+    return _disabled_candidates(session_id, group_id_from_session_id(session_id))
 
 
 def group_id_from_event(event: Any) -> str:
@@ -419,7 +461,7 @@ def normalize_group_id(value: Any) -> str:
 
 @register(
     PLUGIN_ID,
-    "Codex",
+    "chengzhi-c",
     "轻量聊天人性化质量层：隐藏去模板腔规则与本轮运行时提示。",
     PLUGIN_VERSION,
 )
@@ -432,21 +474,34 @@ class HumanChatQualityPlugin(Star):
             data_dir / "runtime_state.json",
             retention_days=config_int(self.config, "state_retention_days", 14, 1, 365),
             recent_reply_window=config_int(self.config, "recent_reply_window", 8, 1, 50),
+            custom_cliches=config_list(self.config, "custom_cliches"),
         )
         self.core = HumanChatQualityCore(self.config, self.store)
+        logger.info(
+            f"[HumanChatQuality] plugin loaded, version={PLUGIN_VERSION}, "
+            f"sessions={len(self.store.sessions)}, cliches={len(self.store.cliches)}"
+        )
 
     @filter.on_llm_request(priority=-100)
     async def on_llm_request(self, event: AstrMessageEvent, req: ProviderRequest) -> None:
-        await self.core.on_llm_request(event, req)
+        # 质量层是增强功能：任何内部异常都不应阻断消息主链
+        try:
+            await self.core.on_llm_request(event, req)
+        except Exception as e:
+            logger.error(f"[HumanChatQuality] on_llm_request failed: {e}")
 
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
-        await self.core.on_llm_response(event, resp)
+        try:
+            await self.core.on_llm_response(event, resp)
+        except Exception as e:
+            logger.error(f"[HumanChatQuality] on_llm_response failed: {e}")
 
     @filter.command_group("humanq")
     def humanq(self):
         pass
 
+    @permission_type(PermissionType.ADMIN)
     @humanq.command("status")
     async def humanq_status(self, event: AstrMessageEvent):
         yield event.plain_result(self.core.status_text(event.unified_msg_origin, event))

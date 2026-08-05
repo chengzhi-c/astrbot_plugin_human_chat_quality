@@ -30,11 +30,29 @@
     "default": 600,
     "hint": "限制每轮动态提示长度，避免额外 token 过多。取值范围 80–3000，超出会被自动夹取。"
   },
+  "voice_match": {
+    "description": "声音校准：匹配本会话说话风格",
+    "type": "bool",
+    "default": false,
+    "hint": "从会话历史提取说话风格特征（句长、语气词、表情、开头词），注入轻量风格提示，让回复节奏贴合氛围。需要至少 5 条用户消息样本才生效，只取最近 60 条。默认关闭，开启后观察效果。"
+  },
+  "voice_max_chars": {
+    "description": "声音校准提示最大字符数",
+    "type": "int",
+    "default": 200,
+    "hint": "限制风格提示长度。取值范围 80–500。"
+  },
   "recent_reply_window": {
     "description": "最近回复窗口",
     "type": "int",
     "default": 8,
-    "hint": "用于判断重复开头的最近回复数量。取值范围 1–50。"
+    "hint": "用于判断重复开头的最近回复数量。取值范围 1–50，持久化截断跟随此值。"
+  },
+  "custom_cliches": {
+    "description": "自定义套路词（可选）",
+    "type": "list",
+    "default": [],
+    "hint": "每行一个短语，命中即加入本轮避用提示。适合补充你们群里特有的 AI 腔/黑话。"
   },
   "state_retention_days": {
     "description": "状态保留天数",
