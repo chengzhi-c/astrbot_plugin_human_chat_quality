@@ -108,7 +108,7 @@ except ImportError:  # pragma: no cover
 
 
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
-PLUGIN_VERSION = "0.5.2"
+PLUGIN_VERSION = "0.5.3"
 
 
 def config_get(config: Any, key: str, default: Any) -> Any:

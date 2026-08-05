@@ -10,7 +10,7 @@
 
 ## 版本
 
-当前版本：**v0.5.2**（支持 AstrBot `>=4.16,<5`）。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
+当前版本：**v0.5.3**（支持 AstrBot `>=4.16,<5`）。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 原理
 
