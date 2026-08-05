@@ -10,12 +10,7 @@
 
 ## 版本
 
-- **v0.5.2（第三轮审查修复）**：修复 AstrBot `>=4.23` 上注入块被持久化进会话历史的问题——该版本移除了 part 级 `_no_save`/`mark_as_temp` 机制（4.16 仍在），注入文本会随 user 消息入库并逐轮累积；现在 `request_has_marker` 增加 `req.contexts` 扫描，历史中已有 marker 即不再注入；**动态提示（runtime/voice）改为原位替换**——历史旧块每轮被替换成最新内容，模型始终看到最新避用列表且不累积（4.16 上注入永不入历史，行为不变）；contexts 扫描只认 user 消息（模型复述/手打 marker 不误停）；TextPart 探测改模块级三态缓存（只探测一次，不再每轮 import + 刷日志）；`_load` 键缺失不再误判损坏、损坏备份限 5 份；`@register` 第二参修正为作者；`/humanq status` 统一 ADMIN 权限；`.gitignore` 忽略 `data/`（含敏感配置，防误提交）；metadata 补 `license`、版本去 `v` 前缀；logger import 统一收窄为 `ImportError`；voice opener 差集前缀归一化；单字 opener 过滤；README 数字与措辞修正；测试扩到 61 例。
-- **v0.5.1（第二轮复审）**：移除 `_FallbackTextPart`（fallback 对象无法被 provider 消费，会直接让请求失败）——构造失败改返回 None，上层自动回退 system_prompt 注入；voice 样本清洗引用/@ 前缀并反向遍历凑满 60 条；voice opener 与 runtime 避用开头取差集（避免同轮矛盾指令）；`_INJECTED_MARKER_PREFIX` 常量共享；`disabled_sessions` 加载类型校验；空 origin 会话隔离；`#` 拆分补齐；词表移除"让我们"、新增 AI 腔词（"然而"改次数阈值，单次口语使用不提示；"根据我的知识""我的能力范围"覆盖免责声明/客服式回避腔）；稳定规则【像个人】新增"不知道就直说"正向引导；`build_voice_hint` 截断边界；emoji 正则补地区旗帜；`_state_from_dict` 死默认参数删除；status 文案修正；`custom_cliches` 超长词过滤；`append_temp_text_part` 空白拒绝；disabled 匹配函数合并；测试扩到 45 例。
-- **v0.5.0**：审查修复 —— metadata 版本/作者同步；`_save` 全路径异常兜底（mkdir/写盘/替换，失败仅告警不阻断主链）；hook 顶层 try/except 防御；import 收窄为 `ImportError` 并显式失败；删除死代码（`hint_part_has_marker` 等）；opener 单字降噪 + 词表补"作为人工智能"；持久化截断跟随 `recent_reply_window`；`custom_cliches` 配置项；voice 样本限量 60 条、文案改"本会话"；TextPart 退化告警；启动 INFO 日志；`tests/` 测试套件落盘。
-- **v0.4.0**：新增**声音校准**（`voice_match`）——从会话历史提取说话风格特征（句长、语气词、表情、开头词），注入轻量风格提示，让回复节奏贴合聊天氛围。默认关闭。
-- **v0.3.0**：规则升级为 v2 —— 分层结构（铁律/词汇/结构/沟通/风格）+ 自查清单；套路词从 13 个扩到 39 个；新增 5 种结构级正则检测（破折号连发、首先其次最后、不是而是、不仅更是、自问自答）。
-- **v0.2.0**：默认 **cache_friendly**——稳定规则 + 运行时提示都走 temp extra，避免改写 `system_prompt` 破坏 prompt cache；可回退 `legacy_system`。并修复 `extra_user_content_parts is None` 时运行时提示静默失败。
+当前版本：**v0.5.2**（支持 AstrBot `>=4.16,<5`）。完整变更记录见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## 原理
 
