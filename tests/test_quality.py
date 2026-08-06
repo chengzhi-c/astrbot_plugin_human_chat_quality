@@ -1,18 +1,22 @@
 """astrbot_plugin_human_chat_quality 测试套件（无第三方依赖，unittest）。
 
 运行：python -m unittest discover -s tests -v
-覆盖：套路词/结构信号检测、opener 提取、声音校准、状态存取与损坏恢复。
+覆盖：套路词/结构信号检测、opener 提取、状态存取与损坏恢复。
 """
 
 import asyncio
 import json
+import os
 import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
+from typing import ClassVar
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
+from _fakes import FakeEvent
 
 from main import (
     disabled_match_candidates,
@@ -26,52 +30,36 @@ from runtime_state import (
     extract_opener,
     repeated_items,
 )
-from voice_profile import (
-    VOICE_MARKER,
-    VoiceProfile,
-    analyze_profile,
-    build_voice_hint,
-    extract_user_texts,
-)
 
 
 class DetectClichesTest(unittest.TestCase):
-    """红绿灯：AI 腔样本必须命中，正常人话不得误报。"""
+    """红绿灯（v0.6.0）：高置信度末尾模板/连发信号必须命中；正式技术/正常转折/正常列表不得误报。"""
 
-    RED_SAMPLES = [
-        ("客服腔收尾", "希望这能帮到你，如果还有问题随时问我"),
-        ("清单骨架", "总的来说，首先我们要看数据，其次看成本，最后看风险"),
-        ("不仅更是+黑话", "这不仅是一个工具，更是一种赋能"),
-        ("三连套话", "需要注意的是，这个问题众所周知，毋庸置疑是有价值的"),
-        ("升华收尾", "总而言之，未来可期，让我们一起努力"),
-        ("破折号连发", "深入探讨这个话题之前，作为AI，我想说这很有意义——但也要看到风险——不能盲目乐观——"),
-        ("自问自答", "你可能会问：为什么这么贵？因为成本高"),
-        ("三段式+闭环", "首先我们要明确目标，其次要分配资源，最后要复盘，这是一个闭环"),
-        ("不是而是", "我不是在批评你，而是想帮你"),
-        ("作为人工智能漏检回归", "作为人工智能，我想说这个问题很复杂"),
-        ("此外然而连发", "此外，这个方案需要调整，然而我们时间不够了"),
-        ("有趣的是开场", "有趣的是，这个数据跟预期完全相反"),
-        ("不难发现套话", "不难发现，这个问题的主要矛盾在于成本"),
-        ("事实上铺垫", "事实上，我之前也遇到过类似的情况"),
+    RED_SAMPLES: ClassVar[list[tuple[str, str]]] = [
+        ("客服腔收尾", "我先帮你查了一下，希望这能帮到你"),
+        ("客服腔收尾带标点", "没问题，如果还有问题随时问我。"),
+        ("空泛鼓励收尾", "别灰心，我们一起加油！"),
+        ("升华收尾", "坚持住，未来可期"),
+        ("破折号连发", "这个方案——说实话——不太行"),
         ("然而连发", "这个方案不错，然而成本太高，然而时间也不够"),
-        ("知识截止免责", "根据我的知识截止日期，我无法给出准确答案"),
-        ("能力范围客服腔", "这个问题超出了我的能力范围，建议您咨询专业人士"),
     ]
-    GREEN_SAMPLES = [
+    GREEN_SAMPLES: ClassVar[list[str]] = [
+        # 日常闲聊
         "这个真的很好吃，我昨天刚试过，你可以去尝尝",
-        "你说得对，我也觉得这样不太好",
-        "这个我帮你看看，等下回复你",
         "嗯嗯，我刚试了下，可以",
         "别急，我查一下再告诉你",
-        "让我看看这个文件",
-        "没问题，我马上处理",
-        "这个事我不好说，你自己拿主意吧",
-        "这个计划可以，明天就执行",
-        "我试过了，不行，换个思路吧",
         "另外我还有事，先不聊了，晚点再说",
-        "不过说真的，那个店确实一般般",
-        "我不知道啊，这个我真没研究过，别问我了",
-        "这个我不太确定，得查一下再告诉你",
+        # 正式技术回答（正文出现连接词/套话不得误报）
+        "首先检查电源，其次看网络配置，最后重启服务。此外，日志里的报错信息也值得看一下",
+        "事实上这个方案的可行性很高，众所周知成本也不低，值得注意的是兼容性",
+        "总的来说，这个接口可以先赋能业务闭环，抓手是沉淀数据",
+        # 正常转折/句式（v0.6.0 不再拦截）
+        "我不是在批评你，而是想帮你",
+        "你可能会问：为什么这么贵？因为成本高",
+        "这个方案不错，然而成本确实高了一点",
+        "单破折号是正常停顿——不算连发",
+        # 客服词出现在句中而非收尾，不得命中
+        "你之前说希望能帮到你，我觉得可以的",
     ]
 
     def test_red_samples_hit(self):
@@ -83,6 +71,18 @@ class DetectClichesTest(unittest.TestCase):
         for text in self.GREEN_SAMPLES:
             with self.subTest(text=text[:12]):
                 self.assertEqual(detect_cliches(text), [], f"误报: {text}")
+
+    def test_custom_cliche_anywhere_single_hit(self):
+        """管理员显式词库：任意位置一次精确命中即提示。"""
+        hits = detect_cliches("这句话里有我们群的黑话，在句中", ("我们群的黑话",))
+        self.assertEqual(hits, ["我们群的黑话"])
+
+    def test_substring_cliches_both_hit(self):
+        """子串关系词同时命中时都记录（去重只挡完全相同的词，固化语义）。"""
+        hits = detect_cliches("我们一起去看看，快点", ("看看", "看"))
+        self.assertEqual(hits, ["看看", "看"])
+        # 完全相同词去重
+        self.assertEqual(detect_cliches("看看看看", ("看看", "看看")), ["看看"])
 
 
 class ExtractOpenerTest(unittest.TestCase):
@@ -108,148 +108,113 @@ class ExtractOpenerTest(unittest.TestCase):
 
 
 class RepeatedItemsTest(unittest.TestCase):
-    def test_repeated(self):
-        self.assertEqual(repeated_items(["a", "b", "a", "c", "b"], limit=5), ["a", "b"])
+    def test_threshold_default_three(self):
+        """v0.6.0：默认阈值 3 次，两次重复不再视为信号。"""
+        self.assertEqual(repeated_items(["a", "b", "a", "c", "b"], limit=5), [])
+        self.assertEqual(repeated_items(["a", "b", "a", "a"], limit=5), ["a"])
+
+    def test_explicit_threshold(self):
+        self.assertEqual(repeated_items(["a", "b", "a", "c", "b"], limit=5, threshold=2), ["a", "b"])
+
+    def test_threshold_one(self):
+        """threshold=1 退化：首次出现即视为重复（固化退化语义）。"""
+        self.assertEqual(repeated_items(["a", "b", "a"], limit=5, threshold=1), ["a", "b"])
+
+    def test_threshold_one_single(self):
+        """threshold=1 单元素退化：首个元素即视为重复（反向护栏）。"""
+        self.assertEqual(repeated_items(["a"], limit=5, threshold=1), ["a"])
 
     def test_limit(self):
-        self.assertEqual(repeated_items(["a", "b", "a", "b", "c", "d"], limit=1), ["a"])
-
-
-class VoiceProfileTest(unittest.TestCase):
-    SHORT_STYLE = ["哈哈确实", "嗯嗯", "可以吧", "笑死我了", "这也太逗了", "好家伙"]
-    LONG_STYLE = [
-        "我觉得这个问题需要从多个角度来考虑，首先呢这个方案的可行性确实值得深入讨论一下，特别是实施周期和成本控制方面",
-        "今天的工作进展比较顺利，完成了三个模块的联调，明天继续处理剩下的部分，预计周五之前可以全部收尾完成交付 😂",
-        "其实我一直觉得这个设计思路挺好的，就是实现起来成本会比较高一些，需要权衡一下性价比再决定",
-        "最近在追一部剧，感觉编剧的节奏把握得很好，每个角色的塑造都很立体，尤其是反派人物完全没有脸谱化处理",
-        "😄 这个功能终于上线了，测试了两周终于没问题了，大家都辛苦了，后续有什么问题随时反馈给我就行 👍",
-        "我觉得可以先把文档整理一下，然后下周安排评审，再根据反馈调整，这样流程上会顺畅很多，大家也轻松一些",
-    ]
-
-    def test_short_style(self):
-        profile = analyze_profile(self.SHORT_STYLE)
-        self.assertIsNotNone(profile)
-        hint = build_voice_hint(profile)
-        self.assertIn("消息偏短", hint)
-        self.assertIn("爱用短句", hint)
-        self.assertTrue(hint.startswith(VOICE_MARKER))
-
-    def test_long_style(self):
-        profile = analyze_profile(self.LONG_STYLE)
-        self.assertIsNotNone(profile)
-        hint = build_voice_hint(profile)
-        self.assertIn("消息偏长", hint)
-        self.assertIn("常带表情", hint)
-
-    def test_extract_cleans_quote_and_at_prefix(self):
-        """引用消息 (昵称): 内容 与 @提及 前缀不污染风格样本（回归）。"""
-        contexts = [
-            {"role": "user", "content": "(小明): 哈哈哈这个图笑死我了"},
-            {"role": "user", "content": "（小红）：确实确实"},
-            {"role": "user", "content": "@阿花 明天去吗"},
-            {"role": "user", "content": "@bot: 好的好的"},
-            {"role": "user", "content": "正常消息"},
-        ]
-        texts = extract_user_texts(contexts)
-        self.assertEqual(
-            texts,
-            ["哈哈哈这个图笑死我了", "确实确实", "明天去吗", "好的好的", "正常消息"],
-        )
-
-    def test_extract_filters_injected(self):
-        """注入文本与 assistant 消息不参与风格统计（回归）。"""
-        contexts = [
-            {"role": "system", "content": "你是助手"},
-            {"role": "user", "content": "正常消息一"},
-            {"role": "user", "content": [{"type": "text", "text": "正常消息二"}]},
-            {"role": "user", "content": f"{STABLE_RULE_MARKER}\n注入规则不算风格"},
-            {"role": "assistant", "content": "机器回复不参与"},
-        ]
-        texts = extract_user_texts(contexts)
-        self.assertEqual(texts, ["正常消息一", "正常消息二"])
-
-    def test_insufficient_samples(self):
-        self.assertIsNone(analyze_profile(["只有一条"]))
-        self.assertIsNone(analyze_profile([]))
-
-    def test_extract_limit(self):
-        contexts = [{"role": "user", "content": f"消息{i}"} for i in range(80)]
-        texts = extract_user_texts(contexts, limit=60)
-        self.assertEqual(len(texts), 60)
-        self.assertEqual(texts[0], "消息20")
-
-    def test_flag_emoji_detected(self):
-        """地区旗帜（🇨🇳）也计入表情统计（回归：1F1E6-1F1FF 漏检）。"""
-        samples = [f"消息{i} 🇨🇳" for i in range(6)]
-        profile = analyze_profile(samples)
-        self.assertIsNotNone(profile)
-        self.assertEqual(profile.emoji_ratio, 1.0)
-        self.assertIn("常带表情", build_voice_hint(profile))
-
-    def test_single_char_opener_filtered(self):
-        """单字符消息不构成"常以 X 开头"特征（回归：避免诱导复读单字）。"""
-        samples = ["嗯", "哈", "哦", "好的", "嗯", "哈"]
-        profile = analyze_profile(samples)
-        self.assertIsNotNone(profile)
-        self.assertEqual(profile.openers, ["好的"])
-
-    def test_hint_clip_boundary(self):
-        """极小的 max_chars 不应产生负索引截断。"""
-        profile = VoiceProfile(
-            sample_count=6,
-            avg_msg_len=10.0,
-            short_ratio=0.8,
-            emoji_ratio=0.0,
-            tone_words=["吧"],
-            openers=[],
-        )
-        self.assertEqual(build_voice_hint(profile, max_chars=0), "")
-        self.assertEqual(build_voice_hint(profile, max_chars=2), "..")
-        hint = build_voice_hint(profile, max_chars=100)
-        self.assertLessEqual(len(hint), 100)
-        self.assertTrue(hint.endswith("..."))
-
-    def test_hint_excludes_openers(self):
-        """与 runtime 避用开头重叠的 opener 不注入（回归：同轮矛盾指令）。"""
-        profile = VoiceProfile(
-            sample_count=6,
-            avg_msg_len=10.0,
-            short_ratio=0.8,
-            emoji_ratio=0.0,
-            tone_words=["吧"],
-            openers=["好的", "确实"],
-        )
-        hint = build_voice_hint(profile, exclude_openers={"好的"})
-        self.assertIn("确实", hint)
-        self.assertNotIn("好的", hint)
-        self.assertNotIn("常以好的", hint)
-
-    def test_hint_excludes_opener_prefix_variant(self):
-        """前缀变体也视为重叠（回归："好的" vs "好的，我来"）。"""
-        profile = VoiceProfile(
-            sample_count=6,
-            avg_msg_len=10.0,
-            short_ratio=0.8,
-            emoji_ratio=0.0,
-            tone_words=[],
-            openers=["好的", "确实"],
-        )
-        hint = build_voice_hint(profile, exclude_openers={"好的，我来看看"})
-        self.assertIn("确实", hint)
-        self.assertNotIn("好的", hint)
+        self.assertEqual(repeated_items(["a", "b", "a", "b", "a", "b"], limit=1, threshold=2), ["a"])
 
 
 class RuntimeStateStoreTest(unittest.TestCase):
-    def _make_store(self, tmp: Path, window=8, custom=None):
+    def _make_store(self, tmp: Path, window=8, custom=None, retention=14):
         return RuntimeStateStore(
             tmp / "state.json",
-            retention_days=14,
+            retention_days=retention,
             recent_reply_window=window,
             custom_cliches=custom,
         )
 
     def _run(self, coro):
         return asyncio.run(coro)
+
+    def test_overlong_cliche_not_recorded(self):
+        """超长 custom_cliches（>20 字）构造期即过滤并告警（回归：三态分叉 + 静默无效配置）。"""
+        long_phrase = "这是一个超过二十个字的超长黑话短语用来测试"
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td), custom=[long_phrase])
+            self.assertNotIn(long_phrase, store.custom_cliches, "构造期即过滤超长词")
+            self._run(store.record_response("s1", f"回复里出现了{long_phrase}，命中"))
+            self.assertNotIn(long_phrase, store.get("s1").avoid_openers)
+            # 短词不受影响
+            store2 = self._make_store(Path(td), custom=["短黑话"])
+            self.assertIn("短黑话", store2.custom_cliches)
+            self._run(store2.record_response("s1", "短黑话出现了"))
+            self.assertIn("短黑话", store2.get("s1").avoid_openers)
+
+    def test_load_clamps_overlong_recent_openers(self):
+        """外部编辑塞入超长 recent_openers 条目，加载侧截断到 8 字（读写不变量）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            overlong = "这是一个超过八个字的超长开头内容"
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": [],
+                        "sessions": {
+                            "s1": {
+                                "avoid_openers": [],
+                                "recent_openers": [overlong],
+                                "last_response_at": time.time(),
+                                "updated_at": time.time(),
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = self._make_store(tmp)
+            self.assertEqual(store.sessions["s1"].recent_openers, [overlong[:8]])
+
+    def test_lock_covers_memory_write(self):
+        """锁边界覆盖内存写：第一个 record 持锁期间，第二个 record 必须阻塞在锁外
+        （回归：正确性只依赖"函数体内无 await"的脆弱不变量；红灯实测确认
+        以任务完成状态或内存结果断言均无法区分有锁/无锁，必须检测临界区进入次数）。"""
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td))
+            entered = asyncio.Event()
+            release = asyncio.Event()
+            save_calls: list[str] = []
+            real_save = store._save_unlocked
+
+            async def gated_save():
+                save_calls.append("enter")
+                entered.set()
+                await release.wait()
+                await real_save()
+                save_calls.append("exit")
+
+            store._save_unlocked = gated_save
+
+            async def work():
+                first = asyncio.create_task(store.record_response("s1", "第一条回复内容"))
+                await entered.wait()
+                second = asyncio.create_task(store.record_response("s1", "第二条回复内容"))
+                # 让出足够帧数：无锁时第二个协程会推进到 gated_save（save_calls 变 2）；
+                # 有锁时它阻塞在 acquire（save_calls 保持 1）。帧数上限不依赖精确调度。
+                for _ in range(20):
+                    await asyncio.sleep(0)
+                self.assertEqual(len(save_calls), 1, "锁未覆盖内存写：第二个 record 在第一个持锁期间进入了临界区")
+                release.set()
+                await asyncio.gather(first, second)
+                self.assertEqual(len(save_calls), 4, "两个 record 应串行完成 enter/exit")
+
+            self._run(work())
+            # 两条 opener 都完整记录且按写入顺序排列（锁内串行使顺序由 enter 顺序决定）
+            self.assertEqual(store.get("s1").recent_openers, ["第二条回复内容", "第一条回复内容"])
 
     def test_save_and_reload(self):
         with tempfile.TemporaryDirectory() as td:
@@ -304,17 +269,61 @@ class RuntimeStateStoreTest(unittest.TestCase):
             store = self._make_store(tmp)
             self.assertIn("s1", store.sessions)
             self.assertEqual(store.sessions["s1"].recent_openers, ["好的"])
-            self.assertEqual(store.disabled_sessions, set())
+            self.assertEqual(store.runtime_disabled, set())
             self.assertEqual(list(tmp.glob("state.corrupt.*.json")), [], "不应生成损坏备份")
 
-    def test_load_bad_disabled_type_backups(self):
-        """disabled_sessions 类型错误（dict）走损坏分支（回归：M2 类型校验）。"""
+    def test_load_bad_disabled_type_keeps_sessions(self):
+        """disabled_sessions 类型错误（dict）走条目级容错：备份现场、跳过坏键、
+        sessions 不受影响（回归：旧行为连带清空全部会话）。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             state_file = tmp / "state.json"
-            state_file.write_text('{"disabled_sessions": {"a": 1}, "sessions": {}}', encoding="utf-8")
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": {"a": 1},
+                        "sessions": {
+                            "s1": {
+                                "avoid_openers": [],
+                                "recent_openers": [],
+                                "last_response_at": time.time(),
+                                "updated_at": time.time(),
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
             store = self._make_store(tmp)
-            self.assertEqual(store.sessions, {})
+            self.assertIn("s1", store.sessions)
+            self.assertEqual(store.runtime_disabled, set())
+            self.assertEqual(len(list(tmp.glob("state.corrupt.*.json"))), 1, "条目畸形应备份现场")
+
+    def test_load_bad_session_entry_keeps_others(self):
+        """sessions 内单条非 dict：备份现场、跳过坏键，其余会话保留（回归：静默吞掉坏键）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": [],
+                        "sessions": {
+                            "good": {
+                                "avoid_openers": [],
+                                "recent_openers": [],
+                                "last_response_at": time.time(),
+                                "updated_at": time.time(),
+                            },
+                            "bad": "not-a-dict",
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = self._make_store(tmp)
+            self.assertIn("good", store.sessions)
+            self.assertNotIn("bad", store.sessions)
             self.assertEqual(len(list(tmp.glob("state.corrupt.*.json"))), 1)
 
     def test_corrupt_backup_cap(self):
@@ -327,12 +336,145 @@ class RuntimeStateStoreTest(unittest.TestCase):
             backups = sorted(tmp.glob("state.corrupt.*.json"))
             self.assertEqual(len(backups), 5)
 
-    def test_custom_cliches_merged(self):
+    def test_corrupt_backup_cap_keeps_newest(self):
+        """损坏备份按 mtime 保留最新 5 份（回归：文件名串序在 time_ns 变长整数时与时间序不一致）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            names = [
+                "state.corrupt.20260807-000000-1234567890.json",  # 串序最小但 mtime 最旧
+                "state.corrupt.20260807-000000-987.json",  # 串序大
+                "state.corrupt.20260807-000000-8.json",
+                "state.corrupt.20260807-000000-7.json",
+                "state.corrupt.20260807-000000-6.json",
+            ]
+            for i, name in enumerate(names):
+                (tmp / name).write_text("old", encoding="utf-8")
+                os.utime(tmp / name, (1000 + i, 1000 + i))
+            state_file.write_text("{corrupt!!!", encoding="utf-8")
+            self._make_store(tmp)
+            remaining = list(tmp.glob("state.corrupt.*.json"))
+            self.assertEqual(len(remaining), 5)
+            self.assertNotIn(tmp / names[0], remaining, "mtime 最旧的应被删除（即使串序最小）")
+
+    def test_prune_expired_sessions(self):
+        """超过 retention_days 未更新的会话在加载时被清理（回归：retention 零覆盖）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            stale = time.time() - 15 * 86400
+            fresh = time.time() - 1 * 86400
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": [],
+                        "sessions": {
+                            "stale": {
+                                "avoid_openers": [],
+                                "recent_openers": [],
+                                "last_response_at": stale,
+                                "updated_at": stale,
+                            },
+                            "fresh": {
+                                "avoid_openers": [],
+                                "recent_openers": [],
+                                "last_response_at": fresh,
+                                "updated_at": fresh,
+                            },
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = self._make_store(tmp)
+            self.assertNotIn("stale", store.sessions)
+            self.assertIn("fresh", store.sessions)
+
+    def test_prune_expired_falls_back_to_now(self):
+        """updated_at/last_response_at 均为 None 的条目按当前时间计，不被清理。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": [],
+                        "sessions": {
+                            "no_time": {
+                                "avoid_openers": [],
+                                "recent_openers": [],
+                                "last_response_at": None,
+                                "updated_at": None,
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = self._make_store(tmp)
+            self.assertIn("no_time", store.sessions)
+
+    def test_custom_cliches_kept_separate(self):
         with tempfile.TemporaryDirectory() as td:
             store = self._make_store(Path(td), custom=["我们群的黑话"])
-            self.assertIn("我们群的黑话", store.cliches)
-            hits = detect_cliches("这句话里有我们群的黑话", store.cliches)
+            self.assertIn("我们群的黑话", store.custom_cliches)
+            hits = detect_cliches("这句话里有我们群的黑话", store.custom_cliches)
             self.assertIn("我们群的黑话", hits)
+
+    def test_opener_needs_three_repeats(self):
+        """v0.6.0：同一 opener 出现 3 次才进提醒列表，2 次不进（降低误报）。"""
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td))
+            self._run(store.record_response("s1", "好的，第一回"))
+            self._run(store.record_response("s1", "好的，第二回"))
+            self.assertEqual(store.get("s1").avoid_openers, [])
+            self._run(store.record_response("s1", "好的，第三回"))
+            self.assertIn("好的", store.get("s1").avoid_openers)
+
+    def test_same_text_keeps_updated_at_fresh(self):
+        """连续同文本回复仍需刷新 updated_at，不得被脏检查跳过（回归：D6 语义底线）。"""
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td))
+            self._run(store.record_response("s1", "重复的内容填充回复"))
+            first = store.get("s1").updated_at
+            self._run(store.record_response("s1", "重复的内容填充回复"))
+            store2 = self._make_store(Path(td))
+            reloaded = store2.sessions["s1"]
+            self.assertGreaterEqual(reloaded.updated_at, first)
+
+    def test_snapshot_has_no_version_field(self):
+        """v0.6.0：不再写入假 version 字段，旧文件中的同名字段继续被忽略。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            store = self._make_store(tmp)
+            self._run(store.record_response("s1", "内容填充回复测试"))
+            raw = json.loads((tmp / "state.json").read_text(encoding="utf-8"))
+            self.assertNotIn("version", raw)
+            # 带 version 的旧文件仍可正常加载
+            (tmp / "state2.json").write_text(
+                json.dumps({"version": 1, "disabled_sessions": [], "sessions": {}}), encoding="utf-8"
+            )
+            store2 = RuntimeStateStore(tmp / "state2.json", retention_days=14, recent_reply_window=8)
+            self.assertEqual(store2.sessions, {})
+
+    def test_write_goes_through_thread_writer(self):
+        """持久化经可替换的同步 writer（asyncio.to_thread 封装点），单测不依赖机器耗时。"""
+        import threading
+
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td))
+            calls: list[tuple[int, dict]] = []
+
+            def spy(payload):
+                calls.append((threading.get_ident(), payload))
+                real_writer(payload)
+
+            real_writer = store._write_snapshot_sync
+            store._write_snapshot_sync = spy
+            self._run(store.record_response("s1", "内容填充回复测试"))
+            self.assertEqual(len(calls), 1)
+            self.assertNotEqual(calls[0][0], threading.get_ident(), "写入应在工作线程执行")
+            self.assertIn("s1", calls[0][1]["sessions"])
 
     def test_concurrent_save(self):
         """多会话并发写盘不丢状态（asyncio.Lock 保护）。"""
@@ -354,7 +496,7 @@ class RuntimeStateStoreTest(unittest.TestCase):
             self.assertIn("s3", store2.sessions)
 
     def test_save_failure_swallowed(self):
-        """写盘失败不应抛出（回归：旧版 raise 污染回复链路）。"""
+        """写盘失败不应抛出（回归：旧版 raise 污染回复链路），且应留下 warning 日志。"""
         with tempfile.TemporaryDirectory() as td:
             tmp = Path(td)
             store = self._make_store(tmp)
@@ -363,20 +505,15 @@ class RuntimeStateStoreTest(unittest.TestCase):
             # 把父目录变成文件，使 write_text 失败
             store.state_path.parent.rmdir()
             (tmp / "no_such_dir").write_text("i am a file", encoding="utf-8")
-            try:
-                self._run(store.record_response("s1", "这是一条会触发保存失败的消息"))
-            except Exception:
-                self.fail("_save 失败不应向调用方抛异常")
+            from unittest import mock
 
-
-class _FakeEvent:
-    def __init__(self, origin="", group_id=None, message_obj=None):
-        self.unified_msg_origin = origin
-        self._group_id = group_id
-        self.message_obj = message_obj
-
-    def get_group_id(self):
-        return self._group_id
+            with mock.patch("runtime_state.logger.warning") as warn:
+                try:
+                    self._run(store.record_response("s1", "这是一条会触发保存失败的消息"))
+                except Exception:
+                    self.fail("_save 失败不应向调用方抛异常")
+                warn.assert_called_once()
+                self.assertIn("state save failed", warn.call_args.args[0])
 
 
 class GroupMatchTest(unittest.TestCase):
@@ -387,11 +524,11 @@ class GroupMatchTest(unittest.TestCase):
         self.assertEqual(group_id_from_session_id("PrivateMessage:123"), "")
 
     def test_disabled_from_event_splits_base(self):
-        event = _FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
+        event = FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
         candidates = disabled_match_candidates(event)
         self.assertIn("123456", candidates)
         self.assertIn("group:123456", candidates)
-        self.assertIn("GroupMessage:123456#abc", candidates)
+        self.assertIn("groupmessage:123456#abc", candidates)
 
     def test_disabled_from_session_splits_base(self):
         """session 路径与 event 路径行为一致（回归：# 拆分缺失）。"""
@@ -399,10 +536,20 @@ class GroupMatchTest(unittest.TestCase):
         self.assertIn("123456", candidates)
         self.assertIn("group:123456", candidates)
 
-    def test_disabled_from_event_falls_back_to_origin(self):
-        event = _FakeEvent(origin="PrivateMessage:777", group_id=None)
+    def test_disabled_from_event_with_platform_prefix(self):
+        """生产形态 origin（带平台前缀）的候选集合显式化（隐含契约补测试）。"""
+        event = FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
         candidates = disabled_match_candidates(event)
-        self.assertIn("PrivateMessage:777", candidates)
+        self.assertIn("aiocqhttp:groupmessage:123456#abc", candidates)
+        self.assertIn("groupmessage:123456#abc", candidates)
+        self.assertIn("123456", candidates)
+        self.assertIn("group:123456", candidates)
+        self.assertIn("groupmessage:123456", candidates)
+
+    def test_disabled_from_event_falls_back_to_origin(self):
+        event = FakeEvent(origin="PrivateMessage:777", group_id=None)
+        candidates = disabled_match_candidates(event)
+        self.assertIn("privatemessage:777", candidates)
         self.assertNotIn("777", candidates)
 
 
@@ -410,8 +557,199 @@ class StableRulesTest(unittest.TestCase):
     def test_rules_content(self):
         rules = build_stable_rules()
         self.assertTrue(rules.startswith(STABLE_RULE_MARKER))
-        self.assertIn("铁律", rules)
-        self.assertIn("像个人", rules)
+        # 五类约束的关键信息都在
+        for keyword in ("客服式收尾", "事实", "清单", "不知道就直说", "不要把这些约束写进回复"):
+            self.assertIn(keyword, rules)
+
+    def test_rules_length_budget(self):
+        """v0.6.0 预算：稳定规则不超过 550 字符（旧版 990）。"""
+        self.assertLessEqual(len(build_stable_rules()), 550)
+
+    def test_inject_blank_prompt(self):
+        """仅空白 system_prompt 时不保留原空白，直接返回规则（回归：空白边界）。"""
+        from quality_rules import inject_stable_rules
+
+        self.assertEqual(inject_stable_rules("   "), build_stable_rules())
+
+
+class BuildRuntimeHintTest(unittest.TestCase):
+    """build_runtime_hint 边界：空状态/截断保 marker/超长词剔除。"""
+
+    def test_empty_state_no_hint(self):
+        from quality_rules import build_runtime_hint
+        from runtime_state import SessionState
+
+        self.assertEqual(build_runtime_hint(SessionState(), max_chars=80), "")
+
+    def test_truncated_keeps_marker(self):
+        from quality_rules import RUNTIME_HINT_MARKER, build_runtime_hint
+        from runtime_state import SessionState
+
+        state = SessionState(avoid_openers=["一个很长的重复开头词用于测试截断行为"], recent_openers=[])
+        hint = build_runtime_hint(state, max_chars=80)
+        self.assertLessEqual(len(hint), 80)
+        self.assertTrue(hint.startswith(RUNTIME_HINT_MARKER), "截断不得破坏 marker 头部")
+
+    def test_overlong_openers_excluded(self):
+        from quality_rules import build_runtime_hint
+        from runtime_state import SessionState
+
+        state = SessionState(
+            avoid_openers=["短词", "这是一个超过二十个字的超长重复开头条目用于测试"], recent_openers=[]
+        )
+        hint = build_runtime_hint(state, max_chars=600)
+        self.assertIn("短词", hint)
+        self.assertNotIn("这是一个超过二十个字", hint)
+
+
+class HostVersionGateTest(unittest.TestCase):
+    """宿主版本判别与 metadata 声明 (>=4.23,<5) 对齐（回归：缺 <5 上界）。"""
+
+    def test_version_boundaries(self):
+        from _fakes import is_supported_host
+
+        self.assertFalse(is_supported_host("4.22.1"))
+        self.assertTrue(is_supported_host("4.23.0"))
+        self.assertTrue(is_supported_host("4.99.9"))
+        self.assertFalse(is_supported_host("5.0.0"))
+        self.assertFalse(is_supported_host("4"))
+        self.assertFalse(is_supported_host("abc"))
+
+
+class ClipTextTest(unittest.TestCase):
+    """clip_text 边界直接覆盖（回归：唯一调用点 80-3000 clamp 下永不触发截断）。"""
+
+    def test_boundaries(self):
+        from quality_rules import clip_text
+
+        self.assertEqual(clip_text("abc", 0), "")
+        self.assertEqual(clip_text("abc", 1), ".")
+        self.assertEqual(clip_text("abc", 2), "..")
+        self.assertEqual(clip_text("abcd", 3), "...")
+        self.assertEqual(clip_text("abc", 3), "abc", "长度恰好等于 max_chars 不截断")
+        self.assertEqual(clip_text("abcde", 4), "a...")
+        self.assertEqual(clip_text("abcde", 5), "abcde")
+        # 截断前 rstrip 尾部空白
+        self.assertEqual(clip_text("abcdef  ", 4), "a...")
+
+
+class StoreEdgeCaseTest(unittest.TestCase):
+    """store 边界路径（回归：备份清理失败路径、set_enabled no-op、avoid_openers 截断）。"""
+
+    def _make_store(self, tmp: Path, window=8, custom=None, retention=14):
+        return RuntimeStateStore(
+            tmp / "state.json",
+            retention_days=retention,
+            recent_reply_window=window,
+            custom_cliches=custom,
+        )
+
+    def _run(self, coro):
+        return asyncio.run(coro)
+
+    def test_set_enabled_noop_skips_write(self):
+        """set_enabled 状态无变化不触发写盘（回归：0.6.1 no-op 短路无覆盖）。"""
+        with tempfile.TemporaryDirectory() as td:
+            store = self._make_store(Path(td))
+            calls = []
+            real_save = store._save_unlocked
+
+            async def spy_save():
+                calls.append(1)
+                await real_save()
+
+            store._save_unlocked = spy_save
+            self._run(store.set_enabled("s1", False))
+            self.assertEqual(len(calls), 1, "首次变更应写盘")
+            self._run(store.set_enabled("s1", False))
+            self.assertEqual(len(calls), 1, "状态无变化不应写盘")
+            self._run(store.set_enabled("s1", True))
+            self.assertEqual(len(calls), 2, "状态变化应写盘")
+
+    def test_avoid_openers_truncated_to_five(self):
+        """旧文件含 6 个 avoid_openers 时加载只保留 5 个（回归：MAX_AVOID_OPENERS 截断无覆盖）。"""
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            state_file = tmp / "state.json"
+            state_file.write_text(
+                json.dumps(
+                    {
+                        "disabled_sessions": [],
+                        "sessions": {
+                            "s1": {
+                                "avoid_openers": ["a", "b", "c", "d", "e", "f"],
+                                "recent_openers": [],
+                                "last_response_at": time.time(),
+                                "updated_at": time.time(),
+                            }
+                        },
+                    }
+                ),
+                encoding="utf-8",
+            )
+            store = self._make_store(tmp)
+            self.assertEqual(store.sessions["s1"].avoid_openers, ["a", "b", "c", "d", "e"])
+
+
+class GroupIdEdgeTest(unittest.TestCase):
+    """normalize_group_id / extract_group_id 深度路径表驱动（回归：bool/异常/message_obj 兜底无覆盖）。"""
+
+    def test_normalize_group_id_table(self):
+        from main import normalize_group_id
+
+        self.assertEqual(normalize_group_id(None), "")
+        self.assertEqual(normalize_group_id(True), "")
+        self.assertEqual(normalize_group_id(False), "")
+        self.assertEqual(normalize_group_id(123), "123")
+        self.assertEqual(normalize_group_id(" 456 "), "456")
+        self.assertEqual(normalize_group_id([]), "")
+        self.assertEqual(normalize_group_id({}), "")
+        self.assertEqual(normalize_group_id(1.5), "")
+
+    def test_extract_group_id_dict_priority(self):
+        from main import extract_group_id
+
+        self.assertEqual(extract_group_id({"qq": "111"}), "111")
+        self.assertEqual(extract_group_id({"id": 222}), "222")
+        self.assertEqual(extract_group_id({"group_id": 333, "id": 444}), "333", "group_id 优先")
+        self.assertEqual(extract_group_id({"other": "x"}), "")
+
+    def test_group_id_from_event_message_obj_fallback(self):
+        """get_group_id 缺失时经 message_obj 的 group_id 属性兜底。"""
+        from main import group_id_from_event
+
+        class _MsgObj:
+            group_id = "456"
+
+        class _Event:
+            unified_msg_origin = "aiocqhttp:GroupMessage:456#def"
+            message_obj = _MsgObj()
+
+        self.assertEqual(group_id_from_event(_Event()), "456")
+
+    def test_group_id_getter_exception_falls_back(self):
+        """get_group_id 抛异常时不污染，回退到 session 解析路径。"""
+        from main import group_id_from_event
+
+        class _Event:
+            unified_msg_origin = "aiocqhttp:GroupMessage:789#ghi"
+            message_obj = None
+
+            def get_group_id(self):
+                raise RuntimeError("boom")
+
+        self.assertEqual(group_id_from_event(_Event()), "789#ghi")
+
+
+class OptionalFloatTest(unittest.TestCase):
+    def test_optional_float_table(self):
+        from runtime_state import _optional_float
+
+        self.assertIsNone(_optional_float(None))
+        self.assertEqual(_optional_float(1.5), 1.5)
+        self.assertEqual(_optional_float("2.5"), 2.5)
+        self.assertIsNone(_optional_float("abc"))
+        self.assertIsNone(_optional_float([]))
 
 
 if __name__ == "__main__":

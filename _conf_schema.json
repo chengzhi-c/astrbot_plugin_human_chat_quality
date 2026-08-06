@@ -5,24 +5,17 @@
     "default": true,
     "hint": "关闭后插件仍加载，但不会注入隐藏规则或记录运行时状态。"
   },
-  "prompt_injection_mode": {
-    "description": "注入模式（缓存友好）",
-    "type": "string",
-    "default": "cache_friendly",
-    "options": ["cache_friendly", "legacy_system"],
-    "hint": "cache_friendly：稳定规则与运行时提示都走 temp extra，不改 system_prompt（推荐）；legacy_system：稳定规则幂等写入 system_prompt（旧行为）。"
-  },
   "inject_stable_rules": {
     "description": "注入稳定质量规则",
     "type": "bool",
     "default": true,
-    "hint": "注入去模板腔、人性化回复约束。cache_friendly 下走 temp extra；legacy_system 下写 system_prompt（marker 防重复）。"
+    "hint": "注入去模板腔、人性化回复约束，幂等写入 system_prompt（marker 防重复）。与其它改写 system 的插件冲突时可关闭。"
   },
   "inject_runtime_state": {
     "description": "注入本轮运行时状态",
     "type": "bool",
     "default": true,
-    "hint": "把近期重复开头避用信息作为临时 extra_user_content_parts 注入。"
+    "hint": "把近期重复开头清单作为本轮临时提示注入。"
   },
   "max_runtime_hint_chars": {
     "description": "运行时提示最大字符数",
@@ -30,29 +23,17 @@
     "default": 600,
     "hint": "限制每轮动态提示长度，避免额外 token 过多。取值范围 80–3000，超出会被自动夹取。"
   },
-  "voice_match": {
-    "description": "声音校准：匹配本会话说话风格",
-    "type": "bool",
-    "default": false,
-    "hint": "从会话历史提取说话风格特征（句长、语气词、表情、开头词），注入轻量风格提示，让回复节奏贴合氛围。需要至少 5 条用户消息样本才生效，只取最近 60 条。默认关闭，开启后观察效果。"
-  },
-  "voice_max_chars": {
-    "description": "声音校准提示最大字符数",
-    "type": "int",
-    "default": 200,
-    "hint": "限制风格提示长度。取值范围 80–500。"
-  },
   "recent_reply_window": {
-    "description": "最近回复窗口",
+    "description": "重复开头检测范围",
     "type": "int",
     "default": 8,
-    "hint": "用于判断重复开头的最近回复数量。取值范围 1–50，持久化截断跟随此值。"
+    "hint": "统计最近 N 条回复的开头，同一开头出现 3 次及以上，下一轮就提醒模型换种说法。数值越大越容易检出重复，越小越宽松（1–50）。"
   },
   "custom_cliches": {
-    "description": "自定义套路词（可选）",
+    "description": "自定义避用词（可选）",
     "type": "list",
     "default": [],
-    "hint": "每行一个短语，命中即加入本轮避用提示。适合补充你们群里特有的 AI 腔/黑话。"
+    "hint": "每行一个短语，命中即加入本轮动态提醒，让模型换种说法。建议单条 ≤20 字，超长不生效（不记录、不注入）。"
   },
   "state_retention_days": {
     "description": "状态保留天数",

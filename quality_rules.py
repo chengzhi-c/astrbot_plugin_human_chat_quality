@@ -8,63 +8,32 @@ except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
 try:
-    from .runtime_state import SessionState
+    from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 except ImportError:  # pragma: no cover
-    from runtime_state import SessionState
+    from runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
 
-# 所有注入 marker 的公共前缀（voice_profile 用它把注入文本排除出风格样本）
+# 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v2]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 
 
 def build_stable_rules() -> str:
+    """稳定规则（v0.6.0）：五类短约束，只定基调，不做禁句清单。"""
     return (
         f"{STABLE_RULE_MARKER}\n"
         "聊天质量约束（在现有人设语气之上生效，不改变人设的性格、称呼、情绪和口头禅）：\n"
-        "这是日常聊天，不是写报告。顺着对方的话自然接，别把闲聊答成讲义、作文或客服工单。\n"
-        "\n"
-        "【铁律】以下任何一条出现都必须改掉：\n"
-        "1. 客服式收尾：\"希望这能帮到你\"\"如果还有问题随时问我\"。\n"
-        "2. \"不是…而是…\"\"不仅…更是…\"排比句式。\n"
-        "3. \"首先…其次…最后\"\"第一…第二…第三\"式清单骨架。\n"
-        "4. 升华/鼓励式结尾：\"未来可期\"\"一起加油\"\"让我们共同努力\"。\n"
-        "\n"
-        "【词汇】这些词出现即换人话：\n"
-        "- 值得注意的是/值得一提的是/需要注意的是 → 直接说内容\n"
-        "- 总的来说/综上所述/总而言之 → 直接说结论\n"
-        "- 众所周知/不可否认/毋庸置疑 → 直接陈述\n"
-        "- 此外/与此同时/由此可见 → 删掉或换“另外/所以”\n"
-        "- 深入探讨/深入分析/深度解析 → 聊聊/看看/说说\n"
-        "- 赋能/闭环/抓手/沉淀/对齐/颗粒度 → 换大白话\n"
-        "- 作为 AI/作为人工智能 → 别强调身份，直接说\n"
-        "\n"
-        "【结构】\n"
-        "- 别排比凑数：三个以上相似短语并列（\"有温度、有深度、有力度\"）→ 挑一个说透\n"
-        "- 别破折号连发：一条回复里出现两个以上\"——\"→ 换逗号句号或删掉\n"
-        "- 别自问自答：\"你可能会问：为什么？\" → 直接讲\n"
-        "- 别过度条列：日常闲聊尽量不列 1.2.3.\n"
-        "\n"
-        "【沟通】\n"
-        "- 别客服腔开场：\"好问题！\"\"你说得太对了！\"→ 直接回应内容\n"
-        "- 别复读对方原话、别每轮总结、别铺垫信号词（\"需要注意的是\"\"有趣的是\"\"事实上\"）\n"
-        "- 别免责声明腔：\"根据我的知识截止日期…\"除非真的不确定，那就直接说不确定\n"
-        "\n"
-        "【像个人】\n"
-        "- 句长要有变化，全是长句像念稿\n"
-        "- 有观点，对事实做反应，别中立地列举利弊\n"
-        "- 承认复杂：\"这事我也说不准\"比\"从多个维度看\"像人话\n"
-        "- 不知道就直说：\"没查过，不敢乱说\"\"这个我不确定\"比硬答或编造像人话；别说\"根据我的知识截止日期\"这类免责声明腔\n"
-        "- 口语化不等于丢信息：关键信息、限制条件、安全边界必须保留\n"
-        "\n"
-        "【自查】生成前心里过一遍，别把这条写进回复：\n"
-        "有没有客服腔收尾？有没有\"不是…而是\"/\"首先…其次\"/\"不仅…更是\"？有没有两个以上破折号？有没有排比三连或金句？句长是不是全一样？有没有该说不知道却硬答的？有就改掉。"
+        "1. 日常闲聊顺着对方的话自然回应，避免客服式收尾、空泛鼓励和无信息增量的总结。\n"
+        "2. 保留事实、限制条件、安全提示和不确定性表述，不为口语化而删减。\n"
+        "3. 用户明确要求技术步骤、对比、正式文稿或清单时，以任务完成为先，允许精确结构与术语。\n"
+        "4. 不知道就直说，不用空泛免责声明掩盖不确定性。\n"
+        "5. 不要把这些约束写进回复。"
     )
 
 
 def inject_stable_rules(system_prompt: str | None) -> str:
-    """幂等拼入 system_prompt（marker 防重复）。新路径优先走 append_temp_text_part。"""
+    """幂等拼入 system_prompt（marker 防重复）。v0.6.0 起稳定规则固定走此通道。"""
     prompt = system_prompt or ""
     if STABLE_RULE_MARKER in prompt:
         return prompt
@@ -73,8 +42,8 @@ def inject_stable_rules(system_prompt: str | None) -> str:
 
 
 def build_runtime_hint(state: SessionState, max_chars: int) -> str:
-    # 超长自定义词（>20 字）不注入，避免被截断成半截短语
-    openers = [item for item in state.avoid_openers[:5] if item and len(item) <= 20]
+    # 超长自定义词不注入（record 入库侧已按 MAX_OPEN_LEN 过滤，此处兜底旧状态文件里残留的超长词）
+    openers = [item for item in state.avoid_openers[:MAX_AVOID_OPENERS] if item and len(item) <= MAX_OPEN_LEN]
     if not openers:
         return ""
 
@@ -83,10 +52,11 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
         "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
         + "、".join(openers)
     )
-    return _clip(hint, max_chars)
+    return clip_text(hint, max_chars)
 
 
-def _clip(text: str, max_chars: int) -> str:
+def clip_text(text: str, max_chars: int) -> str:
+    """截断到 max_chars 字符，超长以省略号收尾。"""
     if max_chars <= 0:
         return ""
     if len(text) <= max_chars:
@@ -97,8 +67,8 @@ def _clip(text: str, max_chars: int) -> str:
 
 
 # TextPart 探测三态缓存：只在首次使用时探测一次，避免每次调用重复 import + 刷 warning。
-# 决策依据：探测失败说明环境不兼容（进程内不会自愈），后续直接走 system 回退；
-# AstrBot 热更新会重新加载模块、重置缓存。
+# 决策依据：探测失败说明环境不兼容（进程内不会自愈），后续直接禁用 temp extra 注入；
+# 热更新若重新加载本模块则重置缓存；否则需手动重装插件恢复探测（不承诺宿主行为）。
 _TEXTPART_CLS: Any = None
 _TEXTPART_PROBED = False
 
@@ -113,43 +83,23 @@ def _get_text_part_cls() -> Any:
             _TEXTPART_CLS = TextPart
         except Exception as e:
             if logger is not None:
-                logger.warning(
-                    f"[HumanChatQuality] TextPart unavailable, temp extra injection disabled: {e}"
-                )
+                logger.warning(f"[HumanChatQuality] TextPart unavailable, temp extra injection disabled: {e}")
     return _TEXTPART_CLS
 
 
 def make_text_part(text: str, factory: Any | None = None) -> Any | None:
-    """构造一个临时文本 part，标记为不保存。
+    """构造临时文本 part；构造失败返回 None（调用方自行降级）。
 
-    TextPart 暂无 astrbot.api 公开导出，走 core.agent.message 内部路径；
-    构造失败时返回 None（调用方应回退 system_prompt 注入，而不是带上
-    无法被 provider 消费的 part——provider 对未知 part 类型会直接抛错）。
-    兼容两代 AstrBot：4.16 有 mark_as_temp（返回 self 并置 _no_save）；
-    4.23 起移除，改为直接 setattr（旧版本生效，新版本由 contexts 扫描兜底）。
+    TextPart 暂无 astrbot.api 公开导出，走 core.agent.message 内部路径。
+    provider 对未知 part 类型会直接抛错，故失败时不得产出伪 part。
+    4.23 起保存链路只看消息级 _no_save，part 级临时标记无意义，不再设置。
     """
     if factory is not None:
-        part = factory(text)
-        if part is None:
-            return None
-    else:
-        text_part_cls = _get_text_part_cls()
-        if text_part_cls is None:
-            return None
-        part = text_part_cls(text=text)
-
-    mark_as_temp = getattr(part, "mark_as_temp", None)
-    if callable(mark_as_temp):
-        marked = mark_as_temp()
-        return marked if marked is not None else part
-
-    try:
-        # 4.23+ 无 mark_as_temp：setattr 仅写入实例 __dict__（pydantic 允许，dump 不带出），
-        # 该标记对 4.23+ 无效，由 request_has_marker 的 contexts 扫描兜底防累积
-        setattr(part, "_no_save", True)
-    except Exception:
-        pass
-    return part
+        return factory(text)
+    text_part_cls = _get_text_part_cls()
+    if text_part_cls is None:
+        return None
+    return text_part_cls(text=text)
 
 
 def part_has_marker(part: Any, marker: str) -> bool:
@@ -159,27 +109,36 @@ def part_has_marker(part: Any, marker: str) -> bool:
     return isinstance(text_val, str) and marker in text_val
 
 
-def request_has_marker(req: Any, marker: str) -> bool:
+def scan_request_markers(req: Any, markers: tuple[str, ...]) -> set[str]:
+    """单次遍历 system_prompt / extra_user_content_parts / 历史 user contexts，返回命中的 marker 集合。
+
+    生产热路径每轮只需一次 O(历史) 扫描（4.23+ 注入块入历史后历史持续增长）。
+    只检查 user 消息：注入块只会出现在 user 消息里，模型复述/用户手打
+    marker 到 assistant/system 消息不应误停注入。
+    """
+    found: set[str] = set()
+    if not markers:
+        return found
     try:
         sp = getattr(req, "system_prompt", None) or ""
-        if marker in sp:
-            return True
+        if isinstance(sp, str):
+            for marker in markers:
+                if marker in sp:
+                    found.add(marker)
     except Exception as e:
         if logger is not None:
-            logger.error(f"[HumanChatQuality] request_has_marker system_prompt check failed: {e}")
+            logger.error(f"[HumanChatQuality] scan_request_markers system_prompt check failed: {e}")
     try:
         parts = getattr(req, "extra_user_content_parts", None)
         if isinstance(parts, list):
-            return any(part_has_marker(part, marker) for part in parts)
+            for part in parts:
+                for marker in markers:
+                    if part_has_marker(part, marker):
+                        found.add(marker)
     except Exception as e:
         if logger is not None:
-            logger.error(f"[HumanChatQuality] request_has_marker parts check failed: {e}")
+            logger.error(f"[HumanChatQuality] scan_request_markers parts check failed: {e}")
     try:
-        # 历史 contexts 兜底：AstrBot >=4.23 移除 part 级 _no_save 标记，
-        # 注入文本会随 user 消息进入历史；历史中已有 marker 时不再重复注入，
-        # 避免规则块逐轮累积（4.16 上注入永不入历史，此处恒不命中，行为不变）。
-        # 只检查 user 消息：注入块只会出现在 user 消息里，模型复述/用户手打
-        # marker 到 assistant/system 消息不应误停注入。
         contexts = getattr(req, "contexts", None)
         if isinstance(contexts, list):
             for ctx in contexts:
@@ -187,52 +146,114 @@ def request_has_marker(req: Any, marker: str) -> bool:
                     continue
                 content = ctx.get("content")
                 if isinstance(content, str):
-                    if marker in content:
-                        return True
+                    for marker in markers:
+                        if marker in content:
+                            found.add(marker)
                 elif isinstance(content, list):
                     for part in content:
-                        if (
-                            isinstance(part, dict)
-                            and isinstance(part.get("text"), str)
-                            and marker in part["text"]
-                        ):
-                            return True
+                        if isinstance(part, dict) and isinstance(part.get("text"), str):
+                            for marker in markers:
+                                if marker in part["text"]:
+                                    found.add(marker)
     except Exception as e:
         if logger is not None:
-            logger.error(f"[HumanChatQuality] request_has_marker contexts check failed: {e}")
+            logger.error(f"[HumanChatQuality] scan_request_markers contexts check failed: {e}")
+    return found
+
+
+def _marker_in_req(req: Any, marker: str) -> bool:
+    """仅检查 system_prompt 与本请求 temp parts（不扫历史 contexts）。
+
+    历史级幂等由调用方（on_llm_request 的单次扫描）负责；
+    本守卫只防同一请求内重复追加。
+    """
+    try:
+        sp = getattr(req, "system_prompt", None) or ""
+        if isinstance(sp, str) and marker in sp:
+            return True
+    except Exception as e:
+        if logger is not None:
+            logger.debug(f"[HumanChatQuality] _marker_in_req system_prompt check failed: {e}")
+    try:
+        parts = getattr(req, "extra_user_content_parts", None)
+        if isinstance(parts, list):
+            return any(part_has_marker(part, marker) for part in parts)
+    except Exception as e:
+        if logger is not None:
+            logger.debug(f"[HumanChatQuality] _marker_in_req parts check failed: {e}")
     return False
 
 
 def replace_marker_in_contexts(req: Any, marker: str, new_text: str) -> bool:
-    """在 contexts 的 user 消息里原位替换旧注入块（4.23+ 动态提示更新用）。
+    """在 contexts 的 user 消息里把旧注入块统一为最新块（动态提示每轮更新用）。
 
-    contexts 是历史加载的独立副本，改写只影响本轮请求，不会写回持久化：
-    每轮替换 = 模型始终看到最新动态提示，且历史不累积。
-    - list 形态（4.23+ 实际形态）：替换含 marker 的 part 文本，返回 True；
-    - str 形态含 marker（实际链路中不存在，仅防御）：不替换返回 True，
-      视为"已存在"让调用方跳过追加，避免累积；
-    - 找不到（首轮/4.16）：返回 False，调用方应走 append 注入。
+    4.23.3 实测：on_llm_request hook 早于 runner.reset() 执行，reset 才把
+    contexts 深拷贝进 run_context.messages 并随本轮保存落库——故 hook 内对
+    contexts 的原位改写会随本次保存写回历史（替换后的块入库，历史不累积）。
+    - list 形态（4.23+ 实际形态）：首个命中替换为 new_text，其余命中丢弃，
+      历史收敛为至多一个最新块（异常多块状态可自愈）；
+    - 找不到（首轮）：返回 False，调用方应走 append 注入。
     """
     contexts = getattr(req, "contexts", None)
     if not isinstance(contexts, list):
         return False
+    replaced = False
     for ctx in contexts:
         if not isinstance(ctx, dict) or ctx.get("role") != "user":
             continue
         content = ctx.get("content")
-        if isinstance(content, str):
-            if marker in content:
-                return True
-        elif isinstance(content, list):
-            for i, part in enumerate(content):
-                if (
-                    isinstance(part, dict)
-                    and isinstance(part.get("text"), str)
-                    and marker in part["text"]
-                ):
-                    content[i] = {"type": "text", "text": new_text}
-                    return True
-    return False
+        if not isinstance(content, list):
+            continue
+        kept: list[Any] = []
+        for part in content:
+            if isinstance(part, dict) and isinstance(part.get("text"), str) and marker in part["text"]:
+                if not replaced:
+                    kept.append({"type": "text", "text": new_text})
+                    replaced = True
+                # 其余命中丢弃：历史收敛为至多一个最新块（防多块累积）
+                continue
+            kept.append(part)
+        try:
+            ctx["content"] = kept
+        except Exception as e:
+            # 异常形态（如只读 content）：保留原内容、跳过该 ctx，不影响其它 ctx
+            if logger is not None:
+                logger.debug(f"[HumanChatQuality] contexts content rewrite skipped: {e}")
+    return replaced
+
+
+def remove_marker_in_contexts(req: Any, marker: str) -> bool:
+    """从 contexts 的 user 消息里安全删除含 marker 的 part（动态块清空/规则迁移用）。
+
+    - list 形态（4.23+ 实际形态）：删除含 marker 的 dict part，其余 part（用户原话、
+      图片等）原位保留；删除过则返回 True（改写随本次保存写回历史，同 replace）；
+    - str 形态含 marker：不做不安全的字符串切割（可能误删用户内容），返回 False；
+    - 找不到 marker：返回 False。
+    """
+    contexts = getattr(req, "contexts", None)
+    if not isinstance(contexts, list):
+        return False
+    removed = False
+    for ctx in contexts:
+        if not isinstance(ctx, dict) or ctx.get("role") != "user":
+            continue
+        content = ctx.get("content")
+        if not isinstance(content, list):
+            continue
+        kept = [
+            part
+            for part in content
+            if not (isinstance(part, dict) and isinstance(part.get("text"), str) and marker in part["text"])
+        ]
+        if len(kept) != len(content):
+            try:
+                ctx["content"] = kept
+                removed = True
+            except Exception as e:
+                # 异常形态（如只读 content）：保留原内容、跳过该 ctx，不影响其它 ctx
+                if logger is not None:
+                    logger.debug(f"[HumanChatQuality] contexts content rewrite skipped: {e}")
+    return removed
 
 
 def append_temp_text_part(
@@ -242,22 +263,27 @@ def append_temp_text_part(
     *,
     marker: str | None = None,
 ) -> bool:
-    """写入 temp extra；缺失 list 时创建。marker 已存在（system_prompt 或已有 part 文本）则跳过。
+    """写入 temp extra；缺失 list 时创建。marker 已存在（system_prompt 或本请求已有 part）则跳过。
 
-    约定：调用方注入的 text 必须以 marker 开头，幂等才成立（真实调用均满足）。
+    契约：注入文本必须以 marker 开头（幂等的前提），违反时拒绝注入并告警。
+    历史 contexts 含 marker 时本函数仍会写入——历史级幂等由调用方的单次扫描负责。
     """
     if not text.strip():
         return False
-    if marker and request_has_marker(req, marker):
+    if marker and not text.lstrip().startswith(marker):
+        if logger is not None:
+            logger.warning(f"[HumanChatQuality] injected text missing marker prefix: {marker!r}")
+        return False
+    if marker and _marker_in_req(req, marker):
         return False
     try:
+        part = make_text_part(text, factory)
+        if part is None:
+            return False
         if not hasattr(req, "extra_user_content_parts") or req.extra_user_content_parts is None:
             req.extra_user_content_parts = []
         parts = req.extra_user_content_parts
         if not isinstance(parts, list):
-            return False
-        part = make_text_part(text, factory)
-        if part is None:
             return False
         parts.append(part)
         return True
