@@ -6,79 +6,79 @@ runtime hint、disabled 匹配、空 origin 隔离、temp part 工具。
 """
 
 import asyncio
-import sys
 import tempfile
 import unittest
 from pathlib import Path
-
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from unittest import mock
 
 from _fakes import FakeEvent
-
-from main import (
+from helpers import (
+    FakeReq as _FakeReq,
+    FakeResp as _FakeResp,
     HumanChatQualityCore,
-    _extract_response_text,
-    config_bool,
-    config_int,
-    config_list,
-)
-from quality_rules import (
     RUNTIME_HINT_MARKER,
+    RuntimeStateStore,
     STABLE_RULE_MARKER,
-    append_temp_text_part,
-    make_text_part,
+    chain as _chain,
+    fake_part_factory as _fake_part_factory,
+    get_main,
+    get_quality_rules,
+    load_plugin_package,
 )
-from runtime_state import RuntimeStateStore
+
+load_plugin_package()
+main = get_main()
+quality_rules = get_quality_rules()
+main_module = main
+
+_extract_response_text = main._extract_response_text
+AppConfig = main.AppConfig
+append_temp_text_part = quality_rules.append_temp_text_part
+make_text_part = quality_rules.make_text_part
 
 
-class _FakeReq:
-    """请求夹具。extra_user_content_parts 默认 None 与真实 ProviderRequest（默认 []）不同：
-    None 哨兵用于区分"未触碰"与"空列表"（注入失败的虚绿灯判据）；
-    真实契约由 test_real_env 的等价用例覆盖，改默认值需同步全部断言。"""
+class AppConfigTest(unittest.TestCase):
+    """AppConfig.from_config 解析边界（原 ConfigHelperTest 迁移，断言同一批边界）。"""
 
-    def __init__(self, contexts=None, system_prompt="", prompt="hi"):
-        self.contexts = contexts or []
-        self.system_prompt = system_prompt
-        self.prompt = prompt
-        self.extra_user_content_parts = None
+    def test_none_and_empty_defaults(self):
+        for raw in (None, {}):
+            cfg = AppConfig.from_config(raw)
+            self.assertTrue(cfg.enabled)
+            self.assertTrue(cfg.inject_stable_rules)
+            self.assertTrue(cfg.inject_runtime_state)
+            self.assertFalse(cfg.debug_log)
+            self.assertEqual(cfg.max_runtime_hint_chars, 600)
+            self.assertEqual(cfg.state_retention_days, 14)
+            self.assertEqual(cfg.recent_reply_window, 8)
+            self.assertEqual(cfg.custom_cliches, ())
+            self.assertEqual(cfg.disabled_sessions, frozenset())
 
+    def test_bool_string_forms(self):
+        self.assertTrue(AppConfig.from_config({"enabled": "yes"}).enabled)
+        self.assertTrue(AppConfig.from_config({"enabled": "on"}).enabled)
+        self.assertFalse(AppConfig.from_config({"enabled": "0"}).enabled)
+        self.assertFalse(AppConfig.from_config({"enabled": False}).enabled)
+        self.assertTrue(AppConfig.from_config({"enabled": True}).enabled)
 
-class _FakeResp:
-    def __init__(self, completion_text=None, chain=None):
-        self.completion_text = completion_text
-        self.result_chain = chain
+    def test_int_clamped(self):
+        # recent_reply_window：默认 8，夹取 3-50（下限与重复阈值同构）
+        self.assertEqual(AppConfig.from_config({"recent_reply_window": "abc"}).recent_reply_window, 8)
+        self.assertEqual(AppConfig.from_config({"recent_reply_window": 999}).recent_reply_window, 50)
+        self.assertEqual(AppConfig.from_config({"recent_reply_window": -3}).recent_reply_window, 3)
+        self.assertEqual(AppConfig.from_config({"recent_reply_window": "30"}).recent_reply_window, 30)
+        # None 降级（int(None) 抛 TypeError 路径）
+        self.assertEqual(AppConfig.from_config({"recent_reply_window": None}).recent_reply_window, 8)
+        # max_runtime_hint_chars：默认 600，夹取 80-3000
+        self.assertEqual(AppConfig.from_config({"max_runtime_hint_chars": 1}).max_runtime_hint_chars, 80)
+        self.assertEqual(AppConfig.from_config({"max_runtime_hint_chars": 9999}).max_runtime_hint_chars, 3000)
 
-
-def _chain(*texts):
-    class _Item:
-        def __init__(self, text):
-            self.text = text
-
-    class _Chain:
-        def __init__(self, items):
-            self.chain = items
-
-    return _Chain([_Item(t) for t in texts])
-
-
-class ConfigHelperTest(unittest.TestCase):
-    def test_config_bool(self):
-        self.assertTrue(config_bool(None, "k", True))
-        self.assertTrue(config_bool({}, "k", True))
-        self.assertTrue(config_bool({"k": "yes"}, "k", False))
-        self.assertFalse(config_bool({"k": "0"}, "k", True))
-        self.assertFalse(config_bool({"k": False}, "k", True))
-
-    def test_config_int_clamped(self):
-        self.assertEqual(config_int({"k": "abc"}, "k", 8, 1, 50), 8)
-        self.assertEqual(config_int({"k": 999}, "k", 8, 1, 50), 50)
-        self.assertEqual(config_int({"k": -3}, "k", 8, 1, 50), 1)
-        self.assertEqual(config_int({"k": "30"}, "k", 8, 1, 50), 30)
-
-    def test_config_list(self):
-        self.assertEqual(config_list({"k": "a\nb\n"}, "k"), ["a", "b"])
-        self.assertEqual(config_list({"k": [" a ", "", "b"]}, "k"), ["a", "b"])
-        self.assertEqual(config_list({}, "k"), [])
+    def test_list_forms(self):
+        self.assertEqual(AppConfig.from_config({"custom_cliches": "a\nb\n"}).custom_cliches, ("a", "b"))
+        self.assertEqual(AppConfig.from_config({"custom_cliches": [" a ", "", "b"]}).custom_cliches, ("a", "b"))
+        self.assertEqual(AppConfig.from_config({}).custom_cliches, ())
+        # disabled_sessions：全小写 frozenset
+        cfg = AppConfig.from_config({"disabled_sessions": ["GroupMessage:123#A", "456"]})
+        self.assertEqual(cfg.disabled_sessions, frozenset({"groupmessage:123#a", "456"}))
 
 
 class ExtractResponseTextTest(unittest.TestCase):
@@ -165,33 +165,25 @@ class AppendTempPartTest(unittest.TestCase):
             )
         )
 
-    def test_textpart_probe_no_retry(self):
-        """探测失败后第二次调用不再重试（回归：三态缓存契约，warning 只打一次）。"""
-        import builtins
-        from unittest import mock
+    def test_core_factory_skips_probe(self):
+        """显式 factory 时构造 Core 不触发 TextPart 探测（回归：去全局化，factory 优先）。"""
+        store = RuntimeStateStore(Path(tempfile.mkdtemp()) / "state.json", retention_days=14, recent_reply_window=8)
+        with mock.patch.object(main_module, "_probe_text_part_cls") as probe:
+            core = HumanChatQualityCore({"enabled": True}, store, text_part_factory=_fake_part_factory)
+            probe.assert_not_called()
+        self.assertIs(core.text_part_factory, _fake_part_factory)
 
-        import quality_rules
-
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name.startswith("astrbot"):
-                raise ImportError("blocked for test")
-            return real_import(name, *args, **kwargs)
-
-        with (
-            mock.patch.object(quality_rules, "_TEXTPART_CLS", None),
-            mock.patch.object(quality_rules, "_TEXTPART_PROBED", False),
-            mock.patch("builtins.__import__", side_effect=fake_import),
-            mock.patch("quality_rules.logger.warning") as warn,
-        ):
-            self.assertIsNone(make_text_part("x"))
-            self.assertIsNone(make_text_part("x"))
-            warn.assert_called_once()
+    def test_core_probes_when_no_factory(self):
+        """无 factory 时构造 Core 触发探测；探测失败 → None → 动态注入降级。"""
+        store = RuntimeStateStore(Path(tempfile.mkdtemp()) / "state.json", retention_days=14, recent_reply_window=8)
+        with mock.patch.object(main_module, "_probe_text_part_cls", return_value=None) as probe:
+            core = HumanChatQualityCore({"enabled": True}, store)
+            probe.assert_called_once()
+        self.assertIsNone(core.text_part_factory)
 
     def test_append_guard_scoped_to_request(self):
         """守卫只查 system/parts；历史 contexts 含 marker 不阻止追加（回归：P3 收窄后的契约，
-        历史级幂等由 on_llm_request 的单次扫描负责）。"""
+        历史级幂等由 on_llm_request → apply_context_marker 负责）。"""
         req = _FakeReq(contexts=[{"role": "user", "content": f"{RUNTIME_HINT_MARKER}\n历史旧块"}])
         self.assertTrue(
             append_temp_text_part(
@@ -210,28 +202,12 @@ class AppendTempPartTest(unittest.TestCase):
         self.assertFalse(append_temp_text_part(req, "   ", factory=_fake_part_factory))
 
     def test_make_text_part_failure_returns_none(self):
-        """构造失败返回 None（回归：不再回退到注定失败的 _FallbackTextPart）。
-        同时隔离 TextPart 三态缓存的全局状态，避免污染其他用例。"""
-        import builtins
-        from unittest import mock
-
-        import quality_rules
-
-        real_import = builtins.__import__
-
-        def fake_import(name, *args, **kwargs):
-            if name.startswith("astrbot"):
-                raise ImportError("blocked for test")
-            return real_import(name, *args, **kwargs)
-
-        with (
-            mock.patch.object(quality_rules, "_TEXTPART_CLS", None),
-            mock.patch.object(quality_rules, "_TEXTPART_PROBED", False),
-            mock.patch("builtins.__import__", side_effect=fake_import),
-        ):
-            self.assertIsNone(make_text_part("x"))
+        """无 factory 或构造失败返回 None（回归：不再回退到注定失败的 _FallbackTextPart）。"""
+        self.assertIsNone(make_text_part("x"))
         # factory 显式返回 None 时上层应识别为失败
-        self.assertIsNone(make_text_part("x", factory=lambda _t: None))
+        self.assertIsNone(make_text_part("x", factory=lambda text: None))
+        # factory 抛异常时同样视为失败（回归：去全局化后 make_text_part 的异常兜底）
+        self.assertIsNone(make_text_part("x", factory=lambda text: (_ for _ in ()).throw(RuntimeError("boom"))))
 
     def test_make_text_part_factory(self):
         """v0.6.0：只做构造，不再做 part 级临时标记（4.23 保存链路只看消息级 _no_save）。"""
@@ -239,9 +215,9 @@ class AppendTempPartTest(unittest.TestCase):
         self.assertIsNotNone(part)
         self.assertEqual(part.text, "x")
 
-    def test_replace_marker_dedupes_multiple_blocks(self):
-        """异常多块状态：只保留一个最新块，其余旧块丢弃（自愈防累积，回归：只换首个永不治彻底）。"""
-        from quality_rules import replace_marker_in_contexts
+    def test_apply_context_marker_dedupes_multiple_blocks(self):
+        """异常多块状态：只保留一个最新块，其余旧块丢弃（自愈防累积）。"""
+        apply_context_marker = quality_rules.apply_context_marker
 
         req = _FakeReq(
             contexts=[
@@ -255,19 +231,59 @@ class AppendTempPartTest(unittest.TestCase):
                 {"role": "user", "content": [{"type": "text", "text": f"{RUNTIME_HINT_MARKER}\n旧块B"}]},
             ]
         )
-        self.assertTrue(replace_marker_in_contexts(req, RUNTIME_HINT_MARKER, "新块"))
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "新块"), "modified")
         texts = [p["text"] for ctx in req.contexts for p in ctx["content"]]
         self.assertEqual(texts.count("新块"), 1, "历史应收敛为至多一个最新块")
         self.assertNotIn(f"{RUNTIME_HINT_MARKER}\n旧块A", texts)
         self.assertNotIn(f"{RUNTIME_HINT_MARKER}\n旧块B", texts)
-        # 用户原话保留
         self.assertEqual(req.contexts[0]["content"][0]["text"], "历史一")
 
-    def test_replace_marker_in_contexts(self):
-        """原位替换：list 形态替换成功、找不到返回 False（回归：M1；v0.6.0 移除 str 分支）。"""
-        from quality_rules import replace_marker_in_contexts
+    def test_apply_context_marker_tuple_content_skipped(self):
+        """纯 tuple content 不触碰，返回 absent（回归：非 list 非 str 形态保守跳过）。"""
+        apply_context_marker = quality_rules.apply_context_marker
 
-        # list 形态（4.23+ 实际形态）：替换且不丢其他 part
+        req = _FakeReq(contexts=[{"role": "user", "content": ("strange", "tuple")}])
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "new hint"), "absent")
+        self.assertIsInstance(req.contexts[0]["content"], tuple, "tuple 形态不得改写")
+
+    def test_apply_context_marker_tuple_and_list_mixed(self):
+        """tuple 跳过 + list 处理 → modified，tuple 保持（回归：混合形态单趟）。"""
+        apply_context_marker = quality_rules.apply_context_marker
+
+        req = _FakeReq(
+            contexts=[
+                {"role": "user", "content": ("strange", "tuple")},
+                {"role": "user", "content": [{"type": "text", "text": f"{RUNTIME_HINT_MARKER}\n旧块"}]},
+            ]
+        )
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "新块"), "modified")
+        self.assertIsInstance(req.contexts[0]["content"], tuple, "tuple 形态不得改写")
+        self.assertEqual(req.contexts[1]["content"][0]["text"], "新块")
+
+    def test_apply_context_marker_modified_beats_str_blocked(self):
+        """混合场景：list 可替换 + str 含 marker → 返回 modified（操作优先于阻塞，回归：优先级语义）。"""
+        apply_context_marker = quality_rules.apply_context_marker
+
+        req = _FakeReq(
+            contexts=[
+                {
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": "用户原话"},
+                        {"type": "text", "text": f"{RUNTIME_HINT_MARKER}\n旧块"},
+                    ],
+                },
+                {"role": "user", "content": f"x\n{RUNTIME_HINT_MARKER}"},
+            ]
+        )
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "新块"), "modified")
+        self.assertEqual(req.contexts[0]["content"][1]["text"], "新块")
+        self.assertEqual(req.contexts[1]["content"], f"x\n{RUNTIME_HINT_MARKER}", "str 形态不得切割")
+
+    def test_apply_context_marker_replace_and_absent(self):
+        """原位替换 / absent / 非 user / str_blocked（回归：M1）。"""
+        apply_context_marker = quality_rules.apply_context_marker
+
         req = _FakeReq(
             contexts=[
                 {
@@ -279,29 +295,30 @@ class AppendTempPartTest(unittest.TestCase):
                 }
             ]
         )
-        self.assertTrue(replace_marker_in_contexts(req, RUNTIME_HINT_MARKER, "新块B"))
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "新块B"), "modified")
         parts = req.contexts[0]["content"]
         self.assertEqual(parts[0]["text"], "用户原话")
         self.assertEqual(parts[1]["text"], "新块B")
-        # 非 user 消息不替换
+
         req2 = _FakeReq(
             contexts=[{"role": "assistant", "content": [{"type": "text", "text": f"x\n{RUNTIME_HINT_MARKER}"}]}]
         )
-        self.assertFalse(replace_marker_in_contexts(req2, RUNTIME_HINT_MARKER, "y"))
-        # 找不到（首轮）返回 False
+        self.assertEqual(apply_context_marker(req2, RUNTIME_HINT_MARKER, "y"), "absent")
+
         req3 = _FakeReq(contexts=[{"role": "user", "content": [{"type": "text", "text": "正常历史"}]}])
-        self.assertFalse(replace_marker_in_contexts(req3, RUNTIME_HINT_MARKER, "y"))
-        # str 形态（>=4.23 不支持）：不替换返回 False，防累积由调用方的 found 守卫负责
-        req4 = _FakeReq(contexts=[{"role": "user", "content": f"x\n{RUNTIME_HINT_MARKER}\n旧块"}])
-        self.assertFalse(replace_marker_in_contexts(req4, RUNTIME_HINT_MARKER, "y"))
-        self.assertEqual(req4.contexts[0]["content"], f"x\n{RUNTIME_HINT_MARKER}\n旧块")
+        self.assertEqual(apply_context_marker(req3, RUNTIME_HINT_MARKER, "y"), "absent")
+
+        raw = f"x\n{RUNTIME_HINT_MARKER}\n旧块"
+        req4 = _FakeReq(contexts=[{"role": "user", "content": raw}])
+        self.assertEqual(apply_context_marker(req4, RUNTIME_HINT_MARKER, "y"), "str_blocked")
+        self.assertEqual(req4.contexts[0]["content"], raw)
 
 
-class RemoveMarkerInContextsTest(unittest.TestCase):
-    """remove_marker_in_contexts：list 形态安全删除、str 形态保守不动（回归：v0.5.6）。"""
+class ApplyContextMarkerRemoveTest(unittest.TestCase):
+    """apply_context_marker(None)：list 安全删除、str 保守不动。"""
 
     def test_removes_marker_part_keeps_user_text(self):
-        from quality_rules import remove_marker_in_contexts
+        apply_context_marker = quality_rules.apply_context_marker
 
         req = _FakeReq(
             contexts=[
@@ -315,92 +332,37 @@ class RemoveMarkerInContextsTest(unittest.TestCase):
                 }
             ]
         )
-        self.assertTrue(remove_marker_in_contexts(req, RUNTIME_HINT_MARKER))
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, None), "modified")
         content = req.contexts[0]["content"]
         self.assertEqual(len(content), 2)
         self.assertEqual(content[0]["text"], "用户原话")
         self.assertEqual(content[1], {"type": "image", "url": "http://x/y.png"})
 
     def test_str_content_not_touched(self):
-        """str 形态不做不安全切割：不删、返回 False。"""
-        from quality_rules import remove_marker_in_contexts
+        apply_context_marker = quality_rules.apply_context_marker
 
         raw = f"用户原话\n{RUNTIME_HINT_MARKER}\n旧块"
         req = _FakeReq(contexts=[{"role": "user", "content": raw}])
-        self.assertFalse(remove_marker_in_contexts(req, RUNTIME_HINT_MARKER))
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, None), "str_blocked")
         self.assertEqual(req.contexts[0]["content"], raw)
 
     def test_no_marker_and_non_user(self):
-        from quality_rules import remove_marker_in_contexts
+        apply_context_marker = quality_rules.apply_context_marker
 
         req = _FakeReq(contexts=[{"role": "user", "content": [{"type": "text", "text": "干净消息"}]}])
-        self.assertFalse(remove_marker_in_contexts(req, RUNTIME_HINT_MARKER))
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, None), "absent")
         req2 = _FakeReq(
             contexts=[{"role": "assistant", "content": [{"type": "text", "text": f"{RUNTIME_HINT_MARKER}\nx"}]}]
         )
-        self.assertFalse(remove_marker_in_contexts(req2, RUNTIME_HINT_MARKER))
+        self.assertEqual(apply_context_marker(req2, RUNTIME_HINT_MARKER, None), "absent")
         self.assertEqual(len(req2.contexts[0]["content"]), 1)
 
     def test_missing_contexts(self):
-        from quality_rules import remove_marker_in_contexts
+        apply_context_marker = quality_rules.apply_context_marker
 
         req = _FakeReq()
         req.contexts = None
-        self.assertFalse(remove_marker_in_contexts(req, RUNTIME_HINT_MARKER))
-
-
-def _fake_part_factory(text: str):
-    class _P:
-        def __init__(self, text: str):
-            self.text = text
-
-    return _P(text)
-
-
-class ScanRequestMarkersTest(unittest.TestCase):
-    """scan_request_markers：单次遍历三种来源，多 marker 一次命中。"""
-
-    FAKE_MARKER = "[Human Chat Quality Fake]"
-    MARKERS = (STABLE_RULE_MARKER, RUNTIME_HINT_MARKER, FAKE_MARKER)
-
-    def test_finds_markers_across_sources(self):
-        from quality_rules import scan_request_markers
-
-        req = _FakeReq(
-            system_prompt=f"前缀\n{STABLE_RULE_MARKER}",
-            contexts=[{"role": "user", "content": [{"type": "text", "text": f"x\n{RUNTIME_HINT_MARKER}"}]}],
-        )
-        req.extra_user_content_parts = [_fake_part_factory(f"{self.FAKE_MARKER}\n提示")]
-        self.assertEqual(scan_request_markers(req, self.MARKERS), set(self.MARKERS))
-
-    def test_str_and_list_contexts(self):
-        from quality_rules import scan_request_markers
-
-        req = _FakeReq(
-            contexts=[
-                {"role": "user", "content": f"str 形态\n{STABLE_RULE_MARKER}"},
-                {"role": "user", "content": [{"type": "text", "text": f"list 形态\n{RUNTIME_HINT_MARKER}"}]},
-            ]
-        )
-        self.assertEqual(scan_request_markers(req, self.MARKERS), {STABLE_RULE_MARKER, RUNTIME_HINT_MARKER})
-
-    def test_ignores_non_user_contexts(self):
-        from quality_rules import scan_request_markers
-
-        req = _FakeReq(
-            contexts=[
-                {"role": "assistant", "content": f"复述 {RUNTIME_HINT_MARKER}"},
-                {"role": "system", "content": f"系统 {STABLE_RULE_MARKER}"},
-                {"role": "user", "content": "正常消息"},
-            ]
-        )
-        self.assertEqual(scan_request_markers(req, self.MARKERS), set())
-
-    def test_empty_and_no_hit(self):
-        from quality_rules import scan_request_markers
-
-        self.assertEqual(scan_request_markers(_FakeReq(), self.MARKERS), set())
-        self.assertEqual(scan_request_markers(_FakeReq(), ()), set())
+        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, None), "absent")
 
 
 class CoreInjectionTest(unittest.TestCase):
@@ -418,32 +380,41 @@ class CoreInjectionTest(unittest.TestCase):
     def _part_texts(self, req) -> list[str]:
         return [getattr(p, "text", "") for p in (req.extra_user_content_parts or [])]
 
-    def test_scan_skipped_when_both_injections_disabled(self):
-        """双关配置下不执行 marker 扫描（回归：无条件白扫 O(历史)）。"""
-        from unittest import mock
-
-        import main as main_module
+    def test_context_marker_skipped_when_both_injections_disabled(self):
+        """双关配置下不触碰 contexts（回归：无条件白扫 O(历史)）。"""
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(Path(td), {"enabled": True, "inject_stable_rules": False, "inject_runtime_state": False})
             req = _FakeReq(contexts=[{"role": "user", "content": [{"type": "text", "text": "x"}]}])
-            with mock.patch.object(main_module, "scan_request_markers", wraps=main_module.scan_request_markers) as spy:
+            with mock.patch.object(main_module, "apply_context_marker", wraps=main_module.apply_context_marker) as spy:
                 self._run(core.on_llm_request(FakeEvent(), req))
                 spy.assert_not_called()
 
-    def test_scan_runs_when_runtime_enabled(self):
-        """runtime 开启时扫描正常执行（双关短路的对称用例）。"""
-        from unittest import mock
-
-        import main as main_module
+    def test_context_marker_once_when_runtime_replaces(self):
+        """runtime 有 hint 且历史有块：contexts 单趟 replace（回归：scan+replace 双扫）。"""
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(Path(td), {"enabled": True, "inject_stable_rules": False})
-            req = _FakeReq(contexts=[{"role": "user", "content": [{"type": "text", "text": "x"}]}])
-            with mock.patch.object(main_module, "scan_request_markers", wraps=main_module.scan_request_markers) as spy:
-                self._run(core.on_llm_request(FakeEvent(), req))
+            event = FakeEvent()
+            self._run(core.on_llm_response(event, _FakeResp(completion_text="这个我先记下了，希望对你有帮助")))
+            req = _FakeReq(
+                contexts=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "用户消息"},
+                            {"type": "text", "text": f"{RUNTIME_HINT_MARKER}\n旧提示词"},
+                        ],
+                    }
+                ]
+            )
+            with mock.patch.object(main_module, "apply_context_marker", wraps=main_module.apply_context_marker) as spy:
+                self._run(core.on_llm_request(event, req))
                 spy.assert_called_once()
-                self.assertEqual(spy.call_args.args[1], (RUNTIME_HINT_MARKER,), "只扫 runtime marker")
+                self.assertEqual(spy.call_args.args[1], RUNTIME_HINT_MARKER)
+                self.assertTrue(spy.call_args.args[2], "应携带非空 hint 做 replace")
+            self.assertIsNone(req.extra_user_content_parts)
+            self.assertIn("希望对你有帮助", req.contexts[0]["content"][1]["text"])
 
     def test_factory_failure_no_injection(self):
         """TextPart 构造失败（factory 返回 None）时本轮不注入 hint（回归：区分
@@ -451,7 +422,7 @@ class CoreInjectionTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             store = RuntimeStateStore(Path(td) / "state.json", retention_days=14, recent_reply_window=8)
             core = HumanChatQualityCore(
-                {"enabled": True, "inject_stable_rules": False}, store, text_part_factory=lambda _t: None
+                {"enabled": True, "inject_stable_rules": False}, store, text_part_factory=lambda text: None
             )
             event = FakeEvent()
             self._run(core.on_llm_response(event, _FakeResp(completion_text="这个我先记下了，希望对你有帮助")))
@@ -463,26 +434,25 @@ class CoreInjectionTest(unittest.TestCase):
 
     def test_stable_migration_checked_once_per_session(self):
         """stable 迁移清理按会话只执行一次，不同会话独立检查（回归：每轮全扫）。"""
-        from unittest import mock
-
-        import main as main_module
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(Path(td), {"enabled": True})
             req = _FakeReq(
                 contexts=[{"role": "user", "content": [{"type": "text", "text": f"{STABLE_RULE_MARKER}\n旧规则块"}]}]
             )
-            with mock.patch.object(
-                main_module, "remove_marker_in_contexts", wraps=main_module.remove_marker_in_contexts
-            ) as spy:
+            with mock.patch.object(main_module, "apply_context_marker", wraps=main_module.apply_context_marker) as spy:
                 self._run(core.on_llm_request(FakeEvent(), req))
                 self._run(core.on_llm_request(FakeEvent(), req))
-                spy.assert_called_once()
+                # 同会话：仅首轮 stable 迁移 remove；后续两轮若无 runtime 状态则不再因 stable 调 apply
+                # 本用例无 avoid_openers，runtime 仍会每轮 apply(remove 语义) 一次 → 共 1 stable + 2 runtime
+                stable_calls = [c for c in spy.call_args_list if c.args[1] == STABLE_RULE_MARKER]
+                self.assertEqual(len(stable_calls), 1, "stable 迁移每会话只一次")
                 # 不同会话独立检查
                 other = FakeEvent(origin="GroupMessage:456#def")
                 req2 = _FakeReq()
                 self._run(core.on_llm_request(other, req2))
-                self.assertEqual(spy.call_count, 2)
+                stable_calls = [c for c in spy.call_args_list if c.args[1] == STABLE_RULE_MARKER]
+                self.assertEqual(len(stable_calls), 2)
 
     def test_status_text_active(self):
         """active 会话 status 输出包含启用状态、重复开头与累计注入（回归：status_text 零覆盖）。"""
@@ -545,6 +515,33 @@ class CoreInjectionTest(unittest.TestCase):
             self.assertIn(STABLE_RULE_MARKER, req2.system_prompt)
             self.assertIn(STABLE_RULE_MARKER, req2.contexts[0]["content"])
 
+    def test_stable_migration_retries_after_str_blocked(self):
+        """红灯：首轮 str_blocked 不标记完成；次轮 list 形态仍须清掉旧规则块。"""
+        with tempfile.TemporaryDirectory() as td:
+            core = self._core(Path(td), {"enabled": True})
+            event = FakeEvent()
+            raw = f"用户消息\n{STABLE_RULE_MARKER}\n旧规则"
+            req1 = _FakeReq(contexts=[{"role": "user", "content": raw}])
+            self._run(core.on_llm_request(event, req1))
+            self.assertEqual(req1.contexts[0]["content"], raw)
+            self.assertNotIn(event.unified_msg_origin, core._stable_migration_checked)
+
+            req2 = _FakeReq(
+                contexts=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": "用户消息"},
+                            {"type": "text", "text": f"{STABLE_RULE_MARKER}\n旧规则"},
+                        ],
+                    }
+                ]
+            )
+            self._run(core.on_llm_request(event, req2))
+            texts = [p["text"] for p in req2.contexts[0]["content"]]
+            self.assertFalse(any(STABLE_RULE_MARKER in t for t in texts))
+            self.assertIn(event.unified_msg_origin, core._stable_migration_checked)
+
     def test_stable_block_kept_when_rules_disabled(self):
         """inject_stable_rules=false 时不动历史旧块（保守行为，与 runtime 对称）。"""
         with tempfile.TemporaryDirectory() as td:
@@ -557,12 +554,25 @@ class CoreInjectionTest(unittest.TestCase):
             self.assertIn(STABLE_RULE_MARKER, req.contexts[0]["content"][0]["text"])
 
     def test_runtime_marker_in_contexts_skips_runtime(self):
-        """runtime 注入块入历史后，marker 也应阻止重复注入。"""
+        """无状态时 str 历史含 marker：不追加（弱场景，见下条红灯）。"""
         with tempfile.TemporaryDirectory() as td:
             core = self._core(Path(td), {"enabled": True, "inject_stable_rules": False})
             req = _FakeReq(contexts=[{"role": "user", "content": f"x\n{RUNTIME_HINT_MARKER}"}])
             self._run(core.on_llm_request(FakeEvent(), req))
             self.assertIsNone(req.extra_user_content_parts)
+
+    def test_str_blocked_with_hint_does_not_append(self):
+        """红灯：已有 avoid 状态 + str 形态历史含 marker 时不得 append（str_blocked）。"""
+        with tempfile.TemporaryDirectory() as td:
+            core = self._core(Path(td), {"enabled": True, "inject_stable_rules": False})
+            event = FakeEvent()
+            self._run(core.on_llm_response(event, _FakeResp(completion_text="这个我先记下了，希望对你有帮助")))
+            self.assertTrue(core.store.get(event.unified_msg_origin).avoid_openers)
+            raw = f"用户消息\n{RUNTIME_HINT_MARKER}\n旧块"
+            req = _FakeReq(contexts=[{"role": "user", "content": raw}])
+            self._run(core.on_llm_request(event, req))
+            self.assertIsNone(req.extra_user_content_parts, "str_blocked 不得再 append temp part")
+            self.assertEqual(req.contexts[0]["content"], raw, "str 形态不得切割改写")
 
     def test_runtime_hint_after_cliche_reply(self):
         with tempfile.TemporaryDirectory() as td:
@@ -673,7 +683,8 @@ class PluginAssemblyTest(unittest.TestCase):
     """插件类装配：装饰器链、数据目录、store 初始化（fakes/真实宿主均适用）。"""
 
     def _instantiate(self, td: str):
-        from main import HumanChatQualityPlugin, StarTools
+        HumanChatQualityPlugin = main.HumanChatQualityPlugin
+        StarTools = main.StarTools
 
         original = StarTools.get_data_dir
         StarTools.get_data_dir = staticmethod(lambda *_a, **_k: td)
@@ -701,6 +712,34 @@ class PluginAssemblyTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as td:
             plugin = self._instantiate(td)
             asyncio.run(plugin.terminate())  # 不应抛异常
+
+
+class MetadataVersionTest(unittest.TestCase):
+    """_read_metadata_version 参数化后的降级分支覆盖。"""
+
+    @staticmethod
+    def _write_meta(td: str, content: str) -> str:
+        path = Path(td) / "meta.yaml"
+        path.write_text(content, encoding="utf-8")
+        return str(path)
+
+    def test_nonexistent_path_returns_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            self.assertEqual(main._read_metadata_version(Path(td) / "nonexistent.yaml"), "0.0.0")
+
+    def test_file_without_version_field_returns_fallback(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = self._write_meta(td, "name: test\ndesc: no version\n")
+            self.assertEqual(main._read_metadata_version(path), "0.0.0")
+
+    def test_version_with_quotes_stripped(self):
+        with tempfile.TemporaryDirectory() as td:
+            path = self._write_meta(td, 'version: "1.2.3"\n')
+            self.assertEqual(main._read_metadata_version(path), "1.2.3")
+
+    def test_default_path_matches_plugin_dir(self):
+        """无参调用指向插件目录 metadata.yaml（回归：默认路径契约，逐位等价）。"""
+        self.assertEqual(main._read_metadata_version(), main.PLUGIN_VERSION)
 
 
 if __name__ == "__main__":

@@ -14,14 +14,14 @@
 """
 
 import asyncio
-import sys
 import tempfile
 import unittest
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from _fakes import FakeEvent, is_supported_host
+from helpers import get_main, get_quality_rules, get_runtime_state, load_plugin_package
+
+load_plugin_package()
 
 
 _REAL = False
@@ -43,8 +43,10 @@ class RealHostContractTest(unittest.TestCase):
     """真实宿主下的端到端契约（真实 ProviderRequest / TextPart / LLMResponse）。"""
 
     def _core(self, td: str, config: dict | None = None):
-        from main import HumanChatQualityCore
-        from runtime_state import RuntimeStateStore
+        main_mod = get_main()
+        runtime_state = get_runtime_state()
+        HumanChatQualityCore = main_mod.HumanChatQualityCore
+        RuntimeStateStore = runtime_state.RuntimeStateStore
 
         cfg = {"enabled": True, "debug_log": False}
         if config:
@@ -53,20 +55,22 @@ class RealHostContractTest(unittest.TestCase):
         return HumanChatQualityCore(cfg, store)
 
     def test_real_textpart_contract(self):
+        """Core 构造时探测真实 TextPart；经生产路径构造的 part 是 TextPart（回归：去全局化契约）。"""
         from astrbot.core.agent.message import TextPart
 
-        from quality_rules import make_text_part
-
-        part = make_text_part("契约测试")
-        self.assertIsNotNone(part)
-        self.assertIsInstance(part, TextPart)
-        self.assertEqual(part.model_dump(), {"type": "text", "text": "契约测试"})
+        with tempfile.TemporaryDirectory() as td:
+            core = self._core(td)
+            self.assertIsNotNone(core.text_part_factory, "真实宿主应探测到 TextPart")
+            make_text_part = get_quality_rules().make_text_part
+            part = make_text_part("契约测试", factory=core.text_part_factory)
+            self.assertIsInstance(part, TextPart)
+            self.assertEqual(part.model_dump(), {"type": "text", "text": "契约测试"})
 
     def test_real_provider_injection_idempotent(self):
         """v0.6.0：稳定规则写 system_prompt（不入 extra/历史），同请求幂等。"""
         from astrbot.api.provider import ProviderRequest
 
-        from quality_rules import STABLE_RULE_MARKER
+        STABLE_RULE_MARKER = get_quality_rules().STABLE_RULE_MARKER
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(td)
@@ -82,7 +86,7 @@ class RealHostContractTest(unittest.TestCase):
         """v0.6.0 迁移：历史 list 形态旧规则块被移除，规则改由 system 提供。"""
         from astrbot.api.provider import ProviderRequest
 
-        from quality_rules import STABLE_RULE_MARKER
+        STABLE_RULE_MARKER = get_quality_rules().STABLE_RULE_MARKER
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(td)
@@ -107,7 +111,7 @@ class RealHostContractTest(unittest.TestCase):
     def test_history_marker_skip_and_dynamic_replace(self):
         from astrbot.api.provider import LLMResponse, ProviderRequest
 
-        from quality_rules import RUNTIME_HINT_MARKER
+        RUNTIME_HINT_MARKER = get_quality_rules().RUNTIME_HINT_MARKER
 
         with tempfile.TemporaryDirectory() as td:
             core_r = self._core(td, {"inject_stable_rules": False})
@@ -144,7 +148,7 @@ class RealHostContractTest(unittest.TestCase):
         """hint 清空后，真实 ProviderRequest 历史中的旧动态块被移除，用户原话保留。"""
         from astrbot.api.provider import LLMResponse, ProviderRequest
 
-        from quality_rules import RUNTIME_HINT_MARKER
+        RUNTIME_HINT_MARKER = get_quality_rules().RUNTIME_HINT_MARKER
 
         with tempfile.TemporaryDirectory() as td:
             core = self._core(td, {"inject_stable_rules": False})
@@ -201,7 +205,8 @@ class RealHostContractTest(unittest.TestCase):
                 )
             )
             self.assertTrue(core.store.get(event.unified_msg_origin).avoid_openers, "前置：已产生提醒状态")
-            with mock.patch("quality_rules.make_text_part", return_value=None):
+            qr = get_quality_rules()
+            with mock.patch.object(qr, "make_text_part", return_value=None):
                 req = ProviderRequest("再聊")
                 asyncio.run(core.on_llm_request(event, req))
                 self.assertEqual(len(req.extra_user_content_parts), 0, "构造失败不应注入")

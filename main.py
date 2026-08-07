@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -7,51 +9,48 @@ from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, filter
 from astrbot.api.event.filter import PermissionType, permission_type
 from astrbot.api.provider import LLMResponse, ProviderRequest
-from astrbot.api.star import Context, Star, StarTools, register
+from astrbot.api.star import Context, Star, StarTools
 
-# 双导入约定：except 分支服务于 tests 以顶层模块方式导入（仓库目录名带 -main 后缀无法包导入）；
-# 新增导入名须两处同步。真实 AstrBot 宿主以包方式加载时走相对导入。
-try:
-    from .quality_rules import (
-        RUNTIME_HINT_MARKER,
-        STABLE_RULE_MARKER,
-        append_temp_text_part,
-        build_runtime_hint,
-        build_stable_rules,
-        inject_stable_rules,
-        remove_marker_in_contexts,
-        replace_marker_in_contexts,
-        scan_request_markers,
-    )
-    from .runtime_state import RuntimeStateStore
-except ImportError:  # pragma: no cover — 测试等无宿主环境以顶层模块运行时的导入回退
-    from quality_rules import (
-        RUNTIME_HINT_MARKER,
-        STABLE_RULE_MARKER,
-        append_temp_text_part,
-        build_runtime_hint,
-        build_stable_rules,
-        inject_stable_rules,
-        remove_marker_in_contexts,
-        replace_marker_in_contexts,
-        scan_request_markers,
-    )
-    from runtime_state import RuntimeStateStore
+from .quality_rules import (
+    MARKER_ABSENT,
+    MARKER_MODIFIED,
+    MARKER_STR_BLOCKED,
+    RUNTIME_HINT_MARKER,
+    STABLE_RULE_MARKER,
+    append_temp_text_part,
+    apply_context_marker,
+    build_runtime_hint,
+    build_stable_rules,
+    inject_stable_rules,
+)
+from .runtime_state import RuntimeStateStore
 
 
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
-PLUGIN_VERSION = "0.6.2"
 
 
-def config_get(config: Any, key: str, default: Any) -> Any:
-    """dict 兼容读取（AstrBotConfig 是 dict 子类，MRO 实测确认）。"""
-    if config is None:
-        return default
-    return config.get(key, default)
+def _read_metadata_version(path: str | Path | None = None) -> str:
+    """版本唯一源：同目录 metadata.yaml 的 version 字段（无第三方 YAML 依赖）。
+
+    path 参数化后可在测试中注入自定义路径，提升降级分支可测性。
+    """
+    meta_path = Path(path) if path is not None else Path(__file__).with_name("metadata.yaml")
+    try:
+        for line in meta_path.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if text.startswith("version:"):
+                value = text.split(":", 1)[1].strip().strip("\"'")
+                if value:
+                    return value
+    except OSError:
+        pass
+    return "0.0.0"
 
 
-def config_bool(config: Any, key: str, default: bool) -> bool:
-    value = config_get(config, key, default)
+PLUGIN_VERSION = _read_metadata_version()
+
+
+def _parse_bool(value: Any, default: bool) -> bool:
     if isinstance(value, bool):
         return value
     if value is None:
@@ -59,21 +58,68 @@ def config_bool(config: Any, key: str, default: bool) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
 
 
-def config_int(config: Any, key: str, default: int, minimum: int, maximum: int) -> int:
+def _parse_int(value: Any, default: int, minimum: int, maximum: int) -> int:
     try:
-        value = int(config_get(config, key, default))
+        value = int(value)
     except (TypeError, ValueError):
         value = default
     return max(minimum, min(maximum, value))
 
 
-def config_list(config: Any, key: str) -> list[str]:
-    value = config_get(config, key, [])
+def _parse_list(value: Any) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     if isinstance(value, str):
         return [item.strip() for item in value.splitlines() if item.strip()]
     return []
+
+
+@dataclass(frozen=True)
+class AppConfig:
+    """构造期一次性解析的配置快照（README：修改配置需重载插件生效）。"""
+
+    enabled: bool = True
+    inject_stable_rules: bool = True
+    inject_runtime_state: bool = True
+    debug_log: bool = False
+    max_runtime_hint_chars: int = 600
+    state_retention_days: int = 14
+    recent_reply_window: int = 8
+    custom_cliches: tuple[str, ...] = ()
+    disabled_sessions: frozenset[str] = frozenset()
+
+    @classmethod
+    def from_config(cls, config: Any) -> AppConfig:
+        """唯一解析点：dict 兼容读取（AstrBotConfig 是 dict 子类，MRO 实测确认）。"""
+        raw = config if config is not None else {}
+
+        def get(key: str, default: Any) -> Any:
+            return raw.get(key, default)
+
+        return cls(
+            enabled=_parse_bool(get("enabled", True), True),
+            inject_stable_rules=_parse_bool(get("inject_stable_rules", True), True),
+            inject_runtime_state=_parse_bool(get("inject_runtime_state", True), True),
+            debug_log=_parse_bool(get("debug_log", False), False),
+            max_runtime_hint_chars=_parse_int(get("max_runtime_hint_chars", 600), 600, 80, 3000),
+            state_retention_days=_parse_int(get("state_retention_days", 14), 14, 1, 365),
+            recent_reply_window=_parse_int(get("recent_reply_window", 8), 8, 3, 50),
+            custom_cliches=tuple(_parse_list(get("custom_cliches", []))),
+            disabled_sessions=frozenset(item.lower() for item in _parse_list(get("disabled_sessions", []))),
+        )
+
+
+@lru_cache(maxsize=1)
+def _probe_text_part_cls() -> Any | None:
+    """探测 TextPart 类（进程内首次调用后缓存，热重载=新函数对象=缓存自然清空）。"""
+    try:
+        from astrbot.core.agent.message import TextPart
+
+        return TextPart
+    except Exception as e:
+        if logger is not None:
+            logger.warning(f"[HumanChatQuality] TextPart unavailable, temp extra injection disabled: {e}")
+        return None
 
 
 def _extract_response_text(resp: Any) -> str:
@@ -84,29 +130,35 @@ def _extract_response_text(resp: Any) -> str:
         if completion_text:
             return completion_text
     # 兜底：遍历 result_chain / message chain 中的文本 part
+    return " ".join(part for part in (_extract_text_from_part(item) for item in _normalize_chain(resp)) if part).strip()
+
+
+def _normalize_chain(resp: Any) -> list[Any]:
+    """提取 result_chain / message chain 并归一化为 list。"""
     chain = getattr(resp, "result_chain", None) or getattr(resp, "message", None) or []
     chain_items = getattr(chain, "chain", None)
     if chain_items is not None:
         chain = chain_items
     if not isinstance(chain, list):
         chain = [chain]
-    parts: list[str] = []
-    for item in chain:
-        if item is None:
-            continue
-        # 兜底路径只吸收模型输出：明确非 assistant 的 part（如平台消息里的用户输入）跳过
-        role = getattr(item, "role", None)
-        if role is not None and role != "assistant":
-            continue
-        text = getattr(item, "text", None)
-        if isinstance(text, str):
-            parts.append(text)
-            continue
-        # 某些 provider 把文本放在 content 字段（仅接受 str，结构化内容不进入记录）
-        content = getattr(item, "content", None)
-        if isinstance(content, str):
-            parts.append(content)
-    return " ".join(parts).strip()
+    return chain
+
+
+def _extract_text_from_part(item: Any) -> str:
+    """从单个 part 提取文本；兜底路径只吸收模型输出，明确非 assistant 的 part 跳过。"""
+    if item is None:
+        return ""
+    role = getattr(item, "role", None)
+    if role is not None and role != "assistant":
+        return ""
+    text = getattr(item, "text", None)
+    if isinstance(text, str):
+        return text
+    # 某些 provider 把文本放在 content 字段（仅接受 str，结构化内容不进入记录）
+    content = getattr(item, "content", None)
+    if isinstance(content, str):
+        return content
+    return ""
 
 
 class HumanChatQualityCore:
@@ -118,18 +170,12 @@ class HumanChatQualityCore:
         store: RuntimeStateStore,
         text_part_factory: Any | None = None,
     ) -> None:
-        self.config = config or {}
+        # 接受 AppConfig 或原始 config dict（后者就地解析，夹具兼容）
+        self.cfg = config if isinstance(config, AppConfig) else AppConfig.from_config(config)
         self.store = store
-        self.text_part_factory = text_part_factory
+        # factory 优先；缺失时经 _probe_text_part_cls 探测宿主 TextPart（进程级缓存，热重载即重探）
+        self.text_part_factory = text_part_factory or _probe_text_part_cls()
         self.injection_count = 0
-        # 配置快照：README 约定"修改配置需重载插件生效"，构造时解析一次，
-        # 热路径只读属性，不再每轮重复解析
-        self._enabled = config_bool(self.config, "enabled", True)
-        self._inject_stable = config_bool(self.config, "inject_stable_rules", True)
-        self._inject_runtime = config_bool(self.config, "inject_runtime_state", True)
-        self._debug_log = config_bool(self.config, "debug_log", False)
-        self._max_hint_chars = config_int(self.config, "max_runtime_hint_chars", 600, 80, 3000)
-        self._disabled_sessions = frozenset(item.lower() for item in config_list(self.config, "disabled_sessions"))
         # stable 迁移清理按会话只执行一次：v0.6.0 起稳定规则只写 system 不入历史
         self._stable_migration_checked: set[str] = set()
 
@@ -141,55 +187,62 @@ class HumanChatQualityCore:
         if not self._is_effectively_active(session_id, event):
             return
 
-        # v0.6.0：稳定规则幂等写 system_prompt（不再入历史）；runtime 提示走 temp extra，
-        # 历史旧块原位替换、清空后同步移除（改写随本次保存写回历史）。
+        # v0.6.0：稳定规则幂等写 system_prompt；runtime 经 apply_context_marker 单趟处理历史。
         injected_rules = False
         injected_hint = ""
         removed_stale = False
+        avoid_openers: list[str] | None = None
 
-        if self._inject_stable:
-            # 迁移：清掉落入历史的旧规则块（每会话只检查一次，历史恢复干净后不再全扫）
+        if self.cfg.inject_stable_rules:
+            # 迁移：清掉落入历史的旧规则块；str_blocked 时不标记完成，待 list 形态再试
             if session_id not in self._stable_migration_checked:
-                if remove_marker_in_contexts(req, STABLE_RULE_MARKER):
+                migrate = apply_context_marker(req, STABLE_RULE_MARKER, None)
+                if migrate == MARKER_MODIFIED:
                     removed_stale = True
-                self._stable_migration_checked.add(session_id)
+                if migrate != MARKER_STR_BLOCKED:
+                    self._stable_migration_checked.add(session_id)
             before = getattr(req, "system_prompt", "") or ""
             after = inject_stable_rules(before)
             if after != before:
                 req.system_prompt = after
                 injected_rules = True
 
-        if self._inject_runtime:
+        if self.cfg.inject_runtime_state:
             state = self.store.get(session_id)
-            # 单次遍历收集本轮已存在的注入标记（仅 runtime 分支消费；双关时零扫描）
-            found = scan_request_markers(req, (RUNTIME_HINT_MARKER,))
-            hint = build_runtime_hint(state, max_chars=self._max_hint_chars)
+            avoid_openers = state.avoid_openers
+            hint = build_runtime_hint(state, max_chars=self.cfg.max_runtime_hint_chars)
             if hint:
-                # 历史已有旧块则原位替换（每轮更新重复开头清单，且不累积）；
-                # 首轮（历史无块）走 append；发现 marker 但不可安全替换时不追加，防累积。
-                if replace_marker_in_contexts(req, RUNTIME_HINT_MARKER, hint) or (
-                    RUNTIME_HINT_MARKER not in found
+                # modified：历史原位更新；absent：首轮 append；str_blocked：不切割也不追加
+                result = apply_context_marker(req, RUNTIME_HINT_MARKER, hint)
+                if result == MARKER_MODIFIED or (
+                    result == MARKER_ABSENT
                     and append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER)
                 ):
                     injected_hint = hint
-            elif RUNTIME_HINT_MARKER in found and remove_marker_in_contexts(req, RUNTIME_HINT_MARKER):
-                # hint 已清空：同步移除历史中的旧动态块，失效约束不留给模型
+            elif apply_context_marker(req, RUNTIME_HINT_MARKER, None) == MARKER_MODIFIED:
                 removed_stale = True
 
         if injected_rules or injected_hint:
             self.injection_count += 1
-        if (injected_rules or injected_hint or removed_stale) and self._debug_log:
-            logger.debug(f"[HumanChatQuality] injected quality hints for {session_id}")
-            if injected_rules:
-                logger.debug(
-                    f"[HumanChatQuality] stable rules injected into system_prompt (marker={STABLE_RULE_MARKER})"
-                )
-            if injected_hint:
-                logger.debug(f"[HumanChatQuality] runtime hint injected:\n{injected_hint}")
-                # 仅注入 runtime 提示时才有本轮状态可读（state 在 runtime 分支内定义）
-                logger.debug(f"[HumanChatQuality] runtime state for {session_id}: avoid_openers={state.avoid_openers}")
-            if removed_stale:
-                logger.debug(f"[HumanChatQuality] stale injection block removed from contexts for {session_id}")
+        if (injected_rules or injected_hint or removed_stale) and self.cfg.debug_log:
+            self._log_injection(session_id, injected_rules, injected_hint, removed_stale, avoid_openers)
+
+    def _log_injection(
+        self,
+        session_id: str,
+        injected_rules: bool,
+        injected_hint: str,
+        removed_stale: bool,
+        avoid_openers: list[str] | None,
+    ) -> None:
+        logger.debug(f"[HumanChatQuality] injected quality hints for {session_id}")
+        if injected_rules:
+            logger.debug(f"[HumanChatQuality] stable rules injected into system_prompt (marker={STABLE_RULE_MARKER})")
+        if injected_hint:
+            logger.debug(f"[HumanChatQuality] runtime hint injected:\n{injected_hint}")
+            logger.debug(f"[HumanChatQuality] runtime state for {session_id}: avoid_openers={avoid_openers}")
+        if removed_stale:
+            logger.debug(f"[HumanChatQuality] stale injection block removed from contexts for {session_id}")
 
     async def on_llm_response(self, event: Any, resp: Any) -> None:
         session_id = self._session_id(event)
@@ -202,7 +255,7 @@ class HumanChatQualityCore:
         if not text:
             return
         await self.store.record_response(session_id, text)
-        if self._debug_log:
+        if self.cfg.debug_log:
             state = self.store.get(session_id)
             logger.debug(f"[HumanChatQuality] recorded response for {session_id}: avoid_openers={state.avoid_openers}")
 
@@ -221,36 +274,37 @@ class HumanChatQualityCore:
         return (
             "Human Chat Quality 状态：\n"
             f"- 当前会话：启用\n"
-            f"- 稳定规则：{'启用' if self._inject_stable else '关闭'}（system_prompt）\n"
-            f"- 运行时提示：{'启用' if self._inject_runtime else '关闭'}\n"
+            f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '关闭'}（system_prompt）\n"
+            f"- 运行时提示：{'启用' if self.cfg.inject_runtime_state else '关闭'}\n"
             f"- 自启动以来累计注入：{self.injection_count} 次\n"
             f"- 最近重复开头：{avoid}"
         )
 
     def _is_active(self, session_id: str) -> bool:
-        if not self._enabled:
+        if not self.cfg.enabled:
             return False
         return self.store.is_enabled(session_id)
 
     def _is_effectively_active(self, session_id: str, event: Any | None = None) -> bool:
         if not self._is_active(session_id):
             return False
-        if not self._disabled_sessions:
-            return True
-        candidates = (
-            disabled_match_candidates(event)
-            if event is not None
-            else disabled_match_candidates_from_session(session_id)
-        )
-        return not any(candidate in self._disabled_sessions for candidate in candidates)
+        return not is_session_disabled(self.cfg.disabled_sessions, session_id, event)
 
     @staticmethod
     def _session_id(event: Any) -> str:
-        return str(getattr(event, "unified_msg_origin", "") or "").strip()
+        return unified_origin(event)
 
 
-def _disabled_candidates(session_id: str, group_id: str) -> set[str]:
+def unified_origin(event: Any) -> str:
+    """从 event 取统一会话源标识（session_id / group 兜底共用）。"""
+    return str(getattr(event, "unified_msg_origin", "") or "").strip()
+
+
+def match_keys(session_id: str, group_id: str = "") -> frozenset[str]:
+    """归一化禁用匹配键：完整来源、群号、group:/GroupMessage: 前缀、# 前后 base。"""
     candidates: set[str] = set()
+    session_id = str(session_id or "").strip()
+    group_id = str(group_id or "").strip()
     if session_id:
         candidates.add(session_id)
     if group_id:
@@ -262,22 +316,20 @@ def _disabled_candidates(session_id: str, group_id: str) -> set[str]:
             candidates.add(base_group_id)
             candidates.add(f"group:{base_group_id}")
             candidates.add(f"GroupMessage:{base_group_id}")
-    return {candidate.lower() for candidate in candidates if candidate}
+    return frozenset(c.lower() for c in candidates if c)
 
 
-def disabled_match_candidates(event: Any) -> set[str]:
-    return _disabled_candidates(
-        str(getattr(event, "unified_msg_origin", "") or "").strip(),
-        group_id_from_event(event),
-    )
-
-
-def disabled_match_candidates_from_session(session_id: str) -> set[str]:
-    session_id = str(session_id or "").strip()
-    return _disabled_candidates(session_id, group_id_from_session_id(session_id))
+def is_session_disabled(disabled: frozenset[str], session_id: str, event: Any | None = None) -> bool:
+    """配置禁用列表是否命中本会话（event 可提供更准的 group_id）。"""
+    if not disabled:
+        return False
+    group_id = group_id_from_event(event) if event is not None else _parse_group_id_from_origin(session_id)
+    return not match_keys(session_id, group_id).isdisjoint(disabled)
 
 
 def group_id_from_event(event: Any) -> str:
+    """从事件提取 group_id（按优先级单趟探测）。"""
+    # 优先：平台标准接口
     getter = getattr(event, "get_group_id", None)
     if callable(getter):
         try:
@@ -287,43 +339,49 @@ def group_id_from_event(event: Any) -> str:
         except Exception as e:
             if logger is not None:
                 logger.debug(f"[HumanChatQuality] get_group_id failed: {e}")
-
-    message_obj = getattr(event, "message_obj", None)
-    for owner in (event, message_obj):
+    # 次优：事件对象与 message_obj 的属性（含嵌套 dict/object 提取）
+    for owner in (event, getattr(event, "message_obj", None)):
         if owner is None:
             continue
-        for attr in ("group_id", "group"):
-            group_id = extract_group_id(getattr(owner, attr, None))
+        for attr in ("group_id", "group", "id", "qq", "uin"):
+            group_id = _extract_and_normalize(owner, attr)
             if group_id:
                 return group_id
-
-    return group_id_from_session_id(str(getattr(event, "unified_msg_origin", "") or ""))
-
-
-def group_id_from_session_id(session_id: str) -> str:
-    parts = str(session_id or "").strip().split(":", 2)
-    if len(parts) >= 3 and "group" in parts[1].lower():
-        return parts[2].strip()
-    return ""
+    # 兜底：从 unified_origin 解析（platform:GroupMessage:123456）
+    return _parse_group_id_from_origin(unified_origin(event))
 
 
-def extract_group_id(value: Any) -> str:
-    if value is None:
+# 从容器提取 group_id 时按优先级探测的属性名（dict 与 object 同序）
+_GROUP_ID_KEYS = ("group_id", "id", "qq", "uin")
+
+
+def _extract_and_normalize(owner: Any, attr: str) -> str:
+    """从 owner 提取 attr 属性并规范化（深入一层 dict/object，不递归）。"""
+    value = getattr(owner, attr, None)
+    if value is None or isinstance(value, bool):
         return ""
+
+    # dict 形态：提取子字段并规范化
     if isinstance(value, dict):
-        for key in ("group_id", "id", "qq", "uin"):
-            group_id = normalize_group_id(value.get(key))
-            if group_id:
-                return group_id
+        for key in _GROUP_ID_KEYS:
+            result = _normalize_id(value.get(key))
+            if result:
+                return result
         return ""
-    for attr in ("group_id", "id", "qq", "uin"):
-        group_id = normalize_group_id(getattr(value, attr, None))
-        if group_id:
-            return group_id
-    return normalize_group_id(value)
+
+    # object 形态：提取子字段并规范化
+    if hasattr(value, "__dict__"):
+        for key in _GROUP_ID_KEYS:
+            result = _normalize_id(getattr(value, key, None))
+            if result:
+                return result
+
+    # primitive：直接规范化
+    return _normalize_id(value)
 
 
-def normalize_group_id(value: Any) -> str:
+def _normalize_id(value: Any) -> str:
+    """规范化为字符串 ID（只处理 primitive，不递归）。"""
     if value is None or isinstance(value, bool):
         return ""
     if isinstance(value, (str, int)):
@@ -331,24 +389,25 @@ def normalize_group_id(value: Any) -> str:
     return ""
 
 
-@register(
-    PLUGIN_ID,
-    "chengzhi-c",
-    "轻量聊天人性化质量层：隐藏去模板腔规则与本轮运行时提示。",
-    PLUGIN_VERSION,
-)
+def _parse_group_id_from_origin(origin: str) -> str:
+    parts = str(origin or "").strip().split(":", 2)
+    if len(parts) >= 3 and "group" in parts[1].lower():
+        return parts[2].strip()
+    return ""
+
+
 class HumanChatQualityPlugin(Star):
     def __init__(self, context: Context, config: AstrBotConfig | dict | None = None):
         super().__init__(context)
-        self.config = config or {}
+        cfg = AppConfig.from_config(config)
         data_dir = Path(StarTools.get_data_dir(PLUGIN_ID))
         self.store = RuntimeStateStore(
             data_dir / "runtime_state.json",
-            retention_days=config_int(self.config, "state_retention_days", 14, 1, 365),
-            recent_reply_window=config_int(self.config, "recent_reply_window", 8, 1, 50),
-            custom_cliches=config_list(self.config, "custom_cliches"),
+            retention_days=cfg.state_retention_days,
+            recent_reply_window=cfg.recent_reply_window,
+            custom_cliches=cfg.custom_cliches,
         )
-        self.core = HumanChatQualityCore(self.config, self.store)
+        self.core = HumanChatQualityCore(cfg, self.store)
         logger.info(
             f"[HumanChatQuality] plugin loaded, version={PLUGIN_VERSION}, "
             f"sessions={len(self.store.sessions)}, custom_cliches={len(self.store.custom_cliches)}"

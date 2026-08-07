@@ -1,19 +1,8 @@
-"""main.py 双导入 try 分支（生产包加载路径）冒烟测试。
+"""生产包相对导入冒烟：业务模块必须能以包方式加载（无顶层 fallback）。"""
 
-背景：真实 AstrBot 宿主以包方式加载插件，走 main.py 的 try 分支
-（`from .quality_rules import ...`）；而仓库内全部常规测试都是顶层导入
-（走 except 分支）。本测试以临时包结构复制源文件后包导入，堵住
-"只改了 except 没改 try"的导入名不同步回归盲区。
-
-隔离策略：子进程独立解释器运行，只暴露临时包目录与 tests 目录（假宿主）。
-必须显式清空 PYTHONPATH/PYTHONHOME：若环境变量指向仓库根，except fallback
-会从仓库根顶层导入成功，掩盖 try 分支破坏（红灯实测确认的掩盖路径之一）。
-
-运行：python -m unittest discover -s tests -v
-"""
+from __future__ import annotations
 
 import os
-import shutil
 import subprocess
 import sys
 import tempfile
@@ -22,32 +11,28 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent
 TESTS_DIR = Path(__file__).resolve().parent
-# 新增模块文件时同步此清单（双导入约定的一部分，由本测试红灯兜底）
 MODULES = ("main", "quality_rules", "runtime_state")
 
 
 class PackageImportSmokeTest(unittest.TestCase):
-    def test_package_import(self):
+    def test_package_import_relative_only(self):
+        """子进程内以正式包名加载，确认相对导入可用且不出现顶层 quality_rules。"""
         with tempfile.TemporaryDirectory() as td:
-            pkg = Path(td) / "hcq_pkg"
-            pkg.mkdir()
-            (pkg / "__init__.py").write_text("", encoding="utf-8")
-            for name in MODULES:
-                shutil.copy2(SRC / f"{name}.py", pkg / f"{name}.py")
-            script = (
-                "import sys; "
-                f"sys.path.insert(0, {str(TESTS_DIR)!r}); "
-                "import _fakes; "
-                f"sys.path.insert(0, {str(td)!r}); "
-                "import importlib; "
-                "m = importlib.import_module('hcq_pkg.main'); "
-                "assert m.STABLE_RULE_MARKER == '[Human Chat Quality Rules v2]', m.STABLE_RULE_MARKER; "
-                "assert callable(m.HumanChatQualityCore) and callable(m.HumanChatQualityPlugin); "
-                # 关键：确认走的是包内相对导入（try 分支）而非 except 顶层导入。
-                # except fallback 会创建顶层 quality_rules 模块名，try 分支不会。
-                "assert 'quality_rules' not in sys.modules, 'top-level fallback used (try branch broken)'; "
-                "print('PKG_OK')"
-            )
+            script = f"""
+import sys
+from pathlib import Path
+sys.path.insert(0, {str(TESTS_DIR)!r})
+import _fakes
+from tests_pkg_loader import load_plugin_package, PLUGIN_PKG
+import sys as _sys
+pkg = load_plugin_package()
+m = _sys.modules[PLUGIN_PKG + '.main']
+assert m.STABLE_RULE_MARKER == '[Human Chat Quality Rules v2]', m.STABLE_RULE_MARKER
+assert callable(m.HumanChatQualityCore) and callable(m.HumanChatQualityPlugin)
+assert 'quality_rules' not in _sys.modules, 'top-level quality_rules leaked'
+assert (PLUGIN_PKG + '.quality_rules') in _sys.modules
+print('PKG_OK')
+"""
             env = dict(os.environ)
             env["PYTHONPATH"] = ""
             env["PYTHONHOME"] = ""
@@ -57,9 +42,9 @@ class PackageImportSmokeTest(unittest.TestCase):
                 text=True,
                 cwd=str(td),
                 env=env,
-                timeout=30,
+                timeout=60,
             )
-            self.assertEqual(r.returncode, 0, f"package import failed:\n{r.stderr}")
+            self.assertEqual(r.returncode, 0, f"package import failed:\nstdout={r.stdout}\nstderr={r.stderr}")
             self.assertNotIn("Traceback", r.stderr)
             self.assertIn("PKG_OK", r.stdout)
 

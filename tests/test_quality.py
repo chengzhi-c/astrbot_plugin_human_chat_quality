@@ -7,29 +7,29 @@
 import asyncio
 import json
 import os
-import sys
 import tempfile
 import time
 import unittest
 from pathlib import Path
 from typing import ClassVar
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-
 from _fakes import FakeEvent
+from helpers import get_main, get_quality_rules, get_runtime_state, load_plugin_package
 
-from main import (
-    disabled_match_candidates,
-    disabled_match_candidates_from_session,
-    group_id_from_session_id,
-)
-from quality_rules import STABLE_RULE_MARKER, build_stable_rules
-from runtime_state import (
-    RuntimeStateStore,
-    detect_cliches,
-    extract_opener,
-    repeated_items,
-)
+load_plugin_package()
+main = get_main()
+quality_rules = get_quality_rules()
+runtime_state = get_runtime_state()
+
+parse_group_id_from_origin = main._parse_group_id_from_origin
+is_session_disabled = main.is_session_disabled
+match_keys = main.match_keys
+STABLE_RULE_MARKER = quality_rules.STABLE_RULE_MARKER
+build_stable_rules = quality_rules.build_stable_rules
+RuntimeStateStore = runtime_state.RuntimeStateStore
+detect_cliches = runtime_state.detect_cliches
+extract_opener = runtime_state.extract_opener
+repeated_items = runtime_state.repeated_items
 
 
 class DetectClichesTest(unittest.TestCase):
@@ -126,6 +126,23 @@ class RepeatedItemsTest(unittest.TestCase):
 
     def test_limit(self):
         self.assertEqual(repeated_items(["a", "b", "a", "b", "a", "b"], limit=1, threshold=2), ["a"])
+
+
+class WindowFloorTest(unittest.TestCase):
+    """recent_reply_window 不得小于 OPENER_REPEAT_THRESHOLD（配置死区红灯）。"""
+
+    def test_window_two_still_detects_repeat_after_clamp(self):
+        """构造传入 window=2 时夹到阈值；连记 3 条相同开头必须进 avoid。"""
+        with tempfile.TemporaryDirectory() as td:
+            store = RuntimeStateStore(
+                Path(td) / "state.json",
+                retention_days=14,
+                recent_reply_window=2,
+            )
+            self.assertGreaterEqual(store.recent_reply_window, runtime_state.OPENER_REPEAT_THRESHOLD)
+            for _ in range(3):
+                asyncio.run(store.record_response("s1", "好的，我先记下了"))
+            self.assertIn("好的", store.get("s1").avoid_openers)
 
 
 class RuntimeStateStoreTest(unittest.TestCase):
@@ -507,7 +524,7 @@ class RuntimeStateStoreTest(unittest.TestCase):
             (tmp / "no_such_dir").write_text("i am a file", encoding="utf-8")
             from unittest import mock
 
-            with mock.patch("runtime_state.logger.warning") as warn:
+            with mock.patch.object(runtime_state.logger, "warning") as warn:
                 try:
                     self._run(store.record_response("s1", "这是一条会触发保存失败的消息"))
                 except Exception:
@@ -520,37 +537,49 @@ class GroupMatchTest(unittest.TestCase):
     """群号提取与禁用匹配（main.py 纯函数）。"""
 
     def test_group_id_from_session(self):
-        self.assertEqual(group_id_from_session_id("aiocqhttp:GroupMessage:123456#abc"), "123456#abc")
-        self.assertEqual(group_id_from_session_id("PrivateMessage:123"), "")
+        self.assertEqual(parse_group_id_from_origin("aiocqhttp:GroupMessage:123456#abc"), "123456#abc")
+        self.assertEqual(parse_group_id_from_origin("PrivateMessage:123"), "")
 
-    def test_disabled_from_event_splits_base(self):
+    def test_match_keys_from_event_splits_base(self):
         event = FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
-        candidates = disabled_match_candidates(event)
+        candidates = match_keys(event.unified_msg_origin, event.get_group_id())
         self.assertIn("123456", candidates)
         self.assertIn("group:123456", candidates)
         self.assertIn("groupmessage:123456#abc", candidates)
 
-    def test_disabled_from_session_splits_base(self):
+    def test_match_keys_from_session_splits_base(self):
         """session 路径与 event 路径行为一致（回归：# 拆分缺失）。"""
-        candidates = disabled_match_candidates_from_session("aiocqhttp:GroupMessage:123456#abc")
+        sid = "aiocqhttp:GroupMessage:123456#abc"
+        candidates = match_keys(sid, parse_group_id_from_origin(sid))
         self.assertIn("123456", candidates)
         self.assertIn("group:123456", candidates)
 
-    def test_disabled_from_event_with_platform_prefix(self):
-        """生产形态 origin（带平台前缀）的候选集合显式化（隐含契约补测试）。"""
+    def test_match_keys_with_platform_prefix(self):
+        """生产形态 origin（带平台前缀）的候选集合显式化。"""
         event = FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
-        candidates = disabled_match_candidates(event)
+        candidates = match_keys(event.unified_msg_origin, event.get_group_id())
         self.assertIn("aiocqhttp:groupmessage:123456#abc", candidates)
         self.assertIn("groupmessage:123456#abc", candidates)
         self.assertIn("123456", candidates)
         self.assertIn("group:123456", candidates)
         self.assertIn("groupmessage:123456", candidates)
 
-    def test_disabled_from_event_falls_back_to_origin(self):
+    def test_match_keys_private_origin_only(self):
         event = FakeEvent(origin="PrivateMessage:777", group_id=None)
-        candidates = disabled_match_candidates(event)
+        candidates = match_keys(event.unified_msg_origin, "")
         self.assertIn("privatemessage:777", candidates)
         self.assertNotIn("777", candidates)
+
+    def test_is_session_disabled_by_group_number(self):
+        event = FakeEvent(origin="aiocqhttp:GroupMessage:123456#abc", group_id="123456#abc")
+        self.assertTrue(is_session_disabled(frozenset({"123456"}), event.unified_msg_origin, event))
+        self.assertFalse(is_session_disabled(frozenset({"999"}), event.unified_msg_origin, event))
+
+    def test_is_session_disabled_without_event(self):
+        """无 event 时经 origin 解析 group_id（回归：_parse_group_id_from_origin 路径）。"""
+        sid = "aiocqhttp:GroupMessage:123456#abc"
+        self.assertTrue(is_session_disabled(frozenset({"123456"}), sid))
+        self.assertFalse(is_session_disabled(frozenset({"999"}), sid))
 
 
 class StableRulesTest(unittest.TestCase):
@@ -567,23 +596,31 @@ class StableRulesTest(unittest.TestCase):
 
     def test_inject_blank_prompt(self):
         """仅空白 system_prompt 时不保留原空白，直接返回规则（回归：空白边界）。"""
-        from quality_rules import inject_stable_rules
+        inject_stable_rules = quality_rules.inject_stable_rules
 
         self.assertEqual(inject_stable_rules("   "), build_stable_rules())
+
+    def test_inject_non_str_prompt_no_raise(self):
+        """非 str system_prompt 视作空，不抛异常（回归：类型守卫）。"""
+        inject_stable_rules = quality_rules.inject_stable_rules
+
+        self.assertEqual(inject_stable_rules(["系统消息1", "系统消息2"]), build_stable_rules())
+        self.assertEqual(inject_stable_rules(None), build_stable_rules())
 
 
 class BuildRuntimeHintTest(unittest.TestCase):
     """build_runtime_hint 边界：空状态/截断保 marker/超长词剔除。"""
 
     def test_empty_state_no_hint(self):
-        from quality_rules import build_runtime_hint
-        from runtime_state import SessionState
+        build_runtime_hint = quality_rules.build_runtime_hint
+        SessionState = runtime_state.SessionState
 
         self.assertEqual(build_runtime_hint(SessionState(), max_chars=80), "")
 
     def test_truncated_keeps_marker(self):
-        from quality_rules import RUNTIME_HINT_MARKER, build_runtime_hint
-        from runtime_state import SessionState
+        RUNTIME_HINT_MARKER = quality_rules.RUNTIME_HINT_MARKER
+        build_runtime_hint = quality_rules.build_runtime_hint
+        SessionState = runtime_state.SessionState
 
         state = SessionState(avoid_openers=["一个很长的重复开头词用于测试截断行为"], recent_openers=[])
         hint = build_runtime_hint(state, max_chars=80)
@@ -591,8 +628,8 @@ class BuildRuntimeHintTest(unittest.TestCase):
         self.assertTrue(hint.startswith(RUNTIME_HINT_MARKER), "截断不得破坏 marker 头部")
 
     def test_overlong_openers_excluded(self):
-        from quality_rules import build_runtime_hint
-        from runtime_state import SessionState
+        build_runtime_hint = quality_rules.build_runtime_hint
+        SessionState = runtime_state.SessionState
 
         state = SessionState(
             avoid_openers=["短词", "这是一个超过二十个字的超长重复开头条目用于测试"], recent_openers=[]
@@ -620,7 +657,7 @@ class ClipTextTest(unittest.TestCase):
     """clip_text 边界直接覆盖（回归：唯一调用点 80-3000 clamp 下永不触发截断）。"""
 
     def test_boundaries(self):
-        from quality_rules import clip_text
+        clip_text = quality_rules.clip_text
 
         self.assertEqual(clip_text("abc", 0), "")
         self.assertEqual(clip_text("abc", 1), ".")
@@ -692,31 +729,129 @@ class StoreEdgeCaseTest(unittest.TestCase):
 
 
 class GroupIdEdgeTest(unittest.TestCase):
-    """normalize_group_id / extract_group_id 深度路径表驱动（回归：bool/异常/message_obj 兜底无覆盖）。"""
+    """_normalize_id / _extract_and_normalize / group_id_from_event 深度路径表驱动
+    （回归：bool/异常/message_obj 兜底/qq/uin 入口/嵌套只深入一层）。"""
 
-    def test_normalize_group_id_table(self):
-        from main import normalize_group_id
+    def test_normalize_id_table(self):
+        _normalize_id = main._normalize_id
 
-        self.assertEqual(normalize_group_id(None), "")
-        self.assertEqual(normalize_group_id(True), "")
-        self.assertEqual(normalize_group_id(False), "")
-        self.assertEqual(normalize_group_id(123), "123")
-        self.assertEqual(normalize_group_id(" 456 "), "456")
-        self.assertEqual(normalize_group_id([]), "")
-        self.assertEqual(normalize_group_id({}), "")
-        self.assertEqual(normalize_group_id(1.5), "")
+        self.assertEqual(_normalize_id(None), "")
+        self.assertEqual(_normalize_id(True), "")
+        self.assertEqual(_normalize_id(False), "")
+        self.assertEqual(_normalize_id(123), "123")
+        self.assertEqual(_normalize_id(" 456 "), "456")
+        self.assertEqual(_normalize_id([]), "")
+        self.assertEqual(_normalize_id({}), "")
+        self.assertEqual(_normalize_id(1.5), "")
 
-    def test_extract_group_id_dict_priority(self):
-        from main import extract_group_id
+    def test_extract_and_normalize_dict_priority(self):
+        """value 为 dict 形态：提取子字段，group_id 优先。"""
+        _extract_and_normalize = main._extract_and_normalize
 
-        self.assertEqual(extract_group_id({"qq": "111"}), "111")
-        self.assertEqual(extract_group_id({"id": 222}), "222")
-        self.assertEqual(extract_group_id({"group_id": 333, "id": 444}), "333", "group_id 优先")
-        self.assertEqual(extract_group_id({"other": "x"}), "")
+        class _Owner:
+            pass
+
+        owner = _Owner()
+        owner.group_id = {"qq": "111"}
+        self.assertEqual(_extract_and_normalize(owner, "group_id"), "111")
+        owner2 = _Owner()
+        owner2.group = {"id": 222}
+        self.assertEqual(_extract_and_normalize(owner2, "group"), "222")
+        owner3 = _Owner()
+        owner3.group_id = {"group_id": 333, "id": 444}
+        self.assertEqual(_extract_and_normalize(owner3, "group_id"), "333", "group_id 优先")
+        owner4 = _Owner()
+        owner4.group_id = {"other": "x"}
+        self.assertEqual(_extract_and_normalize(owner4, "group_id"), "")
+
+    def test_extract_and_normalize_object_nested(self):
+        """value 为 object 形态：深入一层提取子字段。"""
+        _extract_and_normalize = main._extract_and_normalize
+
+        class _Group:
+            uin = "555"
+
+        class _Owner:
+            group = _Group()
+
+        self.assertEqual(_extract_and_normalize(_Owner(), "group"), "555")
+
+    def test_extract_and_normalize_primitive(self):
+        """primitive 值直接规范化；bool 排除。"""
+        _extract_and_normalize = main._extract_and_normalize
+
+        class _Owner:
+            group_id = " 456 "
+            group = True
+
+        self.assertEqual(_extract_and_normalize(_Owner(), "group_id"), "456")
+        self.assertEqual(_extract_and_normalize(_Owner(), "group"), "")
+
+    def test_extract_and_normalize_no_recursion(self):
+        """只深入一层：dict/object 内的 dict/object 不再递归（回归：过度递归修正）。"""
+        _extract_and_normalize = main._extract_and_normalize
+
+        class _Owner:
+            def __init__(self):
+                self.group = _Group()
+                self.group_id = {"id": {"qq": "777"}}
+
+        class _Group:
+            def __init__(self):
+                self.id = {"qq": "777"}
+
+        self.assertEqual(_extract_and_normalize(_Owner(), "group_id"), "", "dict 内的 dict 不再深入")
+        self.assertEqual(_extract_and_normalize(_Owner(), "group"), "", "object 内的 object 不再深入")
+
+    def test_group_id_from_event_direct_attrs(self):
+        """属性入口完整：qq/uin/id 可直接在 event/message_obj 上命中。"""
+        group_id_from_event = main.group_id_from_event
+
+        class _EventQQ:
+            unified_msg_origin = "aiocqhttp:GroupMessage:456#def"
+            qq = "456"
+
+        class _EventUin:
+            unified_msg_origin = "aiocqhttp:GroupMessage:457#def"
+            uin = "457"
+
+        class _MsgObj:
+            id = "458"
+
+        class _EventId:
+            unified_msg_origin = "aiocqhttp:GroupMessage:458#def"
+            message_obj = _MsgObj()
+
+        self.assertEqual(group_id_from_event(_EventQQ()), "456")
+        self.assertEqual(group_id_from_event(_EventUin()), "457")
+        self.assertEqual(group_id_from_event(_EventId()), "458")
+
+    def test_group_id_from_event_attr_priority(self):
+        """5 属性优先级：group_id > group > id > qq > uin（回归：多属性冲突场景）。"""
+        group_id_from_event = main.group_id_from_event
+
+        class _Event:
+            unified_msg_origin = "aiocqhttp:GroupMessage:123#abc"
+            group_id = "111"
+            qq = "222"
+
+        class _Event2:
+            unified_msg_origin = "aiocqhttp:GroupMessage:123#abc"
+            group = "333"
+            id = "444"
+
+        class _Event3:
+            unified_msg_origin = "aiocqhttp:GroupMessage:123#abc"
+            id = "555"
+            uin = "666"
+
+        self.assertEqual(group_id_from_event(_Event()), "111", "group_id 优先于 qq")
+        self.assertEqual(group_id_from_event(_Event2()), "333", "group 优先于 id")
+        self.assertEqual(group_id_from_event(_Event3()), "555", "id 优先于 uin")
 
     def test_group_id_from_event_message_obj_fallback(self):
         """get_group_id 缺失时经 message_obj 的 group_id 属性兜底。"""
-        from main import group_id_from_event
+        group_id_from_event = main.group_id_from_event
 
         class _MsgObj:
             group_id = "456"
@@ -728,8 +863,8 @@ class GroupIdEdgeTest(unittest.TestCase):
         self.assertEqual(group_id_from_event(_Event()), "456")
 
     def test_group_id_getter_exception_falls_back(self):
-        """get_group_id 抛异常时不污染，回退到 session 解析路径。"""
-        from main import group_id_from_event
+        """get_group_id 抛异常时不污染，回退到 origin 解析路径。"""
+        group_id_from_event = main.group_id_from_event
 
         class _Event:
             unified_msg_origin = "aiocqhttp:GroupMessage:789#ghi"
@@ -743,7 +878,7 @@ class GroupIdEdgeTest(unittest.TestCase):
 
 class OptionalFloatTest(unittest.TestCase):
     def test_optional_float_table(self):
-        from runtime_state import _optional_float
+        _optional_float = runtime_state._optional_float
 
         self.assertIsNone(_optional_float(None))
         self.assertEqual(_optional_float(1.5), 1.5)

@@ -6,6 +6,7 @@ import os
 import re
 import shutil
 import time
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -18,6 +19,8 @@ except ImportError:  # pragma: no cover
 
 # 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
 MAX_AVOID_OPENERS = 5
+# opener 入库/加载/提取的截断长度（前缀 ≤8 与普通开头同口径）
+MAX_OPENER_LEN = 8
 # 重复开头/套路词入库与注入的长度上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）
 MAX_OPEN_LEN = 20
 DAY_SECONDS = 86400
@@ -41,11 +44,12 @@ class RuntimeStateStore:
         state_path: str | Path,
         retention_days: int,
         recent_reply_window: int,
-        custom_cliches: list[str] | None = None,
+        custom_cliches: Sequence[str] | None = None,
     ) -> None:
         self.state_path = Path(state_path)
         self.retention_days = max(1, int(retention_days or 14))
-        self.recent_reply_window = max(1, int(recent_reply_window or 8))
+        # 窗口不得小于重复阈值，否则「≥N 次」永远达不到（静默死区）
+        self.recent_reply_window = max(OPENER_REPEAT_THRESHOLD, int(recent_reply_window or 8))
         # 群主自定义词（任意位置精确命中即提示）；内置末尾模板另走 DEFAULT_ENDINGS。
         # 超长条目（>MAX_OPEN_LEN）在构造期过滤并告警，避免每轮命中又被丢弃的静默无效配置。
         cleaned: list[str] = []
@@ -113,7 +117,6 @@ class RuntimeStateStore:
             state.avoid_openers = merged[:MAX_AVOID_OPENERS]
 
             self.sessions[session_id] = state
-            self._prune_expired()
             await self._save_unlocked()
 
     def _load(self) -> None:
@@ -166,7 +169,8 @@ class RuntimeStateStore:
                 logger.warning(f"[HumanChatQuality] state file reset due to load failure: {e}")
 
     async def _save_unlocked(self) -> None:
-        """保存实现（调用方须已持有 _lock）：构建快照 + 工作线程写盘。"""
+        """保存实现（调用方须已持有 _lock）：先 prune 再构建快照 + 工作线程写盘。"""
+        self._prune_expired()
         payload = {
             "disabled_sessions": sorted(self.runtime_disabled),
             "sessions": {
@@ -224,7 +228,7 @@ class RuntimeStateStore:
             pass
 
 
-# opener 前缀（命中即返回，长度均 ≤8）；切分正则编译一次，避免每次响应重建
+# opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）；切分正则编译一次，避免每次响应重建
 _OPENER_PREFIXES: tuple[str, ...] = ("我会", "好的", "可以", "没问题", "没事", "别急", "明白", "行吧", "好嘞")
 _OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
@@ -242,13 +246,15 @@ def extract_opener(text: str) -> str:
     # 单字开头（我/你/这/就…）噪声大且无重复信号价值，不纳入
     if len(first) <= 1:
         return ""
-    return first[:8]
+    return first[:MAX_OPENER_LEN]
 
 
 # 默认检测只保留高置信度末尾模板（v0.6.0）：仅当回复以这些短语收尾时命中，
 # 正文中出现不再误报。普通连接词（此外/事实上/总之等）与黑话词已移除，
 # 用户特殊需求用 custom_cliches（任意位置精确命中）。
-SERVICE_ENDINGS: tuple[str, ...] = (
+# 分段注释仅便于阅读：客服收尾 → 空泛打气收尾；对外只暴露 DEFAULT_ENDINGS。
+DEFAULT_ENDINGS: tuple[str, ...] = (
+    # 客服收尾
     "希望能帮到你",
     "希望这能帮到你",
     "希望对你有帮助",
@@ -259,15 +265,13 @@ SERVICE_ENDINGS: tuple[str, ...] = (
     "有任何问题随时",
     "随时联系我",
     "随时问我",
-)
-CHEER_ENDINGS: tuple[str, ...] = (
+    # 空泛打气收尾
     "未来可期",
     "一起加油",
     "共同努力",
     "砥砺前行",
     "不忘初心",
 )
-DEFAULT_ENDINGS: tuple[str, ...] = SERVICE_ENDINGS + CHEER_ENDINGS
 
 # 末尾匹配前剔除的收尾标点/语气符
 _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
@@ -326,8 +330,10 @@ def _normalize_text(text: str) -> str:
 def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionState:
     return SessionState(
         avoid_openers=_list_of_str(data.get("avoid_openers", []), MAX_AVOID_OPENERS),
-        # 加载侧 clamp：与 save 侧共同维持"条目 ≤8 字"不变量（防外部编辑塞入超长条目）
-        recent_openers=[item[:8] for item in _list_of_str(data.get("recent_openers", []), recent_reply_window)],
+        # 加载侧 clamp：与 save 侧共同维持"条目 ≤MAX_OPENER_LEN 字"不变量（防外部编辑塞入超长条目）
+        recent_openers=[
+            item[:MAX_OPENER_LEN] for item in _list_of_str(data.get("recent_openers", []), recent_reply_window)
+        ],
         last_response_at=_optional_float(data.get("last_response_at")),
         updated_at=_optional_float(data.get("updated_at")),
     )

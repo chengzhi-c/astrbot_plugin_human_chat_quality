@@ -3,8 +3,8 @@
 宿主策略：真实 astrbot（>=4.23,<5）可用时整个测试套件走真实 API；
 不可用或版本不兼容时才注入假的 astrbot.* 子模块（sys.modules），
 使业务模块在纯环境（CI/无宿主）下仍可导入与测试。
-假模块行为与业务模块导入期需要的宿主 API 一一对应：register / filter 装饰器为恒等，
-Star 仅存 context，logger 为空实现。
+假模块行为与业务模块导入期需要的宿主 API 一一对应：filter 装饰器为恒等，
+Star 仅存 context，logger 为空实现。注册靠宿主 Star.__init_subclass__ 自动完成，无需装饰器。
 """
 
 import sys
@@ -60,10 +60,6 @@ class StarTools:
     @staticmethod
     def get_data_dir(*_args, **_kwargs):
         return "."
-
-
-def register(*_args, **_kwargs):
-    return lambda cls: cls
 
 
 def _make_module(name: str, **attrs) -> types.ModuleType:
@@ -122,7 +118,6 @@ def _install() -> None:
         Context=type("Context", (), {}),
         Star=Star,
         StarTools=StarTools,
-        register=register,
     )
 
 
