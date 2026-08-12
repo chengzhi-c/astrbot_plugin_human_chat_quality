@@ -11,7 +11,7 @@ import unittest
 import sys
 from pathlib import Path
 
-from tests._support import temporary_directory
+from tests._support import V2_RULES_E4AA983, temporary_directory
 
 # 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
 # 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
@@ -30,6 +30,7 @@ try:
     from astrbot_plugin_human_chat_quality.quality_rules import (
         RUNTIME_HINT_MARKER,
         STABLE_RULE_MARKER,
+        build_runtime_hint,
     )
     from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore
 
@@ -107,7 +108,7 @@ class TestCoreFlow(unittest.TestCase):
                 "role": "user",
                 "content": [
                     {"type": "text", "text": "原话"},
-                    {"type": "text", "text": "[Human Chat Quality Rules v2]\n旧规则块"},
+                    {"type": "text", "text": V2_RULES_E4AA983},
                 ],
             }
         ]
@@ -133,10 +134,11 @@ class TestCoreFlow(unittest.TestCase):
             asyncio.run(self.core.on_llm_request(self.ev, req))
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         req = FakeReq()
-        req.contexts = [{"role": "user", "content": [{"type": "text", "text": RUNTIME_HINT_MARKER + "\n旧"}]}]
+        old_hint = build_runtime_hint(self.store.get(self.ev.unified_msg_origin), 600).replace("好的", "旧开头")
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
         self.assertEqual(len(req.extra_user_content_parts), 0)
-        self.assertNotIn("旧", json.dumps(req.contexts, ensure_ascii=False))
+        self.assertNotIn("旧开头", json.dumps(req.contexts, ensure_ascii=False))
 
     def test_global_off_no_inject(self):
         core_off = HumanChatQualityCore(
@@ -268,13 +270,12 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_response(ev, FakeLLMResp("好的，回答")))
         self.assertEqual(self.store.sessions, {})
 
-    def test_legacy_str_blocked_migration_retried(self):
-        # 字符串形态旧规则块：不做不安全切割；迁移不标记完成，后续请求继续重试
+    def test_unknown_stable_string_is_preserved_across_requests(self):
         req = FakeReq()
         req.contexts = [{"role": "user", "content": "[Human Chat Quality Rules v2]\n旧规则块"}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
-        self.assertTrue(req.contexts[0]["content"].startswith("[Human Chat Quality Rules v2]"))
-        self.assertNotIn(self.ev.unified_msg_origin, self.core._stable_migration_checked)
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertEqual(req.contexts[0]["content"], "[Human Chat Quality Rules v2]\n旧规则块")
 
     def test_plugin_layer_swallows_core_errors(self):
         async def fail(event, req):

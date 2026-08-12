@@ -8,27 +8,245 @@ import unittest
 import sys
 from pathlib import Path
 
+from tests._support import V2_RULES_E4AA983
+
 # 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
 # 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
 _PKG_PARENT = str(Path(__file__).resolve().parents[2])
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
+from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality.quality_rules import (
     LEGACY_STABLE_MARKERS,
-    MARKER_ABSENT,
-    MARKER_MODIFIED,
-    MARKER_STR_BLOCKED,
     RULES_VERSION,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
     append_temp_text_part,
-    apply_context_marker,
     build_runtime_hint,
     build_stable_rules,
     clip_text,
     inject_stable_rules,
+    rewrite_context_injections,
+    rewrite_stable_rules,
 )
+
+V1_RULES_74BB884 = (
+    "[Human Chat Quality Rules v1]\n"
+    "聊天质量约束：\n"
+    "- 避免模板腔：不要用“作为 AI”“首先/其次/最后”“总之”“希望这能帮到你”“需要注意的是”等讲义式开头或收尾。\n"
+    "- 优先顺着当前语境回答，不主动写成报告、作文、公告或教学材料。\n"
+    "- 能短就短；闲聊时自然接话，办事时直接给可执行信息，解释时再展开。\n"
+    "- 保留事实准确性，不为了口语化牺牲关键信息、限制条件或安全边界。\n"
+    "- 不强行卖萌、不强行情绪化、不复读用户原话，不把每轮对话都总结成段落。"
+)
+V1_RULES_8BAAE2B = (
+    "[Human Chat Quality Rules v1]\n"
+    "聊天质量约束（在现有人设语气之上生效，不改变人设的性格、称呼、情绪和口头禅）：\n"
+    "一、这是日常聊天，不是写报告。顺着对方的话自然接，别把闲聊答成讲义、作文或客服工单。\n"
+    "   ❌“关于这个问题，首先…其次…最后总结一下” ✅ 直接说想说的，该短就一两句。\n"
+    "二、别拔高、别升华。不给普通对话强行加意义、加金句、加结尾鼓励。\n"
+    "   ❌“希望能帮到你～”“未来可期，一起加油！”“这不仅是…更是…” ✅ 话说完就停，不硬凑收尾。\n"
+    "三、别谄媚开场。不用“好问题！”“你说得太对了！”“作为 AI…”这类套话起头，直接回应内容本身。\n"
+    "四、别排比凑数、别否定平行。❌“有温度、有深度、有力度”“不是…而是…” ✅ 挑一个具体的说清楚就行。\n"
+    "五、别复读对方原话，别每轮都总结。少用“需要注意的是”“值得一提的是”“让我们…”这类铺垫信号词。\n"
+    "六、保持事实准确，口语化不等于牺牲关键信息、限制条件或安全边界。\n"
+    "七、生成前自查一遍：有没有上面这些 AI 腔？有就地改成人会说的话，别提到这条自查。"
+)
+V2_RULES_9971F6D = (
+    "[Human Chat Quality Rules v2]\n"
+    "聊天质量约束（在现有人设语气之上生效，不改变人设的性格、称呼、情绪和口头禅）：\n"
+    "这是日常聊天，不是写报告。顺着对方的话自然接，别把闲聊答成讲义、作文或客服工单。\n\n"
+    "【铁律】以下任何一条出现都必须改掉：\n"
+    '1. 客服式收尾："希望这能帮到你""如果还有问题随时问我"。\n'
+    '2. "不是…而是…""不仅…更是…"排比句式。\n'
+    '3. "首先…其次…最后""第一…第二…第三"式清单骨架。\n'
+    '4. 升华/鼓励式结尾："未来可期""一起加油""让我们共同努力"。\n\n'
+    "【词汇】这些词出现即换人话：\n"
+    "- 值得注意的是/值得一提的是/需要注意的是 → 直接说内容\n"
+    "- 总的来说/综上所述/总而言之 → 直接说结论\n"
+    "- 众所周知/不可否认/毋庸置疑 → 直接陈述\n"
+    "- 此外/与此同时/由此可见 → 删掉或换“另外/所以”\n"
+    "- 深入探讨/深入分析/深度解析 → 聊聊/看看/说说\n"
+    "- 赋能/闭环/抓手/沉淀/对齐/颗粒度 → 换大白话\n"
+    "- 作为 AI/作为人工智能 → 别强调身份，直接说\n\n"
+    "【结构】\n"
+    '- 别排比凑数：三个以上相似短语并列（"有温度、有深度、有力度"）→ 挑一个说透\n'
+    '- 别破折号连发：一条回复里出现两个以上"——"→ 换逗号句号或删掉\n'
+    '- 别自问自答："你可能会问：为什么？" → 直接讲\n'
+    "- 别过度条列：日常闲聊尽量不列 1.2.3.\n\n"
+    "【沟通】\n"
+    '- 别客服腔开场："好问题！""你说得太对了！"→ 直接回应内容\n'
+    '- 别复读对方原话、别每轮总结、别铺垫信号词（"需要注意的是""有趣的是""事实上"）\n'
+    '- 别免责声明腔："根据我的知识截止日期…"除非真的不确定，那就直接说不确定\n\n'
+    "【像个人】\n"
+    "- 句长要有变化，全是长句像念稿\n"
+    "- 有观点，对事实做反应，别中立地列举利弊\n"
+    '- 承认复杂："这事我也说不准"比"从多个维度看"像人话\n'
+    '- 不知道就直说："没查过，不敢乱说""这个我不确定"比硬答或编造像人话；别说"根据我的知识截止日期"这类免责声明腔\n'
+    "- 口语化不等于丢信息：关键信息、限制条件、安全边界必须保留\n\n"
+    "【自查】生成前心里过一遍，别把这条写进回复：\n"
+    '有没有客服腔收尾？有没有"不是…而是"/"首先…其次"/"不仅…更是"？有没有两个以上破折号？'
+    "有没有排比三连或金句？句长是不是全一样？有没有该说不知道却硬答的？有就改掉。"
+)
+REAL_LEGACY_RULES = (V1_RULES_74BB884, V1_RULES_8BAAE2B, V2_RULES_9971F6D, V2_RULES_E4AA983)
+
+
+class TestRewriteInterfaces(unittest.TestCase):
+    def test_rewrite_interfaces_exist(self):
+        self.assertTrue(callable(getattr(quality_rules, "rewrite_stable_rules", None)))
+        self.assertTrue(callable(getattr(quality_rules, "rewrite_context_injections", None)))
+
+
+class TestStableRewrite(unittest.TestCase):
+    def test_real_v1_v2_variants_are_removed(self):
+        for legacy in REAL_LEGACY_RULES:
+            with self.subTest(marker=legacy.splitlines()[0], lines=len(legacy.splitlines())):
+                result = rewrite_stable_rules(f"人设头\n\n{legacy}\n\n人设尾", enabled=False)
+                self.assertEqual(result.text, "人设头\n\n人设尾")
+                self.assertTrue(result.removed)
+                self.assertFalse(result.ambiguous)
+
+    def test_crlf_and_interleaved_persona_are_preserved(self):
+        first = V1_RULES_74BB884.replace("\n", "\r\n")
+        second = V2_RULES_E4AA983.replace("\n", "\r\n")
+        prompt = f"头部人设\r\n\r\n{first}\r\n\r\n中间人设\r\n\r\n{second}\r\n\r\n尾部人设"
+        result = rewrite_stable_rules(prompt, enabled=False)
+        self.assertEqual(result.text, "头部人设\r\n\r\n中间人设\r\n\r\n尾部人设")
+
+    def test_adjacent_real_legacy_blocks_preserve_following_persona(self):
+        prompt = f"{V1_RULES_74BB884}\n\n{V2_RULES_E4AA983}\n\n尾部人设"
+        result = rewrite_stable_rules(prompt, enabled=False)
+        self.assertEqual(result.text, "尾部人设")
+
+    def test_current_rules_removed_when_disabled(self):
+        result = rewrite_stable_rules(f"人设\n\n{build_stable_rules()}\n\n尾巴", enabled=False)
+        self.assertEqual(result.text, "人设\n\n尾巴")
+        self.assertTrue(result.removed)
+        self.assertFalse(result.injected)
+
+    def test_duplicate_current_rules_keep_first_in_place(self):
+        rules = build_stable_rules()
+        prompt = f"头\n\n{rules}\n\n中\n\n{rules}\n\n尾"
+        result = rewrite_stable_rules(prompt, enabled=True)
+        self.assertEqual(result.text, f"头\n\n{rules}\n\n中\n\n尾")
+        self.assertFalse(result.injected)
+        self.assertTrue(result.removed)
+
+    def test_unknown_v3_is_ambiguous_and_blocks_new_injection(self):
+        unknown = "[Human Chat Quality Rules v3]\n无法验证的正文"
+        result = rewrite_stable_rules(f"人设\n\n{unknown}\n\n尾巴", enabled=True)
+        self.assertEqual(result.text, f"人设\n\n{unknown}\n\n尾巴")
+        self.assertTrue(result.ambiguous)
+        self.assertFalse(result.injected)
+
+    def test_unknown_unversioned_rules_are_preserved(self):
+        unknown = "[Human Chat Quality Rules]\n无法验证的正文"
+        result = rewrite_stable_rules(unknown, enabled=False)
+        self.assertEqual(result.text, unknown)
+        self.assertTrue(result.ambiguous)
+
+    def test_inline_marker_mention_does_not_block_injection(self):
+        prompt = "请解释 [Human Chat Quality Rules v3] 是什么"
+        result = rewrite_stable_rules(prompt, enabled=True)
+        self.assertTrue(result.text.startswith(prompt))
+        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)
+        self.assertTrue(result.injected)
+
+
+class TestContextRewrite(unittest.TestCase):
+    def test_marker_mention_in_user_text_is_preserved(self):
+        req = FakeReq()
+        text = f"我在文档里看到了 {RUNTIME_HINT_MARKER}，它是什么意思？"
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": text}]}]
+        result = rewrite_context_injections(
+            req,
+            RUNTIME_HINT_MARKER
+            + "\n仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n好的",
+        )
+        self.assertEqual(req.contexts[0]["content"][0]["text"], text)
+        self.assertFalse(result.runtime_ambiguous)
+        self.assertFalse(result.runtime_satisfied)
+
+    def test_similar_runtime_block_is_preserved_as_ambiguous(self):
+        req = FakeReq()
+        text = RUNTIME_HINT_MARKER + "\n这是用户自己的相似格式"
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": text}]}]
+        result = rewrite_context_injections(req, None)
+        self.assertEqual(req.contexts[0]["content"], [{"type": "text", "text": text}])
+        self.assertTrue(result.runtime_ambiguous)
+        self.assertFalse(result.runtime_removed)
+
+    def test_list_replacement_and_str_ambiguity_are_both_reported(self):
+        old = build_runtime_hint(quality_rules.SessionState(avoid_openers=["旧开头"]), 600)
+        new = build_runtime_hint(quality_rules.SessionState(avoid_openers=["新开头"]), 600)
+        req = FakeReq()
+        req.contexts = [
+            {"role": "user", "content": [{"type": "text", "text": old}]},
+            {"role": "user", "content": RUNTIME_HINT_MARKER + "\n未知正文"},
+        ]
+        result = rewrite_context_injections(req, new)
+        self.assertEqual(req.contexts[0]["content"][0]["text"], new)
+        self.assertTrue(result.runtime_replaced)
+        self.assertTrue(result.runtime_satisfied)
+        self.assertTrue(result.runtime_ambiguous)
+
+    def test_multiple_runtime_blocks_converge_without_reordering_other_parts(self):
+        old = build_runtime_hint(quality_rules.SessionState(avoid_openers=["旧开头"]), 600)
+        new = build_runtime_hint(quality_rules.SessionState(avoid_openers=["新开头"]), 600)
+        image = {"type": "image", "url": "keep"}
+        req = FakeReq()
+        req.contexts = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "前"},
+                    image,
+                    {"type": "text", "text": old},
+                    {"type": "text", "text": "后"},
+                    {"type": "text", "text": old},
+                ],
+            }
+        ]
+        result = rewrite_context_injections(req, new)
+        self.assertEqual(
+            req.contexts[0]["content"],
+            [{"type": "text", "text": "前"}, image, {"type": "text", "text": new}, {"type": "text", "text": "后"}],
+        )
+        self.assertTrue(result.runtime_replaced)
+        self.assertTrue(result.runtime_removed)
+
+    def test_truncated_110_runtime_blocks_are_removed(self):
+        full = build_runtime_hint(quality_rules.SessionState(avoid_openers=["x" * 20] * 5), 600)
+        self.assertEqual(len(full), 183)
+        for budget in (80, 81, 100, 150, 182):
+            with self.subTest(budget=budget):
+                req = FakeReq()
+                req.contexts = [{"role": "user", "content": [{"type": "text", "text": clip_text(full, budget)}]}]
+                result = rewrite_context_injections(req, None)
+                self.assertEqual(req.contexts[0]["content"], [])
+                self.assertTrue(result.runtime_removed)
+
+    def test_matching_runtime_block_is_satisfied_without_rewrite(self):
+        target = build_runtime_hint(quality_rules.SessionState(avoid_openers=["好的"]), 600)
+        part = {"type": "text", "text": target}
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": [part]}]
+        result = rewrite_context_injections(req, target)
+        self.assertIs(req.contexts[0]["content"][0], part)
+        self.assertTrue(result.runtime_satisfied)
+        self.assertFalse(result.runtime_replaced)
+        self.assertFalse(result.runtime_removed)
+
+    def test_known_stable_block_is_removed_from_history(self):
+        req = FakeReq()
+        req.contexts = [
+            {"role": "user", "content": [{"type": "text", "text": V2_RULES_E4AA983}, {"type": "text", "text": "原话"}]}
+        ]
+        result = rewrite_context_injections(req, None)
+        self.assertEqual(req.contexts[0]["content"], [{"type": "text", "text": "原话"}])
+        self.assertTrue(result.stable_removed)
+
 
 # natural-talk v2.1.0「作为 System Prompt」章节原文行（非扭曲校验基准）
 SKILL_CORE_LINES = (
@@ -112,118 +330,6 @@ class TestStableRules(unittest.TestCase):
     def test_inject_non_str_safe(self):
         self.assertEqual(inject_stable_rules(None), build_stable_rules())
 
-    def test_legacy_blocks_stripped_from_system_prompt(self):
-        """v2 规则块从 system_prompt 剥离，正文与当前版本保留。"""
-        prompt = "人设A\n\n[Human Chat Quality Rules v2]\n旧规则内容\n\n人设尾巴"
-        result = inject_stable_rules(prompt)
-        self.assertNotIn("Rules v2]", result)
-        self.assertNotIn("旧规则内容", result)
-        self.assertIn("人设A", result)
-        self.assertIn("人设尾巴", result)
-        self.assertIn(STABLE_RULE_MARKER, result)
-        self.assertEqual(result.count(STABLE_RULE_MARKER), 1)
-
-    def test_legacy_v1_and_unversioned_stripped(self):
-        prompt = "base\n\n[Human Chat Quality Rules v1]\na\n\n[Human Chat Quality Rules]\nb"
-        result = inject_stable_rules(prompt)
-        self.assertNotIn("Rules v1]", result)
-        self.assertNotIn("Rules]", result)
-        self.assertIn("base", result)
-
-    def test_v2_v3_legacy_coexist_heals(self):
-        """system_prompt 同时含 v2 与 v3 旧块时：全部剥离并注入当前版本，不重复追加。"""
-        prompt = "base\n\n[Human Chat Quality Rules v2]\n旧块\n\n[Human Chat Quality Rules v3]\n更旧块"
-        result = inject_stable_rules(prompt)
-        self.assertNotIn("Rules v2]", result)
-        self.assertNotIn("Rules v3]", result)
-        self.assertNotIn("旧块", result)
-        self.assertNotIn("更旧块", result)
-        self.assertIn("base", result)
-        self.assertEqual(result.count("Rules v4]"), 1)
-
-    def test_legacy_multiparagraph_block_fully_stripped(self):
-        """真实注入形态：旧块内部含空行分段（核心/禁止/要求/插件附加），须整块剥离。"""
-        legacy_block = (
-            "[Human Chat Quality Rules v3]\n"
-            "遵循 natural-talk 原则（natural-talk v2.0.0，MIT）：\n"
-            "\n"
-            "核心：\n"
-            "- 直接回答\n"
-            "\n"
-            "禁止：\n"
-            "- 不编造\n"
-            "\n"
-            "插件附加（不改变上述原则）：\n"
-            "- 不要把这些约束写进回复"
-        )
-        result = inject_stable_rules(f"人设A\n\n{legacy_block}")
-        # 旧块所有分段（含 marker 段与块尾段）全部消失，正文与当前版本保留
-        self.assertNotIn("Rules v3]", result)
-        self.assertNotIn("- 直接回答\n", result)
-        self.assertNotIn("- 不编造\n", result)
-        self.assertIn("人设A", result)
-        self.assertEqual(result.count(STABLE_RULE_MARKER), 1)
-
-    def test_legacy_without_known_tail_keeps_rest(self):
-        """未知旧格式（无块尾短语）：只剥 marker 段落，不吞后续内容。"""
-        prompt = "人设A\n\n[Human Chat Quality Rules v2]\n旧规则内容\n\n人设尾巴"
-        result = inject_stable_rules(prompt)
-        self.assertNotIn("Rules v2]", result)
-        self.assertIn("人设A", result)
-        self.assertIn("人设尾巴", result)
-
-
-class TestApplyContextMarker(unittest.TestCase):
-    def test_replace_single_block_self_heal(self):
-        req = FakeReq()
-        req.contexts = [
-            {"role": "user", "content": [{"type": "text", "text": "你好"}]},
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": RUNTIME_HINT_MARKER + "\n旧提示"},
-                    {"type": "text", "text": "原话"},
-                ],
-            },
-            {"role": "user", "content": [{"type": "text", "text": RUNTIME_HINT_MARKER + "\n多块残留"}]},
-        ]
-        res = apply_context_marker(req, RUNTIME_HINT_MARKER, "新提示")
-        self.assertEqual(res, MARKER_MODIFIED)
-        texts = [p.get("text", "") for ctx in req.contexts if ctx["role"] == "user" for p in ctx["content"]]
-        # 第一个命中被替换为纯提示文本（真实流程中提示以 marker 开头，此处验证块数与原话保留）
-        self.assertEqual(texts.count("新提示"), 1)
-        self.assertIn("原话", texts)
-        # 多块自愈：第二个 marker 块被移除，无残留
-        self.assertEqual(sum(1 for t in texts if RUNTIME_HINT_MARKER in t), 0)
-
-    def test_remove_keeps_user_text(self):
-        req = FakeReq()
-        req.contexts = [
-            {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": "原话"},
-                    {"type": "text", "text": RUNTIME_HINT_MARKER + " x"},
-                ],
-            }
-        ]
-        res = apply_context_marker(req, RUNTIME_HINT_MARKER, None)
-        self.assertEqual(res, MARKER_MODIFIED)
-        texts = [p.get("text", "") for ctx in req.contexts for p in ctx["content"]]
-        self.assertEqual(texts, ["原话"])
-
-    def test_str_blocked_no_unsafe_cut(self):
-        req = FakeReq()
-        req.contexts = [{"role": "user", "content": RUNTIME_HINT_MARKER + "\n字符串形态残留"}]
-        res = apply_context_marker(req, RUNTIME_HINT_MARKER, "新提示")
-        self.assertEqual(res, MARKER_STR_BLOCKED)
-        self.assertTrue(req.contexts[0]["content"].startswith(RUNTIME_HINT_MARKER))
-
-    def test_absent_when_no_marker(self):
-        req = FakeReq()
-        req.contexts = [{"role": "user", "content": [{"type": "text", "text": "你好"}]}]
-        self.assertEqual(apply_context_marker(req, RUNTIME_HINT_MARKER, "hint"), MARKER_ABSENT)
-
 
 class TestAppendTempPart(unittest.TestCase):
     def test_rejects_missing_marker_prefix(self):
@@ -232,14 +338,14 @@ class TestAppendTempPart(unittest.TestCase):
         self.assertFalse(ok)
         self.assertEqual(len(req.extra_user_content_parts), 0)
 
-    def test_append_ok_and_dedup_same_request(self):
+    def test_append_only_constructs_parts(self):
         req = FakeReq()
         ok = append_temp_text_part(req, RUNTIME_HINT_MARKER + "\nhint", FakePart, marker=RUNTIME_HINT_MARKER)
         self.assertTrue(ok)
         self.assertEqual(len(req.extra_user_content_parts), 1)
         ok2 = append_temp_text_part(req, RUNTIME_HINT_MARKER + "\nhint2", FakePart, marker=RUNTIME_HINT_MARKER)
-        self.assertFalse(ok2)
-        self.assertEqual(len(req.extra_user_content_parts), 1)
+        self.assertTrue(ok2)
+        self.assertEqual(len(req.extra_user_content_parts), 2)
 
     def test_factory_none_degrades(self):
         req = FakeReq()

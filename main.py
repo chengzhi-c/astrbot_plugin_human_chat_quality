@@ -12,17 +12,13 @@ from astrbot.api.provider import LLMResponse, ProviderRequest
 from astrbot.api.star import Context, Star, StarTools
 
 from .quality_rules import (
-    LEGACY_STABLE_MARKERS,
-    MARKER_ABSENT,
-    MARKER_MODIFIED,
-    MARKER_STR_BLOCKED,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
     append_temp_text_part,
-    apply_context_marker,
     build_runtime_hint,
     build_stable_rules,
-    inject_stable_rules,
+    rewrite_context_injections,
+    rewrite_stable_rules,
 )
 from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
 
@@ -177,9 +173,6 @@ class HumanChatQualityCore:
         # factory 优先；缺失时经 _probe_text_part_cls 探测宿主 TextPart（进程级缓存，热重载即重探）
         self.text_part_factory = text_part_factory or _probe_text_part_cls()
         self.injection_count = 0
-        # stable 迁移清理按会话只执行一次：稳定规则只写 system 不入历史；
-        # 历史中残留的旧版规则块随请求清扫
-        self._stable_migration_checked: set[str] = set()
 
     async def on_llm_request(self, event: Any, req: Any) -> None:
         session_id = unified_origin(event)
@@ -189,44 +182,31 @@ class HumanChatQualityCore:
         if not self._is_effectively_active(session_id, event):
             return
 
-        # 稳定规则幂等写 system_prompt；runtime 经 apply_context_marker 单趟处理历史。
         injected_rules = False
         injected_hint = ""
         removed_stale = False
         avoid_openers: list[str] | None = None
 
-        if self.cfg.inject_stable_rules:
-            # 迁移：清掉落入历史的旧规则块；任一 str_blocked 时不标记完成，待 list 形态再试
-            if session_id not in self._stable_migration_checked:
-                all_clear = True
-                for legacy in LEGACY_STABLE_MARKERS:
-                    migrate = apply_context_marker(req, legacy, None)
-                    if migrate == MARKER_MODIFIED:
-                        removed_stale = True
-                    if migrate == MARKER_STR_BLOCKED:
-                        all_clear = False
-                if all_clear:
-                    self._stable_migration_checked.add(session_id)
-            before = getattr(req, "system_prompt", "") or ""
-            after = inject_stable_rules(before)
-            if after != before:
-                req.system_prompt = after
-                injected_rules = True
-
+        hint = ""
         if self.cfg.inject_runtime_state:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
             hint = build_runtime_hint(state, max_chars=self.cfg.max_runtime_hint_chars)
-            if hint:
-                # modified：历史原位更新；absent：首轮 append；str_blocked：不切割也不追加
-                result = apply_context_marker(req, RUNTIME_HINT_MARKER, hint)
-                if result == MARKER_MODIFIED or (
-                    result == MARKER_ABSENT
-                    and append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER)
-                ):
-                    injected_hint = hint
-            elif apply_context_marker(req, RUNTIME_HINT_MARKER, None) == MARKER_MODIFIED:
-                removed_stale = True
+
+        context_result = rewrite_context_injections(req, hint or None)
+        removed_stale = context_result.stable_removed or context_result.runtime_removed
+        if context_result.runtime_replaced:
+            injected_hint = hint
+        elif hint and not context_result.runtime_satisfied and not context_result.runtime_ambiguous:
+            if append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER):
+                injected_hint = hint
+
+        before = getattr(req, "system_prompt", "") or ""
+        stable_result = rewrite_stable_rules(before, enabled=self.cfg.inject_stable_rules)
+        if stable_result.text != before:
+            req.system_prompt = stable_result.text
+        injected_rules = stable_result.injected
+        removed_stale = removed_stale or stable_result.removed
 
         if injected_rules or injected_hint:
             self.injection_count += 1

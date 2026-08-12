@@ -1,6 +1,9 @@
 from __future__ import annotations
 
-from typing import Any, Literal
+from dataclasses import dataclass
+import hashlib
+import re
+from typing import Any
 
 try:
     from astrbot.api import logger
@@ -21,12 +24,47 @@ LEGACY_STABLE_MARKERS: tuple[str, ...] = (f"{INJECTED_MARKER_PREFIX} Rules]",) +
     f"{INJECTED_MARKER_PREFIX} Rules v{i}]" for i in range(1, RULES_VERSION)
 )
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
+_RUNTIME_INSTRUCTION = (
+    "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。"
+)
+_RUNTIME_PREFIX = f"{RUNTIME_HINT_MARKER}\n{_RUNTIME_INSTRUCTION}\n"
 
-# 三态返回契约（跨模块静态类型检查）
-MarkerResult = Literal["modified", "absent", "str_blocked"]
-MARKER_MODIFIED: MarkerResult = "modified"
-MARKER_ABSENT: MarkerResult = "absent"
-MARKER_STR_BLOCKED: MarkerResult = "str_blocked"
+# 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
+_LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
+    f"{INJECTED_MARKER_PREFIX} Rules v1]": frozenset(
+        {
+            (7, "a418be2384020a69e089f10ccf92a595121cc912f7a4d6ac134c3870ce33af44"),
+            (11, "cf703f9e2436a2e2f676c386f3e2673a6ac9c61e769268f411e96fcb16166aa2"),
+        }
+    ),
+    f"{INJECTED_MARKER_PREFIX} Rules v2]": frozenset(
+        {
+            (39, "9f27e5df3f368f9cdc8ff0c2cd6bfc075365af0024dfe67c8ed3a21374d2fa82"),
+            (7, "c33073fcaaca430cba3ab648f7a8df8bdf1c85b6c1d7c71025ce53896771e731"),
+        }
+    ),
+}
+_STABLE_MARKERS = frozenset((*LEGACY_STABLE_MARKERS, STABLE_RULE_MARKER))
+_NEWLINE_RE = re.compile(r"\r\n|\r|\n")
+_LEADING_SEPARATOR_RE = re.compile(r"^(?:(?:\r\n|\r|\n)){2}")
+_TRAILING_SEPARATOR_RE = re.compile(r"(?:(?:\r\n|\r|\n)){2}$")
+
+
+@dataclass(frozen=True)
+class StableRewriteResult:
+    text: str
+    injected: bool
+    removed: bool
+    ambiguous: bool
+
+
+@dataclass(frozen=True)
+class ContextRewriteResult:
+    stable_removed: bool = False
+    runtime_satisfied: bool = False
+    runtime_replaced: bool = False
+    runtime_removed: bool = False
+    runtime_ambiguous: bool = False
 
 
 def build_stable_rules() -> str:
@@ -64,40 +102,255 @@ def build_stable_rules() -> str:
     )
 
 
+def _signature(text: str) -> tuple[int, str]:
+    normalized = _NEWLINE_RE.sub("\n", text)
+    return len(normalized.splitlines()), hashlib.sha256(normalized.encode()).hexdigest()
+
+
+_STABLE_SIGNATURES = {
+    **_LEGACY_STABLE_SIGNATURES,
+    STABLE_RULE_MARKER: frozenset({_signature(build_stable_rules())}),
+}
+
+
 def inject_stable_rules(system_prompt: str | None) -> str:
-    """幂等拼入 system_prompt（marker 防重复）。非 str 视作空 prompt，不抛异常。"""
-    if not isinstance(system_prompt, str):
-        system_prompt = ""
-    # 先剥离历史旧规则块再判幂等：避免升级后新旧并存（含多版本同存场景）
-    system_prompt = _strip_legacy_stable_blocks(system_prompt)
-    if STABLE_RULE_MARKER in system_prompt:
-        return system_prompt
-    rules = build_stable_rules()
-    return f"{system_prompt.rstrip()}\n\n{rules}" if system_prompt.strip() else rules
+    """兼容旧调用：严格迁移已知块并确保当前规则至多一份。"""
+    return rewrite_stable_rules(system_prompt, enabled=True).text
 
 
-def _strip_legacy_stable_blocks(system_prompt: str) -> str:
-    """按段落剥离以 legacy 规则标记开头的旧块。
+def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableRewriteResult:
+    text = system_prompt if isinstance(system_prompt, str) else ""
+    matches, ambiguous = _find_stable_blocks(text)
+    current_kept = False
+    removals: list[tuple[int, int]] = []
 
-    旧块内部含空行分段（核心/禁止/要求/插件附加），只删 marker 段落会残留
-    孤儿分段；命中 marker 后识别到已知块尾则整块剥除，未识别（未知旧格式）
-    时保守地只删 marker 段落，不吞后续内容。
-    """
-    blocks = system_prompt.split("\n\n")
-    kept: list[str] = []
-    i = 0
-    while i < len(blocks):
-        if not any(blocks[i].lstrip().startswith(marker) for marker in LEGACY_STABLE_MARKERS):
-            kept.append(blocks[i])
-            i += 1
+    for start, end, marker in matches:
+        if marker == STABLE_RULE_MARKER and enabled and not current_kept:
+            current_kept = True
             continue
-        # 块尾短语：所有已知版本（v3+）的注入块均以「不要把这些约束写进回复」收尾
-        tail = next(
-            (j for j in range(i + 1, len(blocks)) if "不要把这些约束写进回复" in blocks[j]),
-            None,
-        )
-        i = tail + 1 if tail is not None else i + 1
-    return "\n\n".join(kept)
+        removals.append(_expand_stable_removal(text, start, end))
+
+    if removals:
+        text = _remove_spans(text, removals)
+
+    injected = False
+    if enabled and not current_kept and not ambiguous:
+        rules = build_stable_rules()
+        if text:
+            newline = _first_newline(text)
+            if text.endswith(newline * 2):
+                separator = ""
+            elif text.endswith(newline):
+                separator = newline
+            else:
+                separator = newline * 2
+            text = f"{text}{separator}{rules}"
+        else:
+            text = rules
+        injected = True
+
+    return StableRewriteResult(text, injected, bool(removals), ambiguous)
+
+
+def rewrite_context_injections(req: Any, runtime_text: str | None) -> ContextRewriteResult:
+    result = ContextRewriteResult()
+    contexts = getattr(req, "contexts", None)
+    if isinstance(contexts, list):
+        for ctx in contexts:
+            if not isinstance(ctx, dict) or ctx.get("role") != "user":
+                continue
+            content = ctx.get("content")
+            if isinstance(content, str):
+                rewritten, item_result = _rewrite_context_text(content, runtime_text, result.runtime_satisfied)
+                if rewritten != content:
+                    ctx["content"] = rewritten
+                result = _merge_context_results(result, item_result)
+            elif isinstance(content, list):
+                rewritten, item_result = _rewrite_context_parts(content, runtime_text, result.runtime_satisfied)
+                if rewritten != content:
+                    ctx["content"] = rewritten
+                result = _merge_context_results(result, item_result)
+
+    parts = getattr(req, "extra_user_content_parts", None)
+    if isinstance(parts, list):
+        rewritten, item_result = _rewrite_context_parts(parts, runtime_text, result.runtime_satisfied)
+        if rewritten != parts:
+            req.extra_user_content_parts = rewritten
+        result = _merge_context_results(result, item_result)
+    return result
+
+
+def _normalize_newlines(text: str) -> str:
+    return _NEWLINE_RE.sub("\n", text)
+
+
+def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool]:
+    lines = text.splitlines(keepends=True)
+    starts: list[int] = []
+    offset = 0
+    for line in lines:
+        starts.append(offset)
+        offset += len(line)
+
+    matches: list[tuple[int, int, str]] = []
+    ambiguous = False
+    for index, line in enumerate(lines):
+        marker = line.rstrip("\r\n")
+        if marker not in _STABLE_MARKERS:
+            continue
+        matched = False
+        for line_count, expected_hash in _STABLE_SIGNATURES.get(marker, ()):
+            last = index + line_count - 1
+            if last >= len(lines):
+                continue
+            end = starts[last] + len(lines[last].rstrip("\r\n"))
+            candidate = _normalize_newlines(text[starts[index] : end])
+            if hashlib.sha256(candidate.encode()).hexdigest() == expected_hash:
+                matches.append((starts[index], end, marker))
+                matched = True
+                break
+        if not matched:
+            ambiguous = True
+    return matches, ambiguous
+
+
+def _expand_stable_removal(text: str, start: int, end: int) -> tuple[int, int]:
+    before = text[:start]
+    after = text[end:]
+    preceding = _TRAILING_SEPARATOR_RE.search(before)
+    if preceding:
+        return preceding.start(), end
+    if start == 0:
+        following = _LEADING_SEPARATOR_RE.match(after)
+        if following:
+            return start, end + following.end()
+    return start, end
+
+
+def _remove_spans(text: str, spans: list[tuple[int, int]]) -> str:
+    for start, end in sorted(spans, reverse=True):
+        text = text[:start] + text[end:]
+    return text
+
+
+def _first_newline(text: str) -> str:
+    match = _NEWLINE_RE.search(text)
+    return match.group(0) if match else "\n"
+
+
+def _text_value(part: Any) -> str | None:
+    value = getattr(part, "text", None)
+    if value is None and isinstance(part, dict):
+        value = part.get("text")
+    return value if isinstance(value, str) else None
+
+
+def _is_known_stable_text(text: str) -> bool:
+    normalized = _normalize_newlines(text)
+    lines = normalized.splitlines()
+    if not lines:
+        return False
+    for line_count, expected_hash in _STABLE_SIGNATURES.get(lines[0], ()):
+        if len(lines) == line_count and hashlib.sha256(normalized.encode()).hexdigest() == expected_hash:
+            return True
+    return False
+
+
+def _runtime_kind(text: str) -> str:
+    normalized = _normalize_newlines(text)
+    if not normalized.splitlines() or normalized.splitlines()[0] != RUNTIME_HINT_MARKER:
+        return "ordinary"
+    if _is_complete_runtime(normalized) or _is_legacy_truncated_runtime(normalized):
+        return "owned"
+    return "ambiguous"
+
+
+def _is_complete_runtime(text: str) -> bool:
+    if not text.startswith(_RUNTIME_PREFIX):
+        return False
+    payload = text[len(_RUNTIME_PREFIX) :]
+    items = payload.split("、")
+    return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
+        0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items
+    )
+
+
+def _is_legacy_truncated_runtime(text: str) -> bool:
+    if not 80 <= len(text) <= 182 or not text.endswith("..."):
+        return False
+    prefix = text[:-3]
+    if _RUNTIME_PREFIX.startswith(prefix):
+        return True
+    if not prefix.startswith(_RUNTIME_PREFIX):
+        return False
+    payload = prefix[len(_RUNTIME_PREFIX) :]
+    items = payload.split("、")
+    return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
+        (0 < len(item) <= MAX_OPEN_LEN if index < len(items) - 1 else len(item) <= MAX_OPEN_LEN) and "\n" not in item
+        for index, item in enumerate(items)
+    )
+
+
+def _rewrite_context_text(
+    text: str, runtime_text: str | None, already_satisfied: bool
+) -> tuple[str, ContextRewriteResult]:
+    if _is_known_stable_text(text):
+        return "", ContextRewriteResult(stable_removed=True)
+    kind = _runtime_kind(text)
+    if kind == "ordinary":
+        return text, ContextRewriteResult()
+    if kind == "ambiguous":
+        return text, ContextRewriteResult(runtime_ambiguous=True)
+    if not runtime_text:
+        return "", ContextRewriteResult(runtime_removed=True)
+    if already_satisfied:
+        return "", ContextRewriteResult(runtime_removed=True)
+    if _normalize_newlines(text) == _normalize_newlines(runtime_text):
+        return text, ContextRewriteResult(runtime_satisfied=True)
+    return runtime_text, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True)
+
+
+def _rewrite_context_parts(
+    parts: list[Any], runtime_text: str | None, already_satisfied: bool
+) -> tuple[list[Any], ContextRewriteResult]:
+    rewritten: list[Any] = []
+    result = ContextRewriteResult(runtime_satisfied=already_satisfied)
+    for part in parts:
+        text = _text_value(part)
+        if text is None:
+            rewritten.append(part)
+            continue
+        if _is_known_stable_text(text):
+            result = _merge_context_results(result, ContextRewriteResult(stable_removed=True))
+            continue
+        kind = _runtime_kind(text)
+        if kind == "ordinary":
+            rewritten.append(part)
+            continue
+        if kind == "ambiguous":
+            rewritten.append(part)
+            result = _merge_context_results(result, ContextRewriteResult(runtime_ambiguous=True))
+            continue
+        if not runtime_text or result.runtime_satisfied:
+            result = _merge_context_results(result, ContextRewriteResult(runtime_removed=True))
+            continue
+        if _normalize_newlines(text) == _normalize_newlines(runtime_text):
+            rewritten.append(part)
+            result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True))
+            continue
+        rewritten.append({"type": "text", "text": runtime_text})
+        result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True))
+    return rewritten, result
+
+
+def _merge_context_results(left: ContextRewriteResult, right: ContextRewriteResult) -> ContextRewriteResult:
+    return ContextRewriteResult(
+        stable_removed=left.stable_removed or right.stable_removed,
+        runtime_satisfied=left.runtime_satisfied or right.runtime_satisfied,
+        runtime_replaced=left.runtime_replaced or right.runtime_replaced,
+        runtime_removed=left.runtime_removed or right.runtime_removed,
+        runtime_ambiguous=left.runtime_ambiguous or right.runtime_ambiguous,
+    )
 
 
 def build_runtime_hint(state: SessionState, max_chars: int) -> str:
@@ -106,11 +359,7 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
     if not openers:
         return ""
 
-    hint = (
-        f"{RUNTIME_HINT_MARKER}\n"
-        "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
-        + "、".join(openers)
-    )
+    hint = f"{RUNTIME_HINT_MARKER}\n{_RUNTIME_INSTRUCTION}\n" + "、".join(openers)
     return clip_text(hint, max_chars)
 
 
@@ -142,101 +391,6 @@ def make_text_part(text: str, factory: Any | None = None) -> Any | None:
         return None
 
 
-def part_has_marker(part: Any, marker: str) -> bool:
-    """对象 part 或 dict part 是否含 marker（历史 list 与 temp parts 共用）。"""
-    text_val = getattr(part, "text", None)
-    if text_val is None and isinstance(part, dict):
-        text_val = part.get("text")
-    return isinstance(text_val, str) and marker in text_val
-
-
-def _marker_in_req(req: Any, marker: str) -> bool:
-    """仅检查 system_prompt 与本请求 temp parts（不扫历史 contexts）。
-
-    历史级幂等由调用方 apply_context_marker 负责；
-    本守卫只防同一请求内重复追加。
-    """
-    try:
-        sp = getattr(req, "system_prompt", None) or ""
-        if isinstance(sp, str) and marker in sp:
-            return True
-    except Exception as e:
-        if logger is not None:
-            logger.debug(f"[HumanChatQuality] _marker_in_req system_prompt check failed: {e}")
-    try:
-        parts = getattr(req, "extra_user_content_parts", None)
-        if isinstance(parts, list):
-            return any(part_has_marker(part, marker) for part in parts)
-    except Exception as e:
-        if logger is not None:
-            logger.debug(f"[HumanChatQuality] _marker_in_req parts check failed: {e}")
-    return False
-
-
-def apply_context_marker(req: Any, marker: str, new_text: str | None) -> MarkerResult:
-    """单趟处理 contexts 中 user 消息的 marker（热路径唯一历史遍历入口）。
-
-    new_text 非空：list 形态首个命中替换为 new_text，其余命中丢弃（多块自愈）；
-    new_text 为空：list 形态删除含 marker 的 part，保留用户原话/图片等；
-    str 形态含 marker：不做不安全切割，返回 str_blocked（调用方不得再 append）。
-
-    返回：modified | absent | str_blocked
-
-    4.23.3：on_llm_request 早于 runner.reset()，此处原位改写会随本轮保存写回历史。
-    """
-    contexts = getattr(req, "contexts", None)
-    if not isinstance(contexts, list):
-        return "absent"
-
-    did_operation = False
-    want_replace = bool(new_text)
-    replaced_once = False
-    saw_str_marker = False
-
-    for ctx in contexts:
-        if not isinstance(ctx, dict) or ctx.get("role") != "user":
-            continue
-        content = ctx.get("content")
-        if isinstance(content, str):
-            if marker in content:
-                saw_str_marker = True
-            continue
-        if not isinstance(content, list):
-            continue
-
-        if want_replace and not replaced_once:
-            kept: list[Any] = []
-            for part in content:
-                if part_has_marker(part, marker):
-                    if not replaced_once:
-                        kept.append({"type": "text", "text": new_text})
-                        replaced_once = True
-                        did_operation = True
-                    continue
-                kept.append(part)
-            if replaced_once:
-                try:
-                    ctx["content"] = kept
-                except Exception as e:
-                    if logger is not None:
-                        logger.debug(f"[HumanChatQuality] contexts content rewrite skipped: {e}")
-        else:
-            kept = [part for part in content if not part_has_marker(part, marker)]
-            if len(kept) != len(content):
-                try:
-                    ctx["content"] = kept
-                    did_operation = True
-                except Exception as e:
-                    if logger is not None:
-                        logger.debug(f"[HumanChatQuality] contexts content rewrite skipped: {e}")
-
-    if did_operation:
-        return MARKER_MODIFIED
-    if saw_str_marker:
-        return MARKER_STR_BLOCKED
-    return MARKER_ABSENT
-
-
 def append_temp_text_part(
     req: Any,
     text: str,
@@ -244,18 +398,16 @@ def append_temp_text_part(
     *,
     marker: str | None = None,
 ) -> bool:
-    """写入 temp extra；缺失 list 时创建。marker 已存在（system_prompt 或本请求已有 part）则跳过。
+    """构造并追加 temp extra；去重和历史判定由 rewrite_context_injections 负责。
 
     契约：注入文本必须以 marker 开头（幂等的前提），违反时拒绝注入并告警。
-    历史 contexts 含 marker 时本函数仍会写入——历史级幂等由调用方 apply_context_marker 负责。
+    历史 contexts 的幂等与所有权判定由调用方 rewrite_context_injections 负责。
     """
     if not text.strip():
         return False
     if marker and not text.lstrip().startswith(marker):
         if logger is not None:
             logger.warning(f"[HumanChatQuality] injected text missing marker prefix: {marker!r}")
-        return False
-    if marker and _marker_in_req(req, marker):
         return False
     try:
         part = make_text_part(text, factory)
