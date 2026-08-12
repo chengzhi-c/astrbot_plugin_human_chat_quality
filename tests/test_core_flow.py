@@ -1,7 +1,4 @@
-"""main 模块流程测试：稳定规则注入、legacy 历史清扫、Core 全流程、配置解析。
-
-依赖宿主 astrbot API（main 顶层导入）；宿主缺失或版本不兼容时整体跳过。
-"""
+"""Host-independent Core behavior and configuration contracts."""
 
 import asyncio
 import json
@@ -19,24 +16,14 @@ _PKG_PARENT = str(Path(__file__).resolve().parents[2])
 if _PKG_PARENT not in sys.path:
     sys.path.insert(0, _PKG_PARENT)
 
-try:
-    from astrbot_plugin_human_chat_quality.main import (
-        AppConfig,
-        HumanChatQualityCore,
-        HumanChatQualityPlugin,
-        _extract_response_text,
-        _version_from_lines,
-    )
-    from astrbot_plugin_human_chat_quality.quality_rules import (
-        RUNTIME_HINT_MARKER,
-        STABLE_RULE_MARKER,
-        build_runtime_hint,
-    )
-    from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore
-
-    HAVE_MAIN = True
-except ImportError:  # pragma: no cover - 宿主缺失时跳过
-    HAVE_MAIN = False
+from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore, extract_response_text
+from astrbot_plugin_human_chat_quality.quality_rules import (
+    RUNTIME_HINT_MARKER,
+    STABLE_RULE_MARKER,
+    build_runtime_hint,
+    build_stable_rules,
+)
+from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore, SessionState
 
 
 class FakePart:
@@ -62,7 +49,6 @@ class FakeReq:
         self.extra_user_content_parts = []
 
 
-@unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
 class TestConfigParse(unittest.TestCase):
     def test_bool_int_list_parse(self):
         self.assertTrue(AppConfig.from_config({"enabled": "true"}).enabled)
@@ -85,7 +71,6 @@ class TestConfigParse(unittest.TestCase):
         self.assertTrue(cfg.enabled and cfg.inject_stable_rules and cfg.inject_runtime_state)
 
 
-@unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
 class TestCoreFlow(unittest.TestCase):
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -168,29 +153,11 @@ class TestCoreFlow(unittest.TestCase):
         self.assertIn("关闭", core_off.status_text(self.ev.unified_msg_origin, self.ev))
 
 
-@unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
-class TestVersionParse(unittest.TestCase):
-    """版本解析纯函数（L2）。"""
-
-    def test_version_from_lines_normal(self):
-        self.assertEqual(_version_from_lines(["name: x", "version: 1.2.3", ""]), "1.2.3")
-
-    def test_version_from_lines_quoted(self):
-        self.assertEqual(_version_from_lines(['version: "1.0.0"']), "1.0.0")
-
-    def test_version_from_lines_missing(self):
-        self.assertEqual(_version_from_lines(["name: x"]), "0.0.0")
-
-    def test_version_from_lines_empty_value(self):
-        self.assertEqual(_version_from_lines(["version:"]), "0.0.0")
-
-
-@unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
 class TestResponseTextExtraction(unittest.TestCase):
     """C11：回复文本提取的 result_chain 兜底路径。"""
 
     def test_completion_text_used_first(self):
-        self.assertEqual(_extract_response_text(FakeLLMResp("正文")), "正文")
+        self.assertEqual(extract_response_text(FakeLLMResp("正文")), "正文")
 
     def test_chain_fallback_with_role_filter(self):
         class Part:
@@ -204,7 +171,7 @@ class TestResponseTextExtraction(unittest.TestCase):
 
         resp = FakeLLMResp("")
         resp.result_chain = Chain([Part("assistant", "模型输出"), Part("user", "用户原话")])
-        self.assertEqual(_extract_response_text(resp), "模型输出")
+        self.assertEqual(extract_response_text(resp), "模型输出")
 
     def test_chain_content_field(self):
         class ContentPart:
@@ -217,15 +184,14 @@ class TestResponseTextExtraction(unittest.TestCase):
 
         resp = FakeLLMResp("")
         resp.result_chain = Chain([ContentPart("正文内容")])
-        self.assertEqual(_extract_response_text(resp), "正文内容")
+        self.assertEqual(extract_response_text(resp), "正文内容")
 
     def test_empty_all(self):
-        self.assertEqual(_extract_response_text(FakeLLMResp("")), "")
+        self.assertEqual(extract_response_text(FakeLLMResp("")), "")
 
 
-@unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
 class TestCoreFlowExtra(unittest.TestCase):
-    """C3/C6/C11/C12：Core 层补充契约（含插件层异常隔离）。"""
+    """Core cleanup, counting, and response-recording contracts."""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -247,6 +213,78 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
         asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         self.assertEqual(self.store.get(self.ev.unified_msg_origin).recent_openers, [])
+
+    def _request_with_owned_blocks(self):
+        req = FakeReq()
+        req.system_prompt = f"原人设\n\n{build_stable_rules()}"
+        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), 600)
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": runtime}]}]
+        return req
+
+    def test_global_off_cleans_owned_history_without_counting_injection(self):
+        core = HumanChatQualityCore(AppConfig.from_config({"enabled": False}), self.store, text_part_factory=FakePart)
+        req = self._request_with_owned_blocks()
+        asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertEqual(req.system_prompt, "原人设")
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(core.injection_count, 0)
+
+    def test_static_disabled_session_cleans_owned_history(self):
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"disabled_sessions": ["111"]}), self.store, text_part_factory=FakePart
+        )
+        req = self._request_with_owned_blocks()
+        asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertEqual(req.system_prompt, "原人设")
+        self.assertEqual(req.contexts[0]["content"], [])
+
+    def test_session_off_cleans_owned_history(self):
+        asyncio.run(self.core.set_session_enabled(self.ev.unified_msg_origin, False))
+        req = self._request_with_owned_blocks()
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertEqual(req.system_prompt, "原人设")
+        self.assertEqual(req.contexts[0]["content"], [])
+
+    def test_no_origin_cleans_owned_history_without_state_or_injection(self):
+        req = self._request_with_owned_blocks()
+        asyncio.run(self.core.on_llm_request(FakeEvent(""), req))
+        self.assertEqual(req.system_prompt, "原人设")
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(self.store.sessions, {})
+        self.assertEqual(self.core.injection_count, 0)
+
+    def test_runtime_config_off_removes_runtime_but_keeps_stable_rules(self):
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"inject_runtime_state": False}), self.store, text_part_factory=FakePart
+        )
+        req = self._request_with_owned_blocks()
+        asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_stable_config_off_removes_stable_rules_but_runtime_stays_active(self):
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答一"))
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答二"))
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答三"))
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"inject_stable_rules": False}), self.store, text_part_factory=FakePart
+        )
+        req = self._request_with_owned_blocks()
+        asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertEqual(req.system_prompt, "原人设")
+        self.assertIn(RUNTIME_HINT_MARKER, req.contexts[0]["content"][0]["text"])
+
+    def test_missing_text_part_factory_still_cleans_history_without_fake_part(self):
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答一"))
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答二"))
+        asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答三"))
+        core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=None)
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": V2_RULES_E4AA983}]}]
+        asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(req.extra_user_content_parts, [])
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
     def test_injection_count_only_real_injections(self):
         req = FakeReq()
@@ -277,14 +315,14 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_request(self.ev, req))
         self.assertEqual(req.contexts[0]["content"], "[Human Chat Quality Rules v2]\n旧规则块")
 
-    def test_plugin_layer_swallows_core_errors(self):
-        async def fail(event, req):
-            raise RuntimeError("boom")
-
-        stub = type("StubCore", (), {"on_llm_request": staticmethod(fail)})()
-        stub_plugin = type("StubPlugin", (), {"core": stub})()
-        # 装饰器原样返回函数，unbound 调用等价于宿主直接调插件方法
-        asyncio.run(HumanChatQualityPlugin.on_llm_request(stub_plugin, object(), object()))
+    def test_debug_log_reports_ambiguous_owned_markers_kept(self):
+        core = HumanChatQualityCore(AppConfig.from_config({"debug_log": True}), self.store, text_part_factory=FakePart)
+        req = FakeReq()
+        req.system_prompt = "[Human Chat Quality Rules v3]\n未知规则"
+        req.contexts = [{"role": "user", "content": RUNTIME_HINT_MARKER + "\n未知提示"}]
+        with self.assertLogs("astrbot_plugin_human_chat_quality.core", level="DEBUG") as logs:
+            asyncio.run(core.on_llm_request(self.ev, req))
+        self.assertTrue(any("ambiguous" in line for line in logs.output))
 
 
 if __name__ == "__main__":
