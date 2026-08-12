@@ -24,7 +24,9 @@ jobs:
         with:
           python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install "astrbot==4.23.3" "ruff~=0.15"
+      # 注意：不能用 ruff~=0.15——pip 的 ~= 对两位版本号放开主版本位（>=0.15,==0.*），
+      # 会解析到 0.16.x；其默认规则集比 0.15 多（I001/SIM102/PIE790 等），仓库按 0.15 口径验证。
+      - run: python -m pip install "astrbot==4.23.3" "ruff>=0.15,<0.16"
       - run: python scripts/build_release.py
 
   host-latest:
