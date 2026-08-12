@@ -1,22 +1,19 @@
 """Host-independent Core behavior and configuration contracts."""
 
 import asyncio
+from dataclasses import fields
 import json
 import os
 import unittest
 
-import sys
 from pathlib import Path
 
-from tests._support import V2_RULES_E4AA983, temporary_directory
+from tests._support import V2_RULES_E4AA983, ensure_plugin_package, temporary_directory
 
-# 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
-# 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
-_PKG_PARENT = str(Path(__file__).resolve().parents[2])
-if _PKG_PARENT not in sys.path:
-    sys.path.insert(0, _PKG_PARENT)
+ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore, extract_response_text
+from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality.quality_rules import (
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
@@ -49,6 +46,10 @@ class FakeReq:
         self.extra_user_content_parts = []
 
 
+EXPECTED_MIN_RUNTIME_HINT_CHARS = 80
+EXPECTED_MAX_RUNTIME_HINT_CHARS = 157
+
+
 class TestConfigParse(unittest.TestCase):
     def test_bool_int_list_parse(self):
         self.assertTrue(AppConfig.from_config({"enabled": "true"}).enabled)
@@ -59,16 +60,63 @@ class TestConfigParse(unittest.TestCase):
         self.assertEqual(cfg.custom_cliches, ("词",))
 
     def test_all_int_clamps(self):
-        self.assertEqual(AppConfig.from_config({"max_runtime_hint_chars": 5}).max_runtime_hint_chars, 80)
-        self.assertEqual(AppConfig.from_config({"max_runtime_hint_chars": 99999}).max_runtime_hint_chars, 3000)
+        self.assertEqual(
+            AppConfig.from_config({"max_runtime_hint_chars": 5}).max_runtime_hint_chars,
+            EXPECTED_MIN_RUNTIME_HINT_CHARS,
+        )
+        self.assertEqual(
+            AppConfig.from_config({"max_runtime_hint_chars": 99999}).max_runtime_hint_chars,
+            EXPECTED_MAX_RUNTIME_HINT_CHARS,
+        )
         self.assertEqual(AppConfig.from_config({"state_retention_days": 0}).state_retention_days, 1)
         self.assertEqual(AppConfig.from_config({"state_retention_days": 9999}).state_retention_days, 365)
 
     def test_defaults(self):
         cfg = AppConfig.from_config(None)
-        self.assertEqual(cfg.max_runtime_hint_chars, 600)
+        self.assertEqual(cfg.max_runtime_hint_chars, EXPECTED_MAX_RUNTIME_HINT_CHARS)
         self.assertEqual(cfg.state_retention_days, 14)
         self.assertTrue(cfg.enabled and cfg.inject_stable_rules and cfg.inject_runtime_state)
+
+    def test_schema_matches_config_contract(self):
+        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        self.assertEqual(getattr(quality_rules, "MIN_RUNTIME_HINT_CHARS", None), EXPECTED_MIN_RUNTIME_HINT_CHARS)
+        self.assertEqual(getattr(quality_rules, "MAX_RUNTIME_HINT_CHARS", None), EXPECTED_MAX_RUNTIME_HINT_CHARS)
+        config_fields = {field.name for field in fields(AppConfig)}
+        self.assertEqual(set(schema), config_fields)
+
+        allowed_keys = {"description", "type", "default", "hint", "condition", "slider"}
+        for name, field_schema in schema.items():
+            with self.subTest(field=name):
+                self.assertLessEqual(set(field_schema), allowed_keys)
+                for condition_key in field_schema.get("condition", {}):
+                    self.assertIn(condition_key, schema)
+                    self.assertEqual(schema[condition_key]["type"], "bool")
+
+        defaults = AppConfig()
+        for name, field_schema in schema.items():
+            expected = getattr(defaults, name)
+            if isinstance(expected, (tuple, frozenset)):
+                expected = []
+            self.assertEqual(field_schema["default"], expected, name)
+
+    def test_schema_conditions_and_numeric_controls_match_runtime_semantics(self):
+        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(schema["inject_stable_rules"]["condition"], {"enabled": True})
+        self.assertEqual(schema["inject_runtime_state"]["condition"], {"enabled": True})
+        self.assertEqual(
+            schema["max_runtime_hint_chars"]["condition"],
+            {"enabled": True, "inject_runtime_state": True},
+        )
+        self.assertEqual(
+            schema["max_runtime_hint_chars"]["slider"],
+            {"min": EXPECTED_MIN_RUNTIME_HINT_CHARS, "max": EXPECTED_MAX_RUNTIME_HINT_CHARS, "step": 1},
+        )
+        self.assertEqual(schema["recent_reply_window"]["slider"], {"min": 3, "max": 50, "step": 1})
+        for name in ("recent_reply_window", "custom_cliches", "state_retention_days", "disabled_sessions", "debug_log"):
+            self.assertEqual(schema[name]["condition"], {"enabled": True})
 
 
 class TestCoreFlow(unittest.TestCase):
@@ -119,7 +167,9 @@ class TestCoreFlow(unittest.TestCase):
             asyncio.run(self.core.on_llm_request(self.ev, req))
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         req = FakeReq()
-        old_hint = build_runtime_hint(self.store.get(self.ev.unified_msg_origin), 600).replace("好的", "旧开头")
+        old_hint = build_runtime_hint(
+            self.store.get(self.ev.unified_msg_origin), quality_rules.MAX_RUNTIME_HINT_CHARS
+        ).replace("好的", "旧开头")
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
         self.assertEqual(len(req.extra_user_content_parts), 0)
@@ -206,7 +256,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(core.on_llm_response(self.ev, FakeLLMResp("这是" + "x" * 21 + "的回复")))
         self.assertEqual(store.get(self.ev.unified_msg_origin).avoid_openers, [])
 
-    def test_runtime_off_stops_inject_and_record(self):
+    def test_session_off_stops_inject_and_record(self):
         asyncio.run(self.core.set_session_enabled(self.ev.unified_msg_origin, False))
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -217,7 +267,7 @@ class TestCoreFlowExtra(unittest.TestCase):
     def _request_with_owned_blocks(self):
         req = FakeReq()
         req.system_prompt = f"原人设\n\n{build_stable_rules()}"
-        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), 600)
+        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": runtime}]}]
         return req
 

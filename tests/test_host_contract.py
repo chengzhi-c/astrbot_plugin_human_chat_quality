@@ -1,13 +1,11 @@
 import asyncio
 import unittest
 
-import sys
-from pathlib import Path
 from unittest import mock
 
-_PKG_PARENT = str(Path(__file__).resolve().parents[2])
-if _PKG_PARENT not in sys.path:
-    sys.path.insert(0, _PKG_PARENT)
+from tests._support import ensure_plugin_package
+
+ensure_plugin_package()
 
 from astrbot.api.event.filter import PermissionType, PermissionTypeFilter
 from astrbot.api.star import Star

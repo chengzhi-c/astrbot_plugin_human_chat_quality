@@ -24,10 +24,17 @@ LEGACY_STABLE_MARKERS: tuple[str, ...] = (f"{INJECTED_MARKER_PREFIX} Rules]",) +
     f"{INJECTED_MARKER_PREFIX} Rules v{i}]" for i in range(1, RULES_VERSION)
 )
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
-_RUNTIME_INSTRUCTION = (
-    "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。"
-)
+_RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
 _RUNTIME_PREFIX = f"{RUNTIME_HINT_MARKER}\n{_RUNTIME_INSTRUCTION}\n"
+_LEGACY_RUNTIME_PREFIX = (
+    f"{RUNTIME_HINT_MARKER}\n"
+    "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
+)
+_RUNTIME_ITEM_SEPARATOR = "、"
+MIN_RUNTIME_HINT_CHARS = 80
+MAX_RUNTIME_HINT_CHARS = (
+    len(_RUNTIME_PREFIX) + MAX_AVOID_OPENERS * MAX_OPEN_LEN + (MAX_AVOID_OPENERS - 1) * len(_RUNTIME_ITEM_SEPARATOR)
+)
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
 _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
@@ -266,25 +273,25 @@ def _runtime_kind(text: str) -> str:
 
 
 def _is_complete_runtime(text: str) -> bool:
-    if not text.startswith(_RUNTIME_PREFIX):
-        return False
-    payload = text[len(_RUNTIME_PREFIX) :]
-    items = payload.split("、")
-    return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
-        0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items
-    )
+    for prefix in (_RUNTIME_PREFIX, _LEGACY_RUNTIME_PREFIX):
+        if text.startswith(prefix):
+            items = text[len(prefix) :].split(_RUNTIME_ITEM_SEPARATOR)
+            return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
+                0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items
+            )
+    return False
 
 
 def _is_legacy_truncated_runtime(text: str) -> bool:
     if not 80 <= len(text) <= 182 or not text.endswith("..."):
         return False
     prefix = text[:-3]
-    if _RUNTIME_PREFIX.startswith(prefix):
+    if _LEGACY_RUNTIME_PREFIX.startswith(prefix):
         return True
-    if not prefix.startswith(_RUNTIME_PREFIX):
+    if not prefix.startswith(_LEGACY_RUNTIME_PREFIX):
         return False
-    payload = prefix[len(_RUNTIME_PREFIX) :]
-    items = payload.split("、")
+    payload = prefix[len(_LEGACY_RUNTIME_PREFIX) :]
+    items = payload.split(_RUNTIME_ITEM_SEPARATOR)
     return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
         (0 < len(item) <= MAX_OPEN_LEN if index < len(items) - 1 else len(item) <= MAX_OPEN_LEN) and "\n" not in item
         for index, item in enumerate(items)
@@ -359,20 +366,13 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
     if not openers:
         return ""
 
-    hint = f"{RUNTIME_HINT_MARKER}\n{_RUNTIME_INSTRUCTION}\n" + "、".join(openers)
-    return clip_text(hint, max_chars)
-
-
-def clip_text(text: str, max_chars: int) -> str:
-    """截断到 max_chars 字符，超长以省略号收尾。
-
-    输入域由调用方保证（配置下限 80），1-3 的畸形输入行为不受约束。
-    """
-    if max_chars <= 0:
-        return ""
-    if len(text) <= max_chars:
-        return text
-    return text[: max_chars - 3].rstrip() + "..."
+    selected: list[str] = []
+    for item in openers:
+        candidate = _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join([*selected, item])
+        if len(candidate) > max_chars:
+            break
+        selected.append(item)
+    return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(selected) if selected else ""
 
 
 def make_text_part(text: str, factory: Any | None = None) -> Any | None:

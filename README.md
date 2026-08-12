@@ -4,7 +4,7 @@
 
 它做两件事：
 
-1. **固定规则**：写给模型的通用约束，幂等写入 system prompt。只做减法，不碰人设的性格、称呼、情绪和口头禅。采用 natural-talk v2.1.0（MIT）「作为 System Prompt」原文 + 插件附加安全条款（来源标注见 `quality_rules.py` 与 CHANGELOG）。
+1. **固定规则**：写给模型的通用约束，幂等写入 system prompt。只做减法，不碰人设的性格、称呼、情绪和口头禅。采用 natural-talk v2.1.0（MIT）「作为 System Prompt」原文 + 插件附加安全条款（来源与许可见 `THIRD_PARTY_NOTICES.md`）。
 2. **动态提醒**：记录最近回复开头与高置信度套话信号；下一轮以轻量提示要求换说法。
 
 ## 它会提醒模型避开这些
@@ -46,7 +46,9 @@
 
 - **固定规则**幂等写入 `system_prompt`（带标记，不重复注入，不进入聊天历史）；升级插件后旧版本规则块自动剥离（system_prompt 按段落、历史按 legacy 标记），避免新旧并存。
 - **动态提醒**以本轮临时消息块注入。在 AstrBot 4.23+ 中，该块可能随 user 上下文入库；插件会在每轮**原位替换**为最新提示，或在状态清空时**移除**旧块，避免失效约束残留、也不会多块累积。
-- 每次回复后更新会话状态；写盘在工作线程执行，不阻塞消息响应。
+- 总开关、固定规则、动态提醒、会话开关或静态禁用关闭时，请求阶段仍会清理可识别的本插件旧块，再停止相应注入，避免关闭后残留规则继续生效。
+- 每次回复后更新会话状态；即使关闭动态提醒也继续轻量记录，以便重新开启后保持连续。写盘在工作线程执行，不阻塞消息响应。
+- 写盘失败时内存状态立即生效并保留为待重试；`/humanq on`、`off`、`reset` 会明确报告未落盘，重复命令或插件退出时会再次尝试保存。
 - 动态块依赖宿主 `TextPart`；环境不兼容时固定规则仍生效，动态提醒自动降级关闭。
 
 ## 快速开始
@@ -75,9 +77,9 @@
 |--------|------|------|
 | `enabled` | true | 总开关。关闭后插件仍加载，但不注入规则、不记录状态 |
 | `inject_stable_rules` | true | 注入固定规则。与其它改写 system 的插件冲突时可关闭 |
-| `inject_runtime_state` | true | 注入动态提醒 |
-| `max_runtime_hint_chars` | 600 | 每轮动态提示的最大字符数（80–3000，超界自动夹取） |
-| `recent_reply_window` | 8 | 重复开头检测范围：统计最近 N 条回复的开头，同一开头出现 ≥3 次即提醒换说法（3–50，小于 3 夹到 3） |
+| `inject_runtime_state` | true | 注入动态提醒；关闭后仍记录轻量状态 |
+| `max_runtime_hint_chars` | 157 | 每轮动态提示的最大字符数（80–157），只装入完整短语 |
+| `recent_reply_window` | 8 | 重复开头检测范围：统计最近 N 条回复的开头，同一开头出现 ≥3 次即提醒换说法（3–50） |
 | `state_retention_days` | 14 | 会话状态超过该天数未更新自动清理（1–365） |
 | `custom_cliches` | 空 | 自定义避用词，每行一个，命中即加入本轮提醒。建议单条 ≤20 字，超长不生效 |
 | `disabled_sessions` | 空 | 禁用会话列表，每行一个群号（如 `123456`）或完整来源标识 |
@@ -91,18 +93,21 @@
 
 ## 测试（维护者）
 
-测试已随仓库发布（`tests/`），在插件仓库根目录运行：
+源码仓库保留完整测试与发布工具；部署 zip 不包含测试、脚本、缓存或运行时数据。在源码仓库根目录运行：
 
 ```
-python -m unittest discover -s tests -v
-python -m compileall -q main.py quality_rules.py runtime_state.py tests
-ruff format --check .
+python -S scripts/run_tests.py core
+python scripts/run_tests.py host
+python scripts/run_tests.py all
+python -m compileall -q main.py core.py quality_rules.py runtime_state.py scripts tests
 ruff check .
+ruff format --check .
+python scripts/build_release.py
 ```
 
-装有 AstrBot 时以真实宿主运行全部用例；无宿主（导入期 ImportError）时，依赖宿主 API 的流程用例（`test_main_flow.py`）自动跳过，其余用例以无宿主方式运行。版本不兼容属宿主 API 变化，按实际报错处理，不会静默跳过。
+`core` 在 `python -S` 下运行，不读取已安装的 AstrBot 或第三方包；`host` 和 `all` 要求安装受支持的 AstrBot。严格 runner 把 failure、error、skip 和 unexpected success 都视为失败，不会用跳过制造绿灯。
 
-在源码副本根目录运行测试会就地生成 AstrBot 的 `data/` 目录（已 gitignore，不影响发布）；勿在 AstrBot 数据区的部署目录中运行测试（会污染数据区）。
+装有 AstrBot 时，在源码副本根目录运行宿主测试可能生成已忽略的 `data/` 目录；勿在 AstrBot 数据区的部署目录中运行测试。
 
 ## 卸载
 

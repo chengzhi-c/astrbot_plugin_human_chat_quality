@@ -5,24 +5,37 @@ on:
   pull_request:
 
 jobs:
-  test:
-    strategy:
-      matrix:
-        python-version: ["3.11", "3.12"]
+  core:
+    name: Core (no AstrBot)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: ${{ matrix.python-version }}
+          python-version: "3.12"
+      - run: python -S scripts/run_tests.py core
+
+  host-min-release:
+    name: Host minimum and release gate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: python -m pip install --upgrade pip
-      - run: python -m pip install "ruff~=0.15"
-      # 无宿主 astrbot：main 流程用例按机制跳过，其余用例全量运行
-      - name: Unit tests
-        run: python -m unittest discover -s tests
-      - name: Compile check
-        run: python -m compileall -q main.py quality_rules.py runtime_state.py tests
-      - name: Lint
-        run: ruff check .
-      - name: Format check
-        run: ruff format --check .
+      - run: python -m pip install "astrbot==4.23.3" "ruff~=0.15"
+      - run: python scripts/build_release.py
+
+  host-latest:
+    name: Host latest 4.x
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --upgrade pip
+      - run: python -m pip install "astrbot>=4.23,<5"
+      - run: python -c "from importlib.metadata import version; print(version('astrbot'))"
+      - run: python scripts/run_tests.py host

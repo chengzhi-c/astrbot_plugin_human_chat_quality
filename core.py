@@ -5,6 +5,8 @@ import logging
 from typing import Any
 
 from .quality_rules import (
+    MAX_RUNTIME_HINT_CHARS,
+    MIN_RUNTIME_HINT_CHARS,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
     append_temp_text_part,
@@ -49,7 +51,7 @@ class AppConfig:
     inject_stable_rules: bool = True
     inject_runtime_state: bool = True
     debug_log: bool = False
-    max_runtime_hint_chars: int = 600
+    max_runtime_hint_chars: int = MAX_RUNTIME_HINT_CHARS
     state_retention_days: int = 14
     recent_reply_window: int = 8
     custom_cliches: tuple[str, ...] = ()
@@ -67,7 +69,12 @@ class AppConfig:
             inject_stable_rules=_parse_bool(get("inject_stable_rules", True), True),
             inject_runtime_state=_parse_bool(get("inject_runtime_state", True), True),
             debug_log=_parse_bool(get("debug_log", False), False),
-            max_runtime_hint_chars=_parse_int(get("max_runtime_hint_chars", 600), 600, 80, 3000),
+            max_runtime_hint_chars=_parse_int(
+                get("max_runtime_hint_chars", MAX_RUNTIME_HINT_CHARS),
+                MAX_RUNTIME_HINT_CHARS,
+                MIN_RUNTIME_HINT_CHARS,
+                MAX_RUNTIME_HINT_CHARS,
+            ),
             state_retention_days=_parse_int(get("state_retention_days", 14), 14, 1, 365),
             recent_reply_window=_parse_int(get("recent_reply_window", 8), 8, 3, 50),
             custom_cliches=tuple(_parse_list(get("custom_cliches", []))),

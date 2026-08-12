@@ -1,9 +1,33 @@
 import os
+import importlib.util
+import sys
 import tempfile
 import unittest
 from pathlib import Path
 
 _DEFAULT_TMPDIR = Path(__file__).resolve().parents[2]
+
+
+def ensure_plugin_package() -> None:
+    """Load the source tree under its canonical package name."""
+    name = "astrbot_plugin_human_chat_quality"
+    root = Path(__file__).resolve().parents[1]
+    expected = (root / "__init__.py").resolve()
+    current = sys.modules.get(name)
+    current_file = getattr(current, "__file__", None)
+    if current_file and Path(current_file).resolve() == expected:
+        return
+    spec = importlib.util.spec_from_file_location(
+        name,
+        expected,
+        submodule_search_locations=[str(root)],
+    )
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load plugin package from {root}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+
 
 V2_RULES_E4AA983 = (
     "[Human Chat Quality Rules v2]\n"

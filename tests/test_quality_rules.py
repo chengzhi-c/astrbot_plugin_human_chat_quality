@@ -5,16 +5,9 @@
 
 import unittest
 
-import sys
-from pathlib import Path
+from tests._support import V2_RULES_E4AA983, ensure_plugin_package
 
-from tests._support import V2_RULES_E4AA983
-
-# 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
-# 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
-_PKG_PARENT = str(Path(__file__).resolve().parents[2])
-if _PKG_PARENT not in sys.path:
-    sys.path.insert(0, _PKG_PARENT)
+ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality.quality_rules import (
@@ -25,7 +18,6 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
     append_temp_text_part,
     build_runtime_hint,
     build_stable_rules,
-    clip_text,
     inject_stable_rules,
     rewrite_context_injections,
     rewrite_stable_rules,
@@ -178,8 +170,12 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_removed)
 
     def test_list_replacement_and_str_ambiguity_are_both_reported(self):
-        old = build_runtime_hint(quality_rules.SessionState(avoid_openers=["旧开头"]), 600)
-        new = build_runtime_hint(quality_rules.SessionState(avoid_openers=["新开头"]), 600)
+        old = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        new = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
         req = FakeReq()
         req.contexts = [
             {"role": "user", "content": [{"type": "text", "text": old}]},
@@ -192,8 +188,12 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.runtime_ambiguous)
 
     def test_multiple_runtime_blocks_converge_without_reordering_other_parts(self):
-        old = build_runtime_hint(quality_rules.SessionState(avoid_openers=["旧开头"]), 600)
-        new = build_runtime_hint(quality_rules.SessionState(avoid_openers=["新开头"]), 600)
+        old = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        new = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
         image = {"type": "image", "url": "keep"}
         req = FakeReq()
         req.contexts = [
@@ -217,18 +217,24 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.runtime_removed)
 
     def test_truncated_110_runtime_blocks_are_removed(self):
-        full = build_runtime_hint(quality_rules.SessionState(avoid_openers=["x" * 20] * 5), 600)
+        old_instruction = (
+            "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。"
+        )
+        full = f"{RUNTIME_HINT_MARKER}\n{old_instruction}\n" + "、".join(["x" * 20] * 5)
         self.assertEqual(len(full), 183)
         for budget in (80, 81, 100, 150, 182):
             with self.subTest(budget=budget):
                 req = FakeReq()
-                req.contexts = [{"role": "user", "content": [{"type": "text", "text": clip_text(full, budget)}]}]
+                truncated = full[: budget - 3].rstrip() + "..."
+                req.contexts = [{"role": "user", "content": [{"type": "text", "text": truncated}]}]
                 result = rewrite_context_injections(req, None)
                 self.assertEqual(req.contexts[0]["content"], [])
                 self.assertTrue(result.runtime_removed)
 
     def test_matching_runtime_block_is_satisfied_without_rewrite(self):
-        target = build_runtime_hint(quality_rules.SessionState(avoid_openers=["好的"]), 600)
+        target = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["好的"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
         part = {"type": "text", "text": target}
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [part]}]
@@ -356,25 +362,25 @@ class TestRuntimeHint(unittest.TestCase):
     def test_empty_when_no_openers(self):
         from astrbot_plugin_human_chat_quality.runtime_state import SessionState
 
-        self.assertEqual(build_runtime_hint(SessionState(), 600), "")
+        self.assertEqual(build_runtime_hint(SessionState(), 157), "")
 
-    def test_hint_starts_with_marker_and_clips(self):
+    def test_hint_starts_with_marker_and_keeps_complete_items(self):
         from astrbot_plugin_human_chat_quality.runtime_state import SessionState
 
-        hint = build_runtime_hint(SessionState(avoid_openers=["好的", "没问题"]), 600)
+        hint = build_runtime_hint(SessionState(avoid_openers=["好的", "没问题"]), 157)
         self.assertTrue(hint.startswith(RUNTIME_HINT_MARKER))
         self.assertIn("好的", hint)
         self.assertIn("没问题", hint)
-        short = build_runtime_hint(SessionState(avoid_openers=["好的"] * 5), 60)
-        self.assertLessEqual(len(short), 60)
-        self.assertTrue(short.endswith("..."))
-        # 裁剪只能从尾部切，marker 位于头部必须保留（append 契约依赖 marker 前缀）
-        self.assertTrue(short.startswith(RUNTIME_HINT_MARKER))
+        items = ["甲" * 20, "乙" * 20, "丙" * 20, "丁" * 20, "戊" * 20]
+        full = build_runtime_hint(SessionState(avoid_openers=items), 157)
+        self.assertEqual(len(full), 157)
+        self.assertTrue(all(item in full for item in items))
 
-    def test_clip_text_edges(self):
-        self.assertEqual(clip_text("abc", 0), "")
-        self.assertEqual(clip_text("短", 10), "短")
-        self.assertTrue(clip_text("很长" * 10, 10).endswith("..."))
+        short = build_runtime_hint(SessionState(avoid_openers=items), 80)
+        self.assertLessEqual(len(short), 80)
+        self.assertIn(items[0], short)
+        self.assertNotIn(items[1], short)
+        self.assertFalse(short.endswith("..."))
 
 
 if __name__ == "__main__":

@@ -1,23 +1,18 @@
 #!/usr/bin/env python3
-"""构建发布 zip：测试预检 + 清单校验 + 版本一致性 + 打包（纯 stdlib）。
+"""Validate and build the plugin release archive."""
 
-用法：在插件仓库根目录运行  python scripts/build_release.py
-输出：仓库上级目录  astrbot_plugin_human_chat_quality-v<version>.zip
-
-任一预检失败即拒绝打包（测试红 = 不能发布）。
-"""
+from __future__ import annotations
 
 import re
 import subprocess
 import sys
 import zipfile
+from dataclasses import dataclass
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[1]
-PLUGIN_NAME = REPO.name
-
-MUST_INCLUDE = (
+RUNTIME_MANIFEST = (
     "main.py",
+    "core.py",
     "quality_rules.py",
     "runtime_state.py",
     "__init__.py",
@@ -25,66 +20,109 @@ MUST_INCLUDE = (
     "metadata.yaml",
     "README.md",
     "CHANGELOG.md",
+    "THIRD_PARTY_NOTICES.md",
     "LICENSE",
-    "tests/test_main_flow.py",
-    "tests/test_quality_rules.py",
-    "tests/test_runtime_state.py",
-    "ruff.toml",
 )
-# CHANGELOG 条目恒为「## [x.y.z] - 日期」，锚定格式防日期误配
-CHANGELOG_VERSION_RE = re.compile(r"^## \[([^\]\s]+)\]")
-META_VERSION_RE = re.compile(r'^version:\s*["\']?([^"\'\s]+)')
+_CHANGELOG_VERSION_RE = re.compile(r"^## \[([^\]\s]+)\]")
+_META_FIELD_RE = re.compile(r"^(name|version):\s*[\"']?([^\"'\s]+)")
+_SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 
 
-def _fail(message: str) -> None:
-    print(f"[build_release] FAIL: {message}")
-    sys.exit(1)
+@dataclass(frozen=True)
+class ReleaseInfo:
+    name: str
+    version: str
 
 
-def version_from_metadata() -> str:
-    for line in (REPO / "metadata.yaml").read_text(encoding="utf-8").splitlines():
-        match = META_VERSION_RE.match(line.strip())
+def _metadata_fields(repo: Path) -> dict[str, str]:
+    fields: dict[str, str] = {}
+    for line in (repo / "metadata.yaml").read_text(encoding="utf-8").splitlines():
+        match = _META_FIELD_RE.match(line.strip())
+        if match:
+            fields[match.group(1)] = match.group(2)
+    return fields
+
+
+def _changelog_version(repo: Path) -> str:
+    for line in (repo / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
+        match = _CHANGELOG_VERSION_RE.match(line.strip())
         if match:
             return match.group(1)
-    _fail("metadata.yaml 缺少 version 字段")
+    raise ValueError("CHANGELOG.md is missing its first version heading")
 
 
-def version_from_changelog() -> str:
-    for line in (REPO / "CHANGELOG.md").read_text(encoding="utf-8").splitlines():
-        match = CHANGELOG_VERSION_RE.match(line.strip())
-        if match:
-            return match.group(1)
-    _fail("CHANGELOG.md 缺少版本条目（## [x.y.z] - 日期）")
-
-
-def main() -> None:
-    # 1. 测试与门禁预检：任一失败即拒绝打包
-    subprocess.run(
-        [sys.executable, "-m", "unittest", "discover", "-s", "tests"],
-        cwd=REPO,
-        check=True,
-    )
-    subprocess.run(["ruff", "check", "."], cwd=REPO, check=True)
-    subprocess.run(["ruff", "format", "--check", "."], cwd=REPO, check=True)
-
-    # 2. 清单校验
-    missing = [rel for rel in MUST_INCLUDE if not (REPO / rel).is_file()]
+def validate_release(repo: Path) -> ReleaseInfo:
+    repo = repo.resolve()
+    missing = [path for path in RUNTIME_MANIFEST if not (repo / path).is_file()]
     if missing:
-        _fail(f"发布清单缺失：{', '.join(missing)}")
+        raise ValueError(f"release manifest missing: {', '.join(missing)}")
 
-    # 3. 版本一致性（metadata 与 CHANGELOG 首条）
-    meta_version = version_from_metadata()
-    changelog_version = version_from_changelog()
-    if meta_version != changelog_version:
-        print(f"[build_release] WARN: metadata version {meta_version!r} != CHANGELOG 首条 {changelog_version!r}")
+    fields = _metadata_fields(repo)
+    name = fields.get("name")
+    version = fields.get("version")
+    if not name or not _SAFE_NAME_RE.fullmatch(name):
+        raise ValueError(f"metadata name is invalid: {name!r}")
+    if not version or not _SAFE_NAME_RE.fullmatch(version):
+        raise ValueError(f"metadata version is invalid: {version!r}")
+    changelog_version = _changelog_version(repo)
+    if version != changelog_version:
+        raise ValueError(f"metadata version {version!r} does not match changelog {changelog_version!r}")
+    return ReleaseInfo(name, version)
 
-    # 4. 打包到仓库外，zip 内带顶层目录名（与 AstrBot 插件目录约定一致）
-    out_path = REPO.parent / f"{PLUGIN_NAME}-v{meta_version}.zip"
-    with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as zf:
-        for rel in sorted(MUST_INCLUDE):
-            zf.write(REPO / rel, f"{PLUGIN_NAME}/{rel}")
-    print(f"[build_release] OK: {out_path}")
+
+def build_archive(repo: Path, out_dir: Path) -> Path:
+    repo = repo.resolve()
+    out_dir = out_dir.resolve()
+    out_dir.mkdir(parents=True, exist_ok=True)
+    info = validate_release(repo)
+    archive = out_dir / f"{info.name}-v{info.version}.zip"
+    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as zf:
+        for relative in RUNTIME_MANIFEST:
+            source = repo / relative
+            target = f"{info.name}/{relative}"
+            zf.write(source, target)
+
+    with zipfile.ZipFile(archive) as zf:
+        names = set(zf.namelist())
+        expected = {f"{info.name}/{relative}" for relative in RUNTIME_MANIFEST}
+        if names != expected:
+            archive.unlink(missing_ok=True)
+            raise ValueError("archive contents do not match the runtime manifest")
+        for name in names:
+            if name.startswith("/") or ".." in Path(name).parts:
+                archive.unlink(missing_ok=True)
+                raise ValueError("archive contains an unsafe path")
+    return archive
+
+
+def _run_gate(command: list[str], repo: Path) -> None:
+    subprocess.run(command, cwd=repo, check=True)
+
+
+def main() -> int:
+    repo = Path(__file__).resolve().parents[1]
+    _run_gate([sys.executable, "scripts/run_tests.py", "all"], repo)
+    _run_gate(
+        [
+            sys.executable,
+            "-m",
+            "compileall",
+            "-q",
+            "main.py",
+            "core.py",
+            "quality_rules.py",
+            "runtime_state.py",
+            "scripts",
+            "tests",
+        ],
+        repo,
+    )
+    _run_gate(["ruff", "check", "."], repo)
+    _run_gate(["ruff", "format", "--check", "."], repo)
+    archive = build_archive(repo, repo.parent)
+    print(f"[build_release] OK: {archive}")
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

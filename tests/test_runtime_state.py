@@ -11,16 +11,9 @@ import threading
 import unittest
 from unittest import mock
 
-import sys
-from pathlib import Path
+from tests._support import ensure_plugin_package, temporary_directory
 
-from tests._support import temporary_directory
-
-# 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
-# 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
-_PKG_PARENT = str(Path(__file__).resolve().parents[2])
-if _PKG_PARENT not in sys.path:
-    sys.path.insert(0, _PKG_PARENT)
+ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
