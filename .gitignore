@@ -1,0 +1,14 @@
+# Python 缓存
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# 运行时状态与临时/备份文件
+runtime_state.json
+*.tmp
+*.bak
+*.corrupt.*
+
+# AstrBot 运行时写入的全局产物（t2i 模板等），不属于插件源码，禁止提交
+# （data/cmd_config.json 含敏感字段，误提交有泄露风险）
+data/
