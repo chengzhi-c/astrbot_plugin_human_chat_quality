@@ -235,6 +235,66 @@ class RuntimeStateStore:
             pass
 
 
+# ===== 会话身份与禁用匹配 =====
+
+
+def unified_origin(event: Any) -> str:
+    """从 event 取统一会话源标识（session_id / group 兜底共用）。"""
+    return str(getattr(event, "unified_msg_origin", "") or "").strip()
+
+
+def match_keys(session_id: str, group_id: str = "") -> frozenset[str]:
+    """归一化禁用匹配键：完整来源、群号、group:/GroupMessage: 前缀、# 前后 base。"""
+    candidates: set[str] = set()
+    session_id = str(session_id or "").strip()
+    group_id = str(group_id or "").strip()
+    if session_id:
+        candidates.add(session_id)
+    if group_id:
+        candidates.add(group_id)
+        candidates.add(f"group:{group_id}")
+        candidates.add(f"GroupMessage:{group_id}")
+        base_group_id = group_id.split("#", 1)[0].strip()
+        if base_group_id and base_group_id != group_id:
+            candidates.add(base_group_id)
+            candidates.add(f"group:{base_group_id}")
+            candidates.add(f"GroupMessage:{base_group_id}")
+    return frozenset(c.lower() for c in candidates if c)
+
+
+def is_session_disabled(disabled: frozenset[str], session_id: str, event: Any | None = None) -> bool:
+    """配置禁用列表是否命中本会话（event 可提供更准的 group_id）。"""
+    if not disabled:
+        return False
+    group_id = group_id_from_event(event) if event is not None else _parse_group_id_from_origin(session_id)
+    return not match_keys(session_id, group_id).isdisjoint(disabled)
+
+
+def group_id_from_event(event: Any) -> str:
+    """从事件提取群号：平台标准接口优先，origin 解析兜底（两级）。
+
+    4.23.x 全部群消息适配器上 get_group_id() 或 unified_msg_origin 至少一条可用；
+    旧版按属性名碰运气提取的中间层与其冗余，已移除。
+    """
+    getter = getattr(event, "get_group_id", None)
+    if callable(getter):
+        try:
+            value = getter()
+            if value is not None and str(value).strip():
+                return str(value).strip()
+        except Exception as e:
+            if logger is not None:
+                logger.debug(f"[HumanChatQuality] get_group_id failed: {e}")
+    return _parse_group_id_from_origin(unified_origin(event))
+
+
+def _parse_group_id_from_origin(origin: str) -> str:
+    parts = str(origin or "").strip().split(":", 2)
+    if len(parts) >= 3 and "group" in parts[1].lower():
+        return parts[2].strip()
+    return ""
+
+
 # opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）；切分正则编译一次，避免每次响应重建
 _OPENER_PREFIXES: tuple[str, ...] = ("我会", "好的", "可以", "没问题", "没事", "别急", "明白", "行吧", "好嘞")
 _OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")

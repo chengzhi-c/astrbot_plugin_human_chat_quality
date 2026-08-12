@@ -24,28 +24,28 @@ from .quality_rules import (
     build_stable_rules,
     inject_stable_rules,
 )
-from .runtime_state import RuntimeStateStore
+from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
 
 
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
 
 
-def _read_metadata_version(path: str | Path | None = None) -> str:
-    """版本唯一源：同目录 metadata.yaml 的 version 字段（无第三方 YAML 依赖）。
-
-    path 参数化后可在测试中注入自定义路径，提升降级分支可测性。
-    """
-    meta_path = Path(path) if path is not None else Path(__file__).with_name("metadata.yaml")
-    try:
-        for line in meta_path.read_text(encoding="utf-8").splitlines():
-            text = line.strip()
-            if text.startswith("version:"):
-                value = text.split(":", 1)[1].strip().strip("\"'")
-                if value:
-                    return value
-    except OSError:
-        pass
+def _version_from_lines(lines: list[str]) -> str:
+    """纯函数：从 metadata.yaml 行文本提取 version（可测）。"""
+    for line in lines:
+        text = line.strip()
+        if text.startswith("version:"):
+            value = text.split(":", 1)[1].strip().strip("\"'")
+            if value:
+                return value
     return "0.0.0"
+
+
+def _read_metadata_version() -> str:
+    try:
+        return _version_from_lines(Path(__file__).with_name("metadata.yaml").read_text(encoding="utf-8").splitlines())
+    except OSError:
+        return "0.0.0"
 
 
 PLUGIN_VERSION = _read_metadata_version()
@@ -182,7 +182,7 @@ class HumanChatQualityCore:
         self._stable_migration_checked: set[str] = set()
 
     async def on_llm_request(self, event: Any, req: Any) -> None:
-        session_id = self._session_id(event)
+        session_id = unified_origin(event)
         if not session_id:
             # 无来源事件不参与状态管理，避免全部挤进同一会话互相污染
             return
@@ -251,7 +251,7 @@ class HumanChatQualityCore:
             logger.debug(f"[HumanChatQuality] stale injection block removed from contexts for {session_id}")
 
     async def on_llm_response(self, event: Any, resp: Any) -> None:
-        session_id = self._session_id(event)
+        session_id = unified_origin(event)
         if not session_id:
             return
         if not self._is_effectively_active(session_id, event):
@@ -295,111 +295,6 @@ class HumanChatQualityCore:
         if not self._is_active(session_id):
             return False
         return not is_session_disabled(self.cfg.disabled_sessions, session_id, event)
-
-    @staticmethod
-    def _session_id(event: Any) -> str:
-        return unified_origin(event)
-
-
-def unified_origin(event: Any) -> str:
-    """从 event 取统一会话源标识（session_id / group 兜底共用）。"""
-    return str(getattr(event, "unified_msg_origin", "") or "").strip()
-
-
-def match_keys(session_id: str, group_id: str = "") -> frozenset[str]:
-    """归一化禁用匹配键：完整来源、群号、group:/GroupMessage: 前缀、# 前后 base。"""
-    candidates: set[str] = set()
-    session_id = str(session_id or "").strip()
-    group_id = str(group_id or "").strip()
-    if session_id:
-        candidates.add(session_id)
-    if group_id:
-        candidates.add(group_id)
-        candidates.add(f"group:{group_id}")
-        candidates.add(f"GroupMessage:{group_id}")
-        base_group_id = group_id.split("#", 1)[0].strip()
-        if base_group_id and base_group_id != group_id:
-            candidates.add(base_group_id)
-            candidates.add(f"group:{base_group_id}")
-            candidates.add(f"GroupMessage:{base_group_id}")
-    return frozenset(c.lower() for c in candidates if c)
-
-
-def is_session_disabled(disabled: frozenset[str], session_id: str, event: Any | None = None) -> bool:
-    """配置禁用列表是否命中本会话（event 可提供更准的 group_id）。"""
-    if not disabled:
-        return False
-    group_id = group_id_from_event(event) if event is not None else _parse_group_id_from_origin(session_id)
-    return not match_keys(session_id, group_id).isdisjoint(disabled)
-
-
-def group_id_from_event(event: Any) -> str:
-    """从事件提取 group_id（按优先级单趟探测）。"""
-    # 优先：平台标准接口
-    getter = getattr(event, "get_group_id", None)
-    if callable(getter):
-        try:
-            value = getter()
-            if value is not None and str(value).strip():
-                return str(value).strip()
-        except Exception as e:
-            if logger is not None:
-                logger.debug(f"[HumanChatQuality] get_group_id failed: {e}")
-    # 次优：事件对象与 message_obj 的属性（含嵌套 dict/object 提取）
-    for owner in (event, getattr(event, "message_obj", None)):
-        if owner is None:
-            continue
-        for attr in ("group_id", "group", "id", "qq", "uin"):
-            group_id = _extract_and_normalize(owner, attr)
-            if group_id:
-                return group_id
-    # 兜底：从 unified_origin 解析（platform:GroupMessage:123456）
-    return _parse_group_id_from_origin(unified_origin(event))
-
-
-# 从容器提取 group_id 时按优先级探测的属性名（dict 与 object 同序）
-_GROUP_ID_KEYS = ("group_id", "id", "qq", "uin")
-
-
-def _extract_and_normalize(owner: Any, attr: str) -> str:
-    """从 owner 提取 attr 属性并规范化（深入一层 dict/object，不递归）。"""
-    value = getattr(owner, attr, None)
-    if value is None or isinstance(value, bool):
-        return ""
-
-    # dict 形态：提取子字段并规范化
-    if isinstance(value, dict):
-        for key in _GROUP_ID_KEYS:
-            result = _normalize_id(value.get(key))
-            if result:
-                return result
-        return ""
-
-    # object 形态：提取子字段并规范化
-    if hasattr(value, "__dict__"):
-        for key in _GROUP_ID_KEYS:
-            result = _normalize_id(getattr(value, key, None))
-            if result:
-                return result
-
-    # primitive：直接规范化
-    return _normalize_id(value)
-
-
-def _normalize_id(value: Any) -> str:
-    """规范化为字符串 ID（只处理 primitive，不递归）。"""
-    if value is None or isinstance(value, bool):
-        return ""
-    if isinstance(value, (str, int)):
-        return str(value).strip()
-    return ""
-
-
-def _parse_group_id_from_origin(origin: str) -> str:
-    parts = str(origin or "").strip().split(":", 2)
-    if len(parts) >= 3 and "group" in parts[1].lower():
-        return parts[2].strip()
-    return ""
 
 
 class HumanChatQualityPlugin(Star):

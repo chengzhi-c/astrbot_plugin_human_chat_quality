@@ -12,14 +12,13 @@ from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
-STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v4]"
-# 历史版本注入过的规则标记（含无版本号形态）；
+# 规则版本：升级 natural-talk 时 +1；旧版本随 LEGACY 推导保留，保证旧块可剥离
+RULES_VERSION = 4
+STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
+# 历史版本注入过的规则标记（含无版本号形态，显式保留）；
 # 用于剥离 system_prompt/历史中残留的旧规则块（startswith 判定不会误伤当前 marker 自身）
-LEGACY_STABLE_MARKERS: tuple[str, ...] = (
-    f"{INJECTED_MARKER_PREFIX} Rules]",
-    f"{INJECTED_MARKER_PREFIX} Rules v1]",
-    f"{INJECTED_MARKER_PREFIX} Rules v2]",
-    f"{INJECTED_MARKER_PREFIX} Rules v3]",
+LEGACY_STABLE_MARKERS: tuple[str, ...] = (f"{INJECTED_MARKER_PREFIX} Rules]",) + tuple(
+    f"{INJECTED_MARKER_PREFIX} Rules v{i}]" for i in range(1, RULES_VERSION)
 )
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 
@@ -99,13 +98,14 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
 
 
 def clip_text(text: str, max_chars: int) -> str:
-    """截断到 max_chars 字符，超长以省略号收尾。"""
+    """截断到 max_chars 字符，超长以省略号收尾。
+
+    输入域由调用方保证（配置下限 80），1-3 的畸形输入行为不受约束。
+    """
     if max_chars <= 0:
         return ""
     if len(text) <= max_chars:
         return text
-    if max_chars <= 3:
-        return "." * max_chars
     return text[: max_chars - 3].rstrip() + "..."
 
 

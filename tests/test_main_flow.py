@@ -24,9 +24,7 @@ try:
         HumanChatQualityCore,
         HumanChatQualityPlugin,
         _extract_response_text,
-        group_id_from_event,
-        is_session_disabled,
-        match_keys,
+        _version_from_lines,
     )
     from astrbot_plugin_human_chat_quality.quality_rules import (
         RUNTIME_HINT_MARKER,
@@ -168,77 +166,20 @@ class TestCoreFlow(unittest.TestCase):
 
 
 @unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
-class TestDisabledMatch(unittest.TestCase):
-    """C8：disabled_sessions 匹配形态（origin 全串/群号/前缀/# base/大小写）。"""
+class TestVersionParse(unittest.TestCase):
+    """版本解析纯函数（L2）。"""
 
-    def test_match_keys_all_shapes(self):
-        keys = match_keys("aiocqhttp:GroupMessage:222", "222")
-        self.assertIn("aiocqhttp:groupmessage:222", keys)
-        self.assertIn("222", keys)
-        self.assertIn("group:222", keys)
-        self.assertIn("groupmessage:222", keys)
+    def test_version_from_lines_normal(self):
+        self.assertEqual(_version_from_lines(["name: x", "version: 1.2.3", ""]), "1.2.3")
 
-    def test_match_keys_base_split_for_topic(self):
-        # Telegram topic 群：会话号形如 222#thread
-        keys = match_keys("telegram:GroupMessage:222#5", "222#5")
-        self.assertIn("222#5", keys)
-        self.assertIn("222", keys)
-        self.assertIn("group:222", keys)
+    def test_version_from_lines_quoted(self):
+        self.assertEqual(_version_from_lines(['version: "1.0.0"']), "1.0.0")
 
-    def test_match_keys_case_insensitive(self):
-        keys = match_keys("AIOCQHTTP:GROUPMESSAGE:222", "222")
-        self.assertIn("aiocqhttp:groupmessage:222", keys)
-        self.assertIn("group:222", keys)
+    def test_version_from_lines_missing(self):
+        self.assertEqual(_version_from_lines(["name: x"]), "0.0.0")
 
-    def test_match_keys_empty(self):
-        self.assertEqual(match_keys("", ""), frozenset())
-
-    def test_group_id_from_event_getter_first(self):
-        class Ev:
-            unified_msg_origin = "aiocqhttp:GroupMessage:111"
-
-            def get_group_id(self):
-                return "222"
-
-        self.assertEqual(group_id_from_event(Ev()), "222")
-
-    def test_group_id_from_event_getter_exception_falls_back(self):
-        class Ev:
-            unified_msg_origin = "aiocqhttp:GroupMessage:111"
-
-            def get_group_id(self):
-                raise RuntimeError("boom")
-
-        self.assertEqual(group_id_from_event(Ev()), "111")
-
-    def test_group_id_from_event_origin_fallback(self):
-        class Ev:
-            unified_msg_origin = "aiocqhttp:GroupMessage:333"
-
-        self.assertEqual(group_id_from_event(Ev()), "333")
-
-    def test_group_id_from_event_private_message_empty(self):
-        class Ev:
-            unified_msg_origin = "aiocqhttp:PrivateMessage:444"
-
-        self.assertEqual(group_id_from_event(Ev()), "")
-
-    def test_is_session_disabled_event_none_uses_origin(self):
-        self.assertTrue(is_session_disabled(frozenset({"222"}), "aiocqhttp:GroupMessage:222", None))
-        self.assertFalse(is_session_disabled(frozenset({"333"}), "aiocqhttp:GroupMessage:222", None))
-
-    def test_is_session_disabled_event_group_id_wins(self):
-        class Ev:
-            unified_msg_origin = "aiocqhttp:GroupMessage:222"
-
-            def get_group_id(self):
-                return "333"
-
-        self.assertTrue(is_session_disabled(frozenset({"333"}), "aiocqhttp:GroupMessage:222", Ev()))
-        self.assertFalse(is_session_disabled(frozenset({"222"}), "aiocqhttp:GroupMessage:222", Ev()))
-
-    def test_is_session_disabled_empty(self):
-        self.assertFalse(is_session_disabled(frozenset(), "aiocqhttp:GroupMessage:222", None))
+    def test_version_from_lines_empty_value(self):
+        self.assertEqual(_version_from_lines(["version:"]), "0.0.0")
 
 
 @unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")

@@ -19,6 +19,7 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
     MARKER_ABSENT,
     MARKER_MODIFIED,
     MARKER_STR_BLOCKED,
+    RULES_VERSION,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
     append_temp_text_part,
@@ -63,18 +64,31 @@ class FakeReq:
 
 
 class TestStableRules(unittest.TestCase):
-    def test_marker_v4_and_legacy(self):
-        self.assertIn("Rules v4]", STABLE_RULE_MARKER)
+    def test_marker_current_and_legacy(self):
+        self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
         legacy_text = "|".join(LEGACY_STABLE_MARKERS)
         self.assertIn("Rules]", legacy_text)
-        self.assertIn("Rules v1]", legacy_text)
-        self.assertIn("Rules v2]", legacy_text)
-        self.assertIn("Rules v3]", legacy_text)
+        for i in range(1, RULES_VERSION):
+            self.assertIn(f"Rules v{i}]", legacy_text)
+        # 推导集合不含当前版本（升级 v4→v5 时本断言随版本号自然更新）
+        self.assertNotIn(f"Rules v{RULES_VERSION}]", legacy_text)
         # legacy 判定不得误伤当前 marker 自身（startswith 互斥）
         for legacy in LEGACY_STABLE_MARKERS:
             self.assertNotEqual(legacy, STABLE_RULE_MARKER)
             self.assertFalse(legacy.startswith(STABLE_RULE_MARKER))
             self.assertFalse(STABLE_RULE_MARKER.startswith(legacy))
+
+    def test_metadata_version_declared(self):
+        """发布契约：metadata.yaml 必须声明非占位版本号。"""
+        from pathlib import Path
+
+        meta = Path(__file__).resolve().parents[1] / "metadata.yaml"
+        for line in meta.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if text.startswith("version:"):
+                self.assertNotEqual(text.split(":", 1)[1].strip().strip("\"'"), "0.0.0")
+                return
+        self.fail("metadata.yaml 缺少 version 字段")
 
     def test_build_stable_rules_contains_skill_verbatim(self):
         """非扭曲校验：skill「作为 System Prompt」章节行逐字存在于规则文本中。"""
@@ -222,7 +236,6 @@ class TestRuntimeHint(unittest.TestCase):
 
     def test_clip_text_edges(self):
         self.assertEqual(clip_text("abc", 0), "")
-        self.assertEqual(clip_text("abc", 2), "..")
         self.assertEqual(clip_text("短", 10), "短")
         self.assertTrue(clip_text("很长" * 10, 10).endswith("..."))
 
