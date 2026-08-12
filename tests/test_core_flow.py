@@ -324,6 +324,18 @@ class TestCoreFlowExtra(unittest.TestCase):
             asyncio.run(core.on_llm_request(self.ev, req))
         self.assertTrue(any("ambiguous" in line for line in logs.output))
 
+    def test_command_result_and_status_expose_pending_persistence(self):
+        async def run():
+            with mock.patch.object(self.store, "_write_snapshot_sync", side_effect=OSError("disk full")):
+                result = await self.core.set_session_enabled(self.ev.unified_msg_origin, False)
+            self.assertFalse(result)
+            self.assertFalse(self.store.is_enabled(self.ev.unified_msg_origin))
+            self.assertIn("待重试", self.core.status_text(self.ev.unified_msg_origin, self.ev))
+
+        from unittest import mock
+
+        asyncio.run(run())
+
 
 if __name__ == "__main__":
     unittest.main()

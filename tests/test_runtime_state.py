@@ -7,6 +7,7 @@ import asyncio
 import json
 import os
 import time
+import threading
 import unittest
 from unittest import mock
 
@@ -122,6 +123,11 @@ class TestStore(unittest.TestCase):
     def test_custom_cliches_dedup_and_filter(self):
         s = RuntimeStateStore(self._path(), 14, 8, ["自定义词", "自定义词", "x" * 21])
         self.assertEqual(s.custom_cliches, ("自定义词",))
+
+    def test_persistence_status_interface_exists(self):
+        s = RuntimeStateStore(self._path(), 14, 8)
+        self.assertTrue(callable(getattr(s, "flush", None)))
+        self.assertIs(getattr(s, "has_pending_save", None), False)
 
     def test_record_and_roundtrip(self):
         async def run():
@@ -280,17 +286,144 @@ class TestBackupRotation(unittest.TestCase):
 
 
 class TestSaveFailureIsolation(unittest.TestCase):
-    """C12（Store 层）：写盘失败不向调用方传播，内存状态已更新。"""
+    """Write failures stay visible and retryable without rolling back memory."""
 
     def setUp(self):
         self.dir = temporary_directory(self)
 
-    def test_write_failure_swallowed(self):
+    def test_record_failure_returns_false_and_flush_clears_dirty(self):
         async def run():
-            s = RuntimeStateStore(os.path.join(self.dir, "sf.json"), 14, 8, ())
+            path = os.path.join(self.dir, "sf.json")
+            s = RuntimeStateStore(path, 14, 8, ())
             with mock.patch.object(s, "_write_snapshot_sync", side_effect=OSError("disk full")):
-                await s.record_response("g", "好的，回答")  # 不应抛出
+                result = await s.record_response("g", "好的，回答")
+            self.assertFalse(result)
             self.assertIn("g", s.sessions)
+            self.assertTrue(s.has_pending_save)
+            self.assertTrue(await s.flush())
+            self.assertFalse(s.has_pending_save)
+            self.assertIn("g", RuntimeStateStore(path, 14, 8).sessions)
+
+        asyncio.run(run())
+
+    def test_same_set_enabled_retries_after_failure(self):
+        async def run():
+            path = os.path.join(self.dir, "toggle.json")
+            s = RuntimeStateStore(path, 14, 8, ())
+            real_write = s._write_snapshot_sync
+            attempts = 0
+
+            def fail_once(payload):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise OSError("disk full")
+                real_write(payload)
+
+            with mock.patch.object(s, "_write_snapshot_sync", side_effect=fail_once):
+                self.assertFalse(await s.set_enabled("g", False))
+                self.assertFalse(s.is_enabled("g"))
+                self.assertTrue(s.has_pending_save)
+                self.assertTrue(await s.set_enabled("g", False))
+            self.assertEqual(attempts, 2)
+            self.assertFalse(s.has_pending_save)
+            self.assertFalse(RuntimeStateStore(path, 14, 8).is_enabled("g"))
+
+        asyncio.run(run())
+
+    def test_same_reset_retries_pending_save(self):
+        async def run():
+            path = os.path.join(self.dir, "reset-retry.json")
+            s = RuntimeStateStore(path, 14, 8, ())
+            self.assertTrue(await s.record_response("g", "好的，回答"))
+            real_write = s._write_snapshot_sync
+            attempts = 0
+
+            def fail_once(payload):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise OSError("disk full")
+                real_write(payload)
+
+            with mock.patch.object(s, "_write_snapshot_sync", side_effect=fail_once):
+                self.assertFalse(await s.reset("g"))
+                self.assertNotIn("g", s.sessions)
+                self.assertTrue(await s.reset("g"))
+            self.assertEqual(attempts, 2)
+            self.assertNotIn("g", RuntimeStateStore(path, 14, 8).sessions)
+
+        asyncio.run(run())
+
+
+class TestConcurrentPersistence(unittest.TestCase):
+    def setUp(self):
+        self.dir = temporary_directory(self)
+
+    def test_state_lock_is_released_during_slow_write(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "slow.json"), 14, 8, ())
+            started = threading.Event()
+            release = threading.Event()
+            real_write = s._write_snapshot_sync
+
+            def slow_write(payload):
+                started.set()
+                release.wait(timeout=5)
+                real_write(payload)
+
+            with mock.patch.object(s, "_write_snapshot_sync", side_effect=slow_write):
+                task = asyncio.create_task(s.record_response("g", "好的，回答"))
+                self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                self.assertFalse(s._state_lock.locked())
+                self.assertEqual(s.get("g").recent_openers, ["好的"])
+                release.set()
+                self.assertTrue(await task)
+
+        asyncio.run(run())
+
+    def test_concurrent_records_persist_latest_combined_state(self):
+        async def run():
+            path = os.path.join(self.dir, "concurrent.json")
+            s = RuntimeStateStore(path, 14, 8, ())
+            first_started = threading.Event()
+            release_first = threading.Event()
+            real_write = s._write_snapshot_sync
+            writes = 0
+
+            def controlled_write(payload):
+                nonlocal writes
+                writes += 1
+                if writes == 1:
+                    first_started.set()
+                    release_first.wait(timeout=5)
+                real_write(payload)
+
+            real_flush = s.flush
+            second_mutated = asyncio.Event()
+            flush_calls = 0
+
+            async def observed_flush():
+                nonlocal flush_calls
+                flush_calls += 1
+                if flush_calls == 2:
+                    second_mutated.set()
+                return await real_flush()
+
+            with (
+                mock.patch.object(s, "_write_snapshot_sync", side_effect=controlled_write),
+                mock.patch.object(s, "flush", side_effect=observed_flush),
+            ):
+                first = asyncio.create_task(s.record_response("g", "好的，回答一"))
+                self.assertTrue(await asyncio.to_thread(first_started.wait, 5))
+                second = asyncio.create_task(s.record_response("g", "可以，回答二"))
+                await second_mutated.wait()
+                release_first.set()
+                await asyncio.gather(first, second)
+
+            persisted = RuntimeStateStore(path, 14, 8).get("g")
+            self.assertEqual(persisted.recent_openers, ["可以", "好的"])
+            self.assertFalse(s.has_pending_save)
 
         asyncio.run(run())
 

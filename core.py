@@ -190,15 +190,16 @@ class HumanChatQualityCore:
         if self.cfg.debug_log:
             logger.debug("response recorded for %s: %s", session_id, self.store.get(session_id).avoid_openers)
 
-    async def set_session_enabled(self, session_id: str, enabled: bool) -> None:
-        await self.store.set_enabled(session_id, enabled)
+    async def set_session_enabled(self, session_id: str, enabled: bool) -> bool:
+        return await self.store.set_enabled(session_id, enabled)
 
-    async def reset_session(self, session_id: str) -> None:
-        await self.store.reset(session_id)
+    async def reset_session(self, session_id: str) -> bool:
+        return await self.store.reset(session_id)
 
     def status_text(self, session_id: str, event: Any | None = None) -> str:
+        persistence = "待重试" if self.store.has_pending_save else "正常"
         if not self._is_effectively_active(session_id, event):
-            return "Human Chat Quality 状态：\n- 当前会话：关闭\n- 无运行时状态"
+            return f"Human Chat Quality 状态：\n- 当前会话：关闭\n- 无运行时状态\n- 状态持久化：{persistence}"
         state = self.store.get(session_id)
         avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无"
         return (
@@ -207,7 +208,8 @@ class HumanChatQualityCore:
             f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '关闭'}（system_prompt）\n"
             f"- 运行时提示：{'启用' if self.cfg.inject_runtime_state else '关闭'}\n"
             f"- 自启动以来累计注入：{self.injection_count} 次\n"
-            f"- 最近重复开头：{avoid}"
+            f"- 最近重复开头：{avoid}\n"
+            f"- 状态持久化：{persistence}"
         )
 
     def _is_active(self, session_id: str) -> bool:

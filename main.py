@@ -99,22 +99,37 @@ class HumanChatQualityPlugin(Star):
     @humanq.command("on")
     async def humanq_on(self, event: AstrMessageEvent):
         """启用当前会话的质量层"""
-        await self.core.set_session_enabled(event.unified_msg_origin, True)
-        yield event.plain_result("Human Chat Quality 已启用当前会话。")
+        saved = await self.core.set_session_enabled(event.unified_msg_origin, True)
+        if saved:
+            yield event.plain_result("Human Chat Quality 已启用当前会话。")
+        else:
+            yield event.plain_result(
+                "Human Chat Quality 当前进程内已启用，但状态文件写入失败；已保留待重试状态，请再次执行命令或检查数据目录。"
+            )
 
     @permission_type(PermissionType.ADMIN)
     @humanq.command("off")
     async def humanq_off(self, event: AstrMessageEvent):
         """关闭当前会话的质量层，直到再次执行 on"""
-        await self.core.set_session_enabled(event.unified_msg_origin, False)
-        yield event.plain_result("Human Chat Quality 已关闭当前会话。")
+        saved = await self.core.set_session_enabled(event.unified_msg_origin, False)
+        if saved:
+            yield event.plain_result("Human Chat Quality 已关闭当前会话。")
+        else:
+            yield event.plain_result(
+                "Human Chat Quality 当前进程内已关闭，但状态文件写入失败；已保留待重试状态，请再次执行命令或检查数据目录。"
+            )
 
     @permission_type(PermissionType.ADMIN)
     @humanq.command("reset")
     async def humanq_reset(self, event: AstrMessageEvent):
         """清空当前会话的提醒记录（重复开头与避用词）"""
-        await self.core.reset_session(event.unified_msg_origin)
-        yield event.plain_result("Human Chat Quality 已清空当前会话的轻量状态。")
+        saved = await self.core.reset_session(event.unified_msg_origin)
+        if saved:
+            yield event.plain_result("Human Chat Quality 已清空当前会话的轻量状态。")
+        else:
+            yield event.plain_result(
+                "Human Chat Quality 当前进程内已清空，但状态文件写入失败；已保留待重试状态，请再次执行命令或检查数据目录。"
+            )
 
     @permission_type(PermissionType.ADMIN)
     @humanq.command("rules")
@@ -123,6 +138,8 @@ class HumanChatQualityPlugin(Star):
         yield event.plain_result(build_stable_rules())
 
     async def terminate(self) -> None:
+        if not await self.store.flush():
+            logger.warning("[HumanChatQuality] pending runtime state could not be persisted during terminate")
         logger.info(
             "[HumanChatQuality] terminated, total injections this run: "
             f"{self.core.injection_count}; marker={STABLE_RULE_MARKER}"

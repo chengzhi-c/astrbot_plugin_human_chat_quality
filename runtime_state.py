@@ -75,39 +75,65 @@ class RuntimeStateStore:
         self.sessions: dict[str, SessionState] = {}
         # 运行时命令（/humanq off）写入的禁用会话；与配置键 disabled_sessions（静态黑名单）区分，避免同名歧义
         self.runtime_disabled: set[str] = set()
-        # 保护文件 I/O 的锁，避免并发写同一状态文件
-        self._lock = asyncio.Lock()
+        self._state_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
+        self._generation = 0
+        self._saved_generation = 0
         self._load()
 
     def get(self, session_id: str) -> SessionState:
         return self.sessions.get(session_id, SessionState())
 
-    async def reset(self, session_id: str) -> None:
-        async with self._lock:
-            self.sessions.pop(session_id, None)
-            await self._save_unlocked()
+    @property
+    def has_pending_save(self) -> bool:
+        return self._generation > self._saved_generation
+
+    async def flush(self) -> bool:
+        async with self._write_lock:
+            async with self._state_lock:
+                if not self.has_pending_save:
+                    return True
+                self._prune_expired()
+                generation = self._generation
+                payload = self._snapshot_unlocked()
+            try:
+                await asyncio.to_thread(self._write_snapshot_sync, payload)
+            except Exception as e:
+                if logger is not None:
+                    logger.warning(f"[HumanChatQuality] state save failed: {e}")
+                return False
+            async with self._state_lock:
+                self._saved_generation = max(self._saved_generation, generation)
+            return True
+
+    async def reset(self, session_id: str) -> bool:
+        async with self._state_lock:
+            if self.sessions.pop(session_id, None) is not None:
+                self._generation += 1
+            needs_flush = self.has_pending_save
+        return await self.flush() if needs_flush else True
 
     def is_enabled(self, session_id: str) -> bool:
         return session_id not in self.runtime_disabled
 
-    async def set_enabled(self, session_id: str, enabled: bool) -> None:
-        async with self._lock:
+    async def set_enabled(self, session_id: str, enabled: bool) -> bool:
+        async with self._state_lock:
             not_before = session_id not in self.runtime_disabled
-            if enabled == not_before:
-                return  # 状态无变化，不触发写盘（高频 toggle 友好）
-            if enabled:
-                self.runtime_disabled.discard(session_id)
-            else:
-                self.runtime_disabled.add(session_id)
-            await self._save_unlocked()
+            if enabled != not_before:
+                if enabled:
+                    self.runtime_disabled.discard(session_id)
+                else:
+                    self.runtime_disabled.add(session_id)
+                self._generation += 1
+            needs_flush = self.has_pending_save
+        return await self.flush() if needs_flush else True
 
-    async def record_response(self, session_id: str, response_text: str) -> None:
+    async def record_response(self, session_id: str, response_text: str) -> bool:
         text = _normalize_text(response_text)
         if not text:
-            return
+            return not self.has_pending_save
 
-        # 不变量：内存 read-modify-write 与写盘共享同一把锁；临界区内不得插入其它 await
-        async with self._lock:
+        async with self._state_lock:
             state = self.sessions.get(session_id, SessionState())
             state.last_response_at = _now()
             state.updated_at = state.last_response_at
@@ -124,7 +150,8 @@ class RuntimeStateStore:
             state.avoid_openers = merged[:MAX_AVOID_OPENERS]
 
             self.sessions[session_id] = state
-            await self._save_unlocked()
+            self._generation += 1
+        return await self.flush()
 
     def _load(self) -> None:
         """状态加载。损坏策略：顶层损坏（JSON 解析失败/根结构非预期）备份+全清；
@@ -175,24 +202,17 @@ class RuntimeStateStore:
             if logger is not None:
                 logger.warning(f"[HumanChatQuality] state file reset due to load failure: {e}")
 
-    async def _save_unlocked(self) -> None:
-        """保存实现（调用方须已持有 _lock）：先 prune 再构建快照 + 工作线程写盘。"""
-        self._prune_expired()
-        payload = {
+    def _snapshot_unlocked(self) -> dict[str, Any]:
+        return {
             "disabled_sessions": sorted(self.runtime_disabled),
             "sessions": {
                 session_id: _state_to_dict(state, self.recent_reply_window)
                 for session_id, state in sorted(self.sessions.items())
             },
         }
-        try:
-            await asyncio.to_thread(self._write_snapshot_sync, payload)
-        except Exception as e:
-            if logger is not None:
-                logger.warning(f"[HumanChatQuality] state save failed: {e}")
 
     def _write_snapshot_sync(self, payload: dict[str, Any]) -> None:
-        """原子写：临时文件 + os.replace；失败清理临时文件后重新抛出（由 _save_unlocked 兜底）。"""
+        """原子写：临时文件 + os.replace；失败清理临时文件后交给 flush() 报告。"""
         self.state_path.parent.mkdir(parents=True, exist_ok=True)
         temp_path = self.state_path.with_name(f"{self.state_path.name}.tmp")
         try:
