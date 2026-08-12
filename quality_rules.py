@@ -80,11 +80,7 @@ def inject_stable_rules(system_prompt: str | None) -> str:
 def _strip_legacy_stable_blocks(system_prompt: str) -> str:
     """按段落剥离以 legacy 规则标记开头的块（注入格式恒为独立段落，不切割正文）。"""
     blocks = system_prompt.split("\n\n")
-    kept = [
-        block
-        for block in blocks
-        if not any(block.lstrip().startswith(marker) for marker in LEGACY_STABLE_MARKERS)
-    ]
+    kept = [block for block in blocks if not any(block.lstrip().startswith(marker) for marker in LEGACY_STABLE_MARKERS)]
     return "\n\n".join(kept)
 
 

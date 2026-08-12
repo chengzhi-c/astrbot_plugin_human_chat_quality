@@ -3,10 +3,13 @@
 无需宿主 astrbot 即可运行（runtime_state 对 logger 做了 ImportError 防护）。
 """
 
+import asyncio
 import json
 import os
 import tempfile
+import time
 import unittest
+from unittest import mock
 
 import sys
 from pathlib import Path
@@ -162,6 +165,150 @@ class TestStore(unittest.TestCase):
             self.assertFalse(s2.is_enabled("g1"))
 
         import asyncio
+
+        asyncio.run(run())
+
+
+class TestWindowThresholdBoundaries(unittest.TestCase):
+    """C3：窗口与重复阈值的边界行为。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_window_three_exact_hit(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "w3.json"), 14, 3, ())
+            for _ in range(3):
+                await s.record_response("g", "好的，回答")
+            self.assertIn("好的", s.get("g").avoid_openers)
+
+        asyncio.run(run())
+
+    def test_two_repeats_not_hit(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "w8.json"), 14, 8, ())
+            for _ in range(2):
+                await s.record_response("g", "好的，回答")
+            self.assertEqual(s.get("g").avoid_openers, [])
+
+        asyncio.run(run())
+
+    def test_repeat_order_is_first_reach_order(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "ord.json"), 14, 8, ())
+            # 两种开头交替出现：可以 先达 3 次，好的 后达 3 次
+            for opener in ["好的", "可以", "好的", "可以", "好的", "可以"]:
+                await s.record_response("g", opener + "，回答")
+            self.assertEqual(s.get("g").avoid_openers, ["可以", "好的"])
+
+        asyncio.run(run())
+
+
+class TestReset(unittest.TestCase):
+    """C9：reset 清空目标会话并持久化，不影响其它会话。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_reset_clears_target_session_only(self):
+        async def run():
+            p = os.path.join(self.dir, "rst.json")
+            s = RuntimeStateStore(p, 14, 8, ())
+            await s.record_response("g1", "好的，回答")
+            await s.record_response("g2", "可以，回答")
+            await s.reset("g1")
+            self.assertNotIn("g1", s.sessions)
+            self.assertIn("g2", s.sessions)
+            s2 = RuntimeStateStore(p, 14, 8)
+            self.assertNotIn("g1", s2.sessions)
+            self.assertIn("g2", s2.sessions)
+
+        asyncio.run(run())
+
+
+class TestPruneExpired(unittest.TestCase):
+    """C9：过期会话按 retention 清理（时间轴经 _now 注入）。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_expired_removed(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "pr.json"), 7, 8, ())
+            await s.record_response("old", "好的，回答")
+            with mock.patch(
+                "astrbot_plugin_human_chat_quality.runtime_state._now",
+                return_value=time.time() + 8 * 86400,
+            ):
+                s._prune_expired()
+            self.assertEqual(s.sessions, {})
+
+        asyncio.run(run())
+
+    def test_fresh_within_retention_kept(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "pr2.json"), 7, 8, ())
+            await s.record_response("fresh", "好的，回答")
+            s._prune_expired()
+            self.assertIn("fresh", s.sessions)
+
+        asyncio.run(run())
+
+
+class TestBackupRotation(unittest.TestCase):
+    """C9：损坏备份按 mtime 轮转，只保留最近 5 份。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_backup_capped_at_five(self):
+        p = os.path.join(self.dir, "rot.json")
+        for i in range(6):
+            bp = os.path.join(self.dir, f"rot.corrupt.2026010{i + 1}-000000-{1000 + i}.json")
+            with open(bp, "w", encoding="utf-8") as f:
+                f.write("x")
+            os.utime(bp, (1000 + i, 1000 + i))
+        with open(p, "w", encoding="utf-8") as f:
+            f.write("{broken json")
+        RuntimeStateStore(p, 14, 8)
+        backups = [n for n in os.listdir(self.dir) if "rot.corrupt" in n]
+        self.assertEqual(len(backups), 5)
+
+
+class TestSaveFailureIsolation(unittest.TestCase):
+    """C12（Store 层）：写盘失败不向调用方传播，内存状态已更新。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_write_failure_swallowed(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "sf.json"), 14, 8, ())
+            with mock.patch.object(s, "_write_snapshot_sync", side_effect=OSError("disk full")):
+                await s.record_response("g", "好的，回答")  # 不应抛出
+            self.assertIn("g", s.sessions)
+
+        asyncio.run(run())
+
+
+class TestThreadedSave(unittest.TestCase):
+    """C10：状态写盘经 asyncio.to_thread 在工作线程执行。"""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def test_save_runs_in_thread_pool(self):
+        async def run():
+            s = RuntimeStateStore(os.path.join(self.dir, "th.json"), 14, 8, ())
+            real = asyncio.to_thread
+            with mock.patch(
+                "astrbot_plugin_human_chat_quality.runtime_state.asyncio.to_thread",
+                new=mock.AsyncMock(wraps=real),
+            ) as m:
+                await s.record_response("g", "好的，回答")
+            m.assert_awaited_once()
+            # bound method 每次访问是新对象，用相等断言（同函数同实例即相等）
+            self.assertEqual(m.await_args.args[0], s._write_snapshot_sync)
 
         asyncio.run(run())
 

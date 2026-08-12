@@ -32,6 +32,11 @@ CONSECUTIVE_THRESHOLD = 2
 ROAD_SIGN_THRESHOLD = 3
 
 
+def _now() -> float:
+    """当前时间戳（独立函数，便于测试注入时间轴）。"""
+    return time.time()
+
+
 @dataclass
 class SessionState:
     avoid_openers: list[str] = field(default_factory=list)
@@ -104,7 +109,7 @@ class RuntimeStateStore:
         # 不变量：内存 read-modify-write 与写盘共享同一把锁；临界区内不得插入其它 await
         async with self._lock:
             state = self.sessions.get(session_id, SessionState())
-            state.last_response_at = time.time()
+            state.last_response_at = _now()
             state.updated_at = state.last_response_at
             opener = extract_opener(text)
             if opener:
@@ -201,11 +206,11 @@ class RuntimeStateStore:
             raise
 
     def _prune_expired(self) -> None:
-        cutoff = time.time() - self.retention_days * DAY_SECONDS
+        cutoff = _now() - self.retention_days * DAY_SECONDS
         self.sessions = {
             session_id: state
             for session_id, state in self.sessions.items()
-            if (state.updated_at or state.last_response_at or time.time()) >= cutoff
+            if (state.updated_at or state.last_response_at or _now()) >= cutoff
         }
 
     def _backup_corrupt_state_file(self) -> None:

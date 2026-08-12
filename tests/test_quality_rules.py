@@ -144,12 +144,7 @@ class TestApplyContextMarker(unittest.TestCase):
         ]
         res = apply_context_marker(req, RUNTIME_HINT_MARKER, "新提示")
         self.assertEqual(res, MARKER_MODIFIED)
-        texts = [
-            p.get("text", "")
-            for ctx in req.contexts
-            if ctx["role"] == "user"
-            for p in ctx["content"]
-        ]
+        texts = [p.get("text", "") for ctx in req.contexts if ctx["role"] == "user" for p in ctx["content"]]
         # 第一个命中被替换为纯提示文本（真实流程中提示以 marker 开头，此处验证块数与原话保留）
         self.assertEqual(texts.count("新提示"), 1)
         self.assertIn("原话", texts)
@@ -203,9 +198,7 @@ class TestAppendTempPart(unittest.TestCase):
 
     def test_factory_none_degrades(self):
         req = FakeReq()
-        self.assertFalse(
-            append_temp_text_part(req, RUNTIME_HINT_MARKER + "\nh", None, marker=RUNTIME_HINT_MARKER)
-        )
+        self.assertFalse(append_temp_text_part(req, RUNTIME_HINT_MARKER + "\nh", None, marker=RUNTIME_HINT_MARKER))
 
 
 class TestRuntimeHint(unittest.TestCase):
