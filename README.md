@@ -100,7 +100,9 @@ ruff format --check .
 ruff check .
 ```
 
-装有兼容 AstrBot 时以真实宿主运行全部用例；无宿主或版本不兼容时，依赖宿主 API 的流程用例（`test_main_flow.py`）自动跳过，其余用例以无宿主方式运行。勿在 AstrBot 数据区的部署目录中运行测试（会污染数据区），请在源码副本根目录运行。
+装有 AstrBot 时以真实宿主运行全部用例；无宿主（导入期 ImportError）时，依赖宿主 API 的流程用例（`test_main_flow.py`）自动跳过，其余用例以无宿主方式运行。版本不兼容属宿主 API 变化，按实际报错处理，不会静默跳过。
+
+在源码副本根目录运行测试会就地生成 AstrBot 的 `data/` 目录（已 gitignore，不影响发布）；勿在 AstrBot 数据区的部署目录中运行测试（会污染数据区）。
 
 ## 卸载
 
