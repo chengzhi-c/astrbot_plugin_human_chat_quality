@@ -6,11 +6,12 @@
 import asyncio
 import json
 import os
-import tempfile
 import unittest
 
 import sys
 from pathlib import Path
+
+from tests._support import temporary_directory
 
 # 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
 # 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
@@ -86,7 +87,7 @@ class TestConfigParse(unittest.TestCase):
 @unittest.skipUnless(HAVE_MAIN, "宿主 astrbot 不可导入，跳过 main 流程用例")
 class TestCoreFlow(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
         self.store = RuntimeStateStore(os.path.join(self.dir, "s.json"), 14, 8, ())
         self.core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=FakePart)
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")
@@ -225,7 +226,7 @@ class TestCoreFlowExtra(unittest.TestCase):
     """C3/C6/C11/C12：Core 层补充契约（含插件层异常隔离）。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
         self.store = RuntimeStateStore(os.path.join(self.dir, "s.json"), 14, 8, ())
         self.core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=FakePart)
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")

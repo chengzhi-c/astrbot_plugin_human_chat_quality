@@ -6,13 +6,14 @@
 import asyncio
 import json
 import os
-import tempfile
 import time
 import unittest
 from unittest import mock
 
 import sys
 from pathlib import Path
+
+from tests._support import temporary_directory
 
 # 插件目录本身即包根目录（astrbot_plugin_human_chat_quality），
 # 需把仓库根目录的父目录加入 sys.path 才能以包方式导入（仓库可位于任意路径）
@@ -113,7 +114,7 @@ class TestRepeatedItems(unittest.TestCase):
 
 class TestStore(unittest.TestCase):
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def _path(self, name="state.json"):
         return os.path.join(self.dir, name)
@@ -176,7 +177,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
     """C3：窗口与重复阈值的边界行为。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_window_three_exact_hit(self):
         async def run():
@@ -211,7 +212,7 @@ class TestReset(unittest.TestCase):
     """C9：reset 清空目标会话并持久化，不影响其它会话。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_reset_clears_target_session_only(self):
         async def run():
@@ -233,7 +234,7 @@ class TestPruneExpired(unittest.TestCase):
     """C9：过期会话按 retention 清理（时间轴经 _now 注入）。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_expired_removed(self):
         async def run():
@@ -262,7 +263,7 @@ class TestBackupRotation(unittest.TestCase):
     """C9：损坏备份按 mtime 轮转，只保留最近 5 份。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_backup_capped_at_five(self):
         p = os.path.join(self.dir, "rot.json")
@@ -282,7 +283,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
     """C12（Store 层）：写盘失败不向调用方传播，内存状态已更新。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_write_failure_swallowed(self):
         async def run():
@@ -298,7 +299,7 @@ class TestThreadedSave(unittest.TestCase):
     """C10：状态写盘经 asyncio.to_thread 在工作线程执行。"""
 
     def setUp(self):
-        self.dir = tempfile.mkdtemp()
+        self.dir = temporary_directory(self)
 
     def test_save_runs_in_thread_pool(self):
         async def run():
