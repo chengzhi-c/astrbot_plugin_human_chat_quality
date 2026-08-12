@@ -26,7 +26,6 @@ MUST_INCLUDE = (
     "README.md",
     "CHANGELOG.md",
     "LICENSE",
-    "tests/__init__.py",
     "tests/test_main_flow.py",
     "tests/test_quality_rules.py",
     "tests/test_runtime_state.py",

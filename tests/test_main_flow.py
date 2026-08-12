@@ -267,6 +267,14 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_response(ev, FakeLLMResp("好的，回答")))
         self.assertEqual(self.store.sessions, {})
 
+    def test_legacy_str_blocked_migration_retried(self):
+        # 字符串形态旧规则块：不做不安全切割；迁移不标记完成，后续请求继续重试
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": "[Human Chat Quality Rules v2]\n旧规则块"}]
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertTrue(req.contexts[0]["content"].startswith("[Human Chat Quality Rules v2]"))
+        self.assertNotIn(self.ev.unified_msg_origin, self.core._stable_migration_checked)
+
     def test_plugin_layer_swallows_core_errors(self):
         async def fail(event, req):
             raise RuntimeError("boom")

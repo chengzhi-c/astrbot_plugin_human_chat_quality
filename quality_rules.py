@@ -77,9 +77,26 @@ def inject_stable_rules(system_prompt: str | None) -> str:
 
 
 def _strip_legacy_stable_blocks(system_prompt: str) -> str:
-    """按段落剥离以 legacy 规则标记开头的块（注入格式恒为独立段落，不切割正文）。"""
+    """按段落剥离以 legacy 规则标记开头的旧块。
+
+    旧块内部含空行分段（核心/禁止/要求/插件附加），只删 marker 段落会残留
+    孤儿分段；命中 marker 后识别到已知块尾则整块剥除，未识别（未知旧格式）
+    时保守地只删 marker 段落，不吞后续内容。
+    """
     blocks = system_prompt.split("\n\n")
-    kept = [block for block in blocks if not any(block.lstrip().startswith(marker) for marker in LEGACY_STABLE_MARKERS)]
+    kept: list[str] = []
+    i = 0
+    while i < len(blocks):
+        if not any(blocks[i].lstrip().startswith(marker) for marker in LEGACY_STABLE_MARKERS):
+            kept.append(blocks[i])
+            i += 1
+            continue
+        # 块尾短语：所有已知版本（v3+）的注入块均以「不要把这些约束写进回复」收尾
+        tail = next(
+            (j for j in range(i + 1, len(blocks)) if "不要把这些约束写进回复" in blocks[j]),
+            None,
+        )
+        i = tail + 1 if tail is not None else i + 1
     return "\n\n".join(kept)
 
 

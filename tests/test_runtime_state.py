@@ -199,7 +199,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
     def test_repeat_order_is_first_reach_order(self):
         async def run():
             s = RuntimeStateStore(os.path.join(self.dir, "ord.json"), 14, 8, ())
-            # 两种开头交替出现：可以 先达 3 次，好的 后达 3 次
+            # 两种开头交替出现；avoid_openers 按窗口扫描序（最近→最旧）取先达 3 次者
             for opener in ["好的", "可以", "好的", "可以", "好的", "可以"]:
                 await s.record_response("g", opener + "，回答")
             self.assertEqual(s.get("g").avoid_openers, ["可以", "好的"])

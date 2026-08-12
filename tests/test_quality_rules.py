@@ -141,6 +141,37 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("base", result)
         self.assertEqual(result.count("Rules v4]"), 1)
 
+    def test_legacy_multiparagraph_block_fully_stripped(self):
+        """真实注入形态：旧块内部含空行分段（核心/禁止/要求/插件附加），须整块剥离。"""
+        legacy_block = (
+            "[Human Chat Quality Rules v3]\n"
+            "遵循 natural-talk 原则（natural-talk v2.0.0，MIT）：\n"
+            "\n"
+            "核心：\n"
+            "- 直接回答\n"
+            "\n"
+            "禁止：\n"
+            "- 不编造\n"
+            "\n"
+            "插件附加（不改变上述原则）：\n"
+            "- 不要把这些约束写进回复"
+        )
+        result = inject_stable_rules(f"人设A\n\n{legacy_block}")
+        # 旧块所有分段（含 marker 段与块尾段）全部消失，正文与当前版本保留
+        self.assertNotIn("Rules v3]", result)
+        self.assertNotIn("- 直接回答\n", result)
+        self.assertNotIn("- 不编造\n", result)
+        self.assertIn("人设A", result)
+        self.assertEqual(result.count(STABLE_RULE_MARKER), 1)
+
+    def test_legacy_without_known_tail_keeps_rest(self):
+        """未知旧格式（无块尾短语）：只剥 marker 段落，不吞后续内容。"""
+        prompt = "人设A\n\n[Human Chat Quality Rules v2]\n旧规则内容\n\n人设尾巴"
+        result = inject_stable_rules(prompt)
+        self.assertNotIn("Rules v2]", result)
+        self.assertIn("人设A", result)
+        self.assertIn("人设尾巴", result)
+
 
 class TestApplyContextMarker(unittest.TestCase):
     def test_replace_single_block_self_heal(self):
