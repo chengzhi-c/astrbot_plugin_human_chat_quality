@@ -24,6 +24,7 @@ if _PKG_PARENT not in sys.path:
 
 from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
+    SessionState,
     detect_cliches,
     extract_opener,
     group_id_from_event,
@@ -264,6 +265,60 @@ class TestPruneExpired(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_legacy_session_without_timestamps_uses_stale_file_mtime(self):
+        path = os.path.join(self.dir, "legacy-stale.json")
+        with open(path, "w", encoding="utf-8") as file:
+            json.dump({"sessions": {"old": {"avoid_openers": ["好的"]}}}, file)
+        now = 2_000_000.0
+        old_mtime = now - 8 * 86400
+        os.utime(path, (old_mtime, old_mtime))
+
+        with mock.patch("astrbot_plugin_human_chat_quality.runtime_state._now", return_value=now):
+            store = RuntimeStateStore(path, 7, 8)
+
+        self.assertNotIn("old", store.sessions)
+
+    def test_legacy_session_without_timestamps_persists_fresh_file_mtime(self):
+        async def run():
+            path = os.path.join(self.dir, "legacy-fresh.json")
+            with open(path, "w", encoding="utf-8") as file:
+                json.dump({"sessions": {"fresh": {"avoid_openers": ["好的"]}}}, file)
+            now = 2_000_000.0
+            fresh_mtime = now - 86400
+            os.utime(path, (fresh_mtime, fresh_mtime))
+
+            with mock.patch("astrbot_plugin_human_chat_quality.runtime_state._now", return_value=now):
+                store = RuntimeStateStore(path, 7, 8)
+                self.assertEqual(store.get("fresh").updated_at, fresh_mtime)
+                self.assertTrue(await store.set_enabled("disabled", False))
+            with open(path, encoding="utf-8") as file:
+                saved = json.load(file)
+            self.assertEqual(saved["sessions"]["fresh"]["updated_at"], fresh_mtime)
+
+        asyncio.run(run())
+
+    def test_prune_uses_one_now_for_all_missing_timestamps(self):
+        store = RuntimeStateStore(os.path.join(self.dir, "single-now.json"), 1, 8, ())
+        store.sessions = {"a": SessionState(), "b": SessionState()}
+
+        with mock.patch(
+            "astrbot_plugin_human_chat_quality.runtime_state._now",
+            side_effect=[200_000.0, 200_000.0, 0.0],
+        ) as current_time:
+            store._prune_expired()
+
+        self.assertEqual(set(store.sessions), {"a", "b"})
+        current_time.assert_called_once_with()
+
+    def test_zero_timestamp_is_not_treated_as_missing(self):
+        store = RuntimeStateStore(os.path.join(self.dir, "zero-time.json"), 1, 8, ())
+        store.sessions = {"old": SessionState(updated_at=0.0)}
+
+        with mock.patch("astrbot_plugin_human_chat_quality.runtime_state._now", return_value=200_000.0):
+            store._prune_expired()
+
+        self.assertEqual(store.sessions, {})
+
 
 class TestBackupRotation(unittest.TestCase):
     """C9：损坏备份按 mtime 轮转，只保留最近 5 份。"""
@@ -390,10 +445,12 @@ class TestConcurrentPersistence(unittest.TestCase):
             release_first = threading.Event()
             real_write = s._write_snapshot_sync
             writes = 0
+            snapshots = []
 
             def controlled_write(payload):
                 nonlocal writes
                 writes += 1
+                snapshots.append(json.dumps(payload, ensure_ascii=False, sort_keys=True))
                 if writes == 1:
                     first_started.set()
                     release_first.wait(timeout=5)
@@ -424,6 +481,37 @@ class TestConcurrentPersistence(unittest.TestCase):
             persisted = RuntimeStateStore(path, 14, 8).get("g")
             self.assertEqual(persisted.recent_openers, ["可以", "好的"])
             self.assertFalse(s.has_pending_save)
+            self.assertEqual(len(snapshots), len(set(snapshots)))
+
+        asyncio.run(run())
+
+    def test_concurrent_flushes_write_dirty_generation_once(self):
+        async def run():
+            path = os.path.join(self.dir, "same-generation.json")
+            store = RuntimeStateStore(path, 14, 8, ())
+            with mock.patch.object(store, "_write_snapshot_sync", side_effect=OSError("disk full")):
+                self.assertFalse(await store.set_enabled("g", False))
+
+            started = threading.Event()
+            release = threading.Event()
+            real_write = store._write_snapshot_sync
+            writes = 0
+
+            def slow_write(payload):
+                nonlocal writes
+                writes += 1
+                started.set()
+                release.wait(timeout=5)
+                real_write(payload)
+
+            with mock.patch.object(store, "_write_snapshot_sync", side_effect=slow_write):
+                first = asyncio.create_task(store.flush())
+                self.assertTrue(await asyncio.to_thread(started.wait, 5))
+                second = asyncio.create_task(store.flush())
+                release.set()
+                self.assertEqual(await asyncio.gather(first, second), [True, True])
+
+            self.assertEqual(writes, 1)
 
         asyncio.run(run())
 

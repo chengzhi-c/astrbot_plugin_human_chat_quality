@@ -157,6 +157,7 @@ class RuntimeStateStore:
         """状态加载。损坏策略：顶层损坏（JSON 解析失败/根结构非预期）备份+全清；
         条目损坏（容器类型错误/单条 session 非 dict）备份+跳过坏键+warning，保留好数据。"""
         try:
+            file_mtime = self.state_path.stat().st_mtime
             raw = json.loads(self.state_path.read_text(encoding="utf-8"))
         except Exception:
             self._backup_corrupt_state_file()
@@ -192,7 +193,10 @@ class RuntimeStateStore:
                             f"[HumanChatQuality] session {session_id!r} malformed ({type(value).__name__}), skipped"
                         )
                     continue
-                loaded[str(session_id)] = _state_from_dict(value, self.recent_reply_window)
+                state = _state_from_dict(value, self.recent_reply_window)
+                if state.updated_at is None and state.last_response_at is None:
+                    state.updated_at = file_mtime
+                loaded[str(session_id)] = state
             self.sessions = loaded
             self._prune_expired()
         except Exception as e:
@@ -226,12 +230,14 @@ class RuntimeStateStore:
             raise
 
     def _prune_expired(self) -> None:
-        cutoff = _now() - self.retention_days * DAY_SECONDS
-        self.sessions = {
-            session_id: state
-            for session_id, state in self.sessions.items()
-            if (state.updated_at or state.last_response_at or _now()) >= cutoff
-        }
+        now = _now()
+        cutoff = now - self.retention_days * DAY_SECONDS
+        retained: dict[str, SessionState] = {}
+        for session_id, state in self.sessions.items():
+            timestamp = state.updated_at if state.updated_at is not None else state.last_response_at
+            if timestamp is None or timestamp >= cutoff:
+                retained[session_id] = state
+        self.sessions = retained
 
     def _backup_corrupt_state_file(self) -> None:
         if not self.state_path.exists():
