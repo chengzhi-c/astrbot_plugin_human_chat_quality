@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
 import os
 import re
 import shutil
@@ -26,10 +27,9 @@ MAX_OPEN_LEN = 20
 DAY_SECONDS = 86400
 # 同一 opener 在最近窗口内至少出现这么多次才视为重复信号（阈值 3：降低误报）
 OPENER_REPEAT_THRESHOLD = 3
-# 带次数阈值的结构信号（破折号连发/然而连发）需命中达这么多次，避免口语单次使用误报
+# 带次数阈值的结构信号（然而连发）需命中达这么多次，避免口语单次使用误报
 CONSECUTIVE_THRESHOLD = 2
-# natural-talk：路标词限 ≤2 次/全文，同一条回复累计 ≥3 次视为堆砌（高置信度）
-ROAD_SIGN_THRESHOLD = 3
+# natural-talk 密度口径基准：每 300 字为一个折算档位，更长回复按比例放宽上限
 
 
 def _now() -> float:
@@ -387,15 +387,17 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
 # 末尾匹配前剔除的收尾标点/语气符
 _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
 
-# 结构级 AI 腔信号：仅保留强信号、低误报的连发模式
-# 每项独立阈值：连发类 2 次；路标词按 natural-talk"≤2 次/全文"标准取 3 次
-_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
-    # 两条及以上"——"才算连发；单个破折号可能是正常停顿
-    ("破折号连发", re.compile(r"——"), CONSECUTIVE_THRESHOLD),
+# 结构级 AI 腔信号分两类：固定计数类（插件自有强信号）与密度类（对齐 natural-talk 计数口径）
+_FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     # "然而"是口语高频转折词，单次使用不提示，连发才提示
     ("然而连发", re.compile(r"然而"), CONSECUTIVE_THRESHOLD),
-    # natural-talk 路标词：限 ≤2 次/全文，同一回复累计 ≥3 次报堆砌
-    ("路标词堆砌", re.compile(r"事实上|实际上|换句话说|本质上|归根结底|与此同时"), ROAD_SIGN_THRESHOLD),
+)
+# 密度项与 natural-talk 计数口径一致：上限 = 每 300 字基准 × 全文档位，超过才报
+# （破折号/路标词 ≤2 次、感叹号 ≤3 次，均按出现次数计；em dash 与 en dash 都算破折号）
+_DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
+    ("破折号", re.compile(r"[—–]"), 2),
+    ("感叹号", re.compile(r"[！!]"), 3),
+    ("路标词堆砌", re.compile(r"事实上|实际上|换句话说|本质上|归根结底|与此同时"), 2),
 )
 
 
@@ -404,7 +406,9 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
 
     内置末尾模板仅在回复结尾命中；AI 自我暴露短语任意位置精确命中；
     谄媚/预告式开场仅回复首部命中；custom_cliches 是管理员显式词库，
-    任意位置一次精确命中即提示。信号来源：natural-talk v2.0.0（MIT）。
+    任意位置一次精确命中即提示。
+    结构信号：固定计数类（然而连发 ≥2）；密度类对齐 natural-talk 计数口径
+    （破折号/路标词 ≤2 次、感叹号 ≤3 次，300 字基准按篇幅折算，超上限才报）。
     """
     normalized = _normalize_text(text)
     if not normalized:
@@ -428,10 +432,17 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
     for phrase in custom_cliches:
         if phrase and phrase in normalized and phrase not in hits:
             hits.append(phrase)
-    for label, pattern, threshold in _PATTERN_CHECKS:
+    for label, pattern, threshold in _FIXED_PATTERN_CHECKS:
         if label in hits:
             continue
         if len(pattern.findall(normalized)) >= threshold:
+            hits.append(label)
+    # 密度项：上限随篇幅折算，超过上限才报（与 natural-talk 计数口径一致）
+    density_cap = max(1, math.ceil(len(normalized) / 300))
+    for label, pattern, per_300 in _DENSITY_CHECKS:
+        if label in hits:
+            continue
+        if len(pattern.findall(normalized)) > density_cap * per_300:
             hits.append(label)
     return hits
 

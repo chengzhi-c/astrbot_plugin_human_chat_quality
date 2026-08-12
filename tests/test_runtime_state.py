@@ -28,7 +28,8 @@ from astrbot_plugin_human_chat_quality.runtime_state import (
 
 
 class TestDetectClichesNaturalTalk(unittest.TestCase):
-    """natural-talk 信号：AI 自我暴露任意位置命中、开场仅首部命中、收尾仅结尾命中、路标词 ≥3 次。"""
+    """natural-talk 信号：AI 自我暴露任意位置命中、开场仅首部命中、收尾仅结尾命中；
+    密度项（路标词/破折号/感叹号）对齐 natural-talk 计数口径：300 字基准按篇幅折算，超上限才报。"""
 
     def test_ai_self_exposure_any_position(self):
         self.assertIn("作为AI", detect_cliches("作为AI，我需要指出一点"))
@@ -74,10 +75,41 @@ class TestDetectClichesLegacy(unittest.TestCase):
         self.assertEqual(detect_cliches("希望对你有帮助，然后我们继续。"), [])
 
     def test_structure_consecutive(self):
-        self.assertIn("破折号连发", detect_cliches("a——b——c"))
+        self.assertIn("破折号", detect_cliches("a——b——c"))
         self.assertEqual(detect_cliches("a——b"), [])
         self.assertIn("然而连发", detect_cliches("然而a然而b"))
         self.assertEqual(detect_cliches("然而一次"), [])
+
+    def test_dash_density_aligned_with_skill(self):
+        """对齐 natural-talk：em/en dash 均计次，上限 ≤2，超过（≥3 个）才报。"""
+        self.assertIn("破折号", detect_cliches("a—b—c—d"))  # 三个单 em dash
+        self.assertIn("破折号", detect_cliches("a–b–c–d"))  # 三个 en dash
+        self.assertIn("破折号", detect_cliches("a——b—c"))  # 混合计次（4 个）
+        self.assertEqual(detect_cliches("a—b"), [])  # 恰好在上限内
+        self.assertEqual(detect_cliches("a–b"), [])
+
+    def test_exclamation_density_aligned_with_skill(self):
+        """对齐 natural-talk：感叹号上限 ≤3，超过（≥4 个）才报；全/半角都算。"""
+        self.assertIn("感叹号", detect_cliches("太好了！太棒了！真厉害！冲啊！"))
+        self.assertIn("感叹号", detect_cliches("Nice! Great! Amazing! Wow!"))
+        self.assertEqual(detect_cliches("不错！很好！加油！"), [])
+        self.assertEqual(detect_cliches("好!行!可以!"), [])
+
+    def test_density_caps_scale_with_length(self):
+        """对齐 natural-talk：更长回复按 300 字基准折算上限。
+
+        650 字左右为 scale=3 档：路标词上限 6 次，破折号上限 6 个；
+        700+ 字为 scale=3 档同样成立，用 6 个不报、7 个报验证折算生效。
+        """
+        base = "字" * 620
+        six = base + "事实上" * 6
+        seven = base + "事实上" * 7
+        self.assertEqual(detect_cliches(six), [])
+        self.assertIn("路标词堆砌", detect_cliches(seven))
+        self.assertEqual(detect_cliches(base + "a—" * 6), [])
+        self.assertIn("破折号", detect_cliches(base + "a—" * 7))
+        self.assertEqual(detect_cliches(base + "！" * 9), [])
+        self.assertIn("感叹号", detect_cliches(base + "！" * 10))
 
     def test_custom_cliches_any_position(self):
         self.assertEqual(detect_cliches("中间出现自定义词", ("自定义词",)), ["自定义词"])

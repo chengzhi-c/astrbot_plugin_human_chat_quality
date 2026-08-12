@@ -81,7 +81,34 @@ V2_RULES_9971F6D = (
     '有没有客服腔收尾？有没有"不是…而是"/"首先…其次"/"不仅…更是"？有没有两个以上破折号？'
     "有没有排比三连或金句？句长是不是全一样？有没有该说不知道却硬答的？有就改掉。"
 )
-REAL_LEGACY_RULES = (V1_RULES_74BB884, V1_RULES_8BAAE2B, V2_RULES_9971F6D, V2_RULES_E4AA983)
+V4_RULES_C7787F6 = (
+    "[Human Chat Quality Rules v4]\n"
+    "遵循 natural-talk 原则（natural-talk v2.1.0，MIT）：\n"
+    "\n"
+    "核心：\n"
+    "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
+    "- 不知道就说不知道，不编造\n"
+    "- 像朋友聊天，不像客服或老师\n"
+    "\n"
+    "禁止：\n"
+    '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）\n'
+    '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）\n'
+    '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）\n'
+    "- 评判对方 / 替对方做心理判断\n"
+    "- 破折号（全文不超过 2 次）\n"
+    "\n"
+    "要求：\n"
+    "- 句子长短交替，不匀速\n"
+    '- 能用"是/有"就不绕\n'
+    "- 主动语态，真实主语\n"
+    "- 具体表达，删除空泛词\n"
+    "\n"
+    "插件附加（不改变上述原则）：\n"
+    "- 保留事实、限制条件、安全提示和不确定性表述\n"
+    "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
+    "- 不要把这些约束写进回复"
+)
+REAL_LEGACY_RULES = (V1_RULES_74BB884, V1_RULES_8BAAE2B, V2_RULES_9971F6D, V2_RULES_E4AA983, V4_RULES_C7787F6)
 
 
 class TestRewriteInterfaces(unittest.TestCase):
@@ -91,7 +118,7 @@ class TestRewriteInterfaces(unittest.TestCase):
 
 
 class TestStableRewrite(unittest.TestCase):
-    def test_real_v1_v2_variants_are_removed(self):
+    def test_real_legacy_variants_are_removed(self):
         for legacy in REAL_LEGACY_RULES:
             with self.subTest(marker=legacy.splitlines()[0], lines=len(legacy.splitlines())):
                 result = rewrite_stable_rules(f"人设头\n\n{legacy}\n\n人设尾", enabled=False)
@@ -254,7 +281,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.stable_removed)
 
 
-# natural-talk v2.1.0「作为 System Prompt」章节原文行（非扭曲校验基准）
+# natural-talk v2.1.0+「作为 System Prompt」章节原文行（非扭曲校验基准）
 SKILL_CORE_LINES = (
     "- 直接回答，零开场零收尾，最多留一句有效过渡",
     "- 不知道就说不知道，不编造",
@@ -273,6 +300,7 @@ SKILL_REQ_LINES = (
     "- 主动语态，真实主语",
     "- 具体表达，删除空泛词",
 )
+SKILL_SCOPE_LINE = "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。"
 
 
 class FakePart:
@@ -320,8 +348,9 @@ class TestStableRules(unittest.TestCase):
         self.assertIn(STABLE_RULE_MARKER, rules)
         for line in SKILL_CORE_LINES + SKILL_BAN_LINES + SKILL_REQ_LINES:
             self.assertIn(line, rules, f"skill 原文行缺失: {line}")
+        self.assertIn(SKILL_SCOPE_LINE, rules)
         # 来源标注与插件附加
-        self.assertIn("natural-talk v2.1.0", rules)
+        self.assertIn("natural-talk v2.1.0+", rules)
         self.assertIn("插件附加（不改变上述原则）", rules)
 
     def test_inject_idempotent(self):

@@ -16,7 +16,7 @@ from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1；旧版本随 LEGACY 推导保留，保证旧块可剥离
-RULES_VERSION = 4
+RULES_VERSION = 5
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 # 历史版本注入过的规则标记（含无版本号形态，显式保留）；
 # 用于剥离 system_prompt/历史中残留的旧规则块（startswith 判定不会误伤当前 marker 自身）
@@ -37,6 +37,7 @@ MAX_RUNTIME_HINT_CHARS = (
 )
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
+# 注：v3 从未公开发布，无签名，保留 unknown=ambiguous 行为；v4 为 1.1.x 已发布块，必须可剥离。
 _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
     f"{INJECTED_MARKER_PREFIX} Rules v1]": frozenset(
         {
@@ -48,6 +49,11 @@ _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
         {
             (39, "9f27e5df3f368f9cdc8ff0c2cd6bfc075365af0024dfe67c8ed3a21374d2fa82"),
             (7, "c33073fcaaca430cba3ab648f7a8df8bdf1c85b6c1d7c71025ce53896771e731"),
+        }
+    ),
+    f"{INJECTED_MARKER_PREFIX} Rules v4]": frozenset(
+        {
+            (25, "c7787f6c38c128dab5b3781365516257af5a35f915766851b870828cd97e3f8f"),
         }
     ),
 }
@@ -75,14 +81,15 @@ class ContextRewriteResult:
 
 
 def build_stable_rules() -> str:
-    """稳定规则：natural-talk v2.1.0（MIT）"作为 System Prompt"章节原文 + 插件附加条款。
+    """稳定规则：natural-talk（MIT）"作为 System Prompt"章节原文 + 插件附加条款。
 
-    natural-talk 部分逐字引用其官方浓缩版（仅首行追加来源标注，MIT 要求保留版权说明）；
+    natural-talk 部分逐字引用其官方浓缩版（仅首行追加来源标注，MIT 要求保留版权说明）：
+    正文为 v2.1.0 lite 模板，另含上游 506407f 起新增的"不适用范围"行；
     "插件附加"为插件原有的安全条款（保留事实/任务优先/不写入回复），与 natural-talk 原则无冲突。
     """
     return (
         f"{STABLE_RULE_MARKER}\n"
-        "遵循 natural-talk 原则（natural-talk v2.1.0，MIT）：\n"
+        "遵循 natural-talk 原则（natural-talk v2.1.0+，MIT）：\n"
         "\n"
         "核心：\n"
         "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
@@ -101,6 +108,8 @@ def build_stable_rules() -> str:
         '- 能用"是/有"就不绕\n'
         "- 主动语态，真实主语\n"
         "- 具体表达，删除空泛词\n"
+        "\n"
+        "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。\n"
         "\n"
         "插件附加（不改变上述原则）：\n"
         "- 保留事实、限制条件、安全提示和不确定性表述\n"
