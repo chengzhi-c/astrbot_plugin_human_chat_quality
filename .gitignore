@@ -2,6 +2,7 @@
 __pycache__/
 *.py[cod]
 *.egg-info/
+.ruff_cache/
 
 # 运行时状态与临时/备份文件
 runtime_state.json
