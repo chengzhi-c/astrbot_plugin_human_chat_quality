@@ -3,6 +3,7 @@
 This project includes portions of the Natural Talk system-prompt rules:
 
 - Source: https://github.com/chengzhi-c/natural-talk
+- Compared against: lite template at commit 5ec6223, scope line from 506407f
 - License: MIT
 
 MIT License

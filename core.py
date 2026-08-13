@@ -208,16 +208,19 @@ class HumanChatQualityCore:
         if not self._is_effectively_active(session_id, event):
             return f"Human Chat Quality 状态：\n- 当前会话：关闭\n- 无运行时状态\n- 状态持久化：{persistence}"
         state = self.store.get(session_id)
-        avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无"
-        return (
-            "Human Chat Quality 状态：\n"
-            "- 当前会话：启用\n"
-            f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '关闭'}（system_prompt）\n"
-            f"- 运行时提示：{'启用' if self.cfg.inject_runtime_state else '关闭'}\n"
-            f"- 自启动以来累计注入：{self.injection_count} 次\n"
-            f"- 最近重复开头：{avoid}\n"
-            f"- 状态持久化：{persistence}"
-        )
+        avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无（尚未形成重复或套话信号）"
+        lines = [
+            "Human Chat Quality 状态：",
+            "- 当前会话：启用",
+            f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '关闭'}（system_prompt）",
+            f"- 运行时提示：{'启用' if self.cfg.inject_runtime_state else '关闭'}",
+            f"- 下一轮避用：{avoid}",
+        ]
+        if state.avoid_openers and self.cfg.inject_runtime_state:
+            lines.append("- 下一轮请求会带上动态提醒")
+        lines.append(f"- 自启动以来累计注入：{self.injection_count} 次")
+        lines.append(f"- 状态持久化：{persistence}")
+        return "\n".join(lines)
 
     def _is_active(self, session_id: str) -> bool:
         return self.cfg.enabled and self.store.is_enabled(session_id)

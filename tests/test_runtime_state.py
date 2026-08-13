@@ -51,6 +51,15 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
         self.assertEqual(detect_cliches("感谢你的耐心，我先整理下"), [])
         self.assertEqual(detect_cliches("好，我来确认一下再答复你"), [])
 
+    def test_english_high_confidence_signals(self):
+        self.assertIn("I hope this helps", detect_cliches("That is the answer. I hope this helps."))
+        self.assertIn("I hope this helps", detect_cliches("That is the answer. I HOPE THIS HELPS!"))
+        self.assertEqual(detect_cliches("I hope this helps you later in the paragraph."), [])
+        self.assertIn("Great question", detect_cliches("Great question, here is the short version."))
+        self.assertIn("Great question", detect_cliches("great question, here is the short version."))
+        self.assertNotIn("Great question", detect_cliches("this is a great question in the middle."))
+        self.assertEqual(detect_cliches("Of course I can look that up."), [])
+
     def test_summary_endings_tail_only(self):
         self.assertIn("综上所述", detect_cliches("情况就是这样，综上所述。"))
         self.assertIn("由此可见", detect_cliches("测试全部通过，由此可见。"))

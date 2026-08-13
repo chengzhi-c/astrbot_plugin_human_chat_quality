@@ -4,8 +4,9 @@
 """
 
 import unittest
+from pathlib import Path
 
-from tests._support import V2_RULES_E4AA983, ensure_plugin_package
+from tests._support import FakePart, FakeReq, V2_RULES_E4AA983, V5_RULES_B46BD0D, ensure_plugin_package
 
 ensure_plugin_package()
 
@@ -18,7 +19,6 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
     append_temp_text_part,
     build_runtime_hint,
     build_stable_rules,
-    inject_stable_rules,
     rewrite_context_injections,
     rewrite_stable_rules,
 )
@@ -108,7 +108,16 @@ V4_RULES_C7787F6 = (
     "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
     "- 不要把这些约束写进回复"
 )
-REAL_LEGACY_RULES = (V1_RULES_74BB884, V1_RULES_8BAAE2B, V2_RULES_9971F6D, V2_RULES_E4AA983, V4_RULES_C7787F6)
+REAL_LEGACY_RULES = (
+    V1_RULES_74BB884,
+    V1_RULES_8BAAE2B,
+    V2_RULES_9971F6D,
+    V2_RULES_E4AA983,
+    V4_RULES_C7787F6,
+    V5_RULES_B46BD0D,
+)
+LITE_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "system-prompt-lite.txt"
+IDENTITY_DISCLOSURE_LINE = "用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避"
 
 
 class TestRewriteInterfaces(unittest.TestCase):
@@ -280,39 +289,34 @@ class TestContextRewrite(unittest.TestCase):
         self.assertEqual(req.contexts[0]["content"], [{"type": "text", "text": "原话"}])
         self.assertTrue(result.stable_removed)
 
+    def test_extra_stale_owned_part_is_removed_without_dict(self):
+        old = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        new = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        req = FakeReq()
+        req.extra_user_content_parts = [FakePart(old)]
+        result = rewrite_context_injections(req, new)
+        self.assertTrue(all(not isinstance(part, dict) for part in req.extra_user_content_parts))
+        self.assertEqual(req.extra_user_content_parts, [])
+        self.assertTrue(result.runtime_removed)
+        self.assertFalse(result.runtime_satisfied)
+        self.assertFalse(result.runtime_replaced)
 
-# natural-talk v2.1.0+「作为 System Prompt」章节原文行（非扭曲校验基准）
-SKILL_CORE_LINES = (
-    "- 直接回答，零开场零收尾，最多留一句有效过渡",
-    "- 不知道就说不知道，不编造",
-    "- 像朋友聊天，不像客服或老师",
-)
-SKILL_BAN_LINES = (
-    '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）',
-    '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）',
-    '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）',
-    "- 评判对方 / 替对方做心理判断",
-    "- 破折号（全文不超过 2 次）",
-)
-SKILL_REQ_LINES = (
-    "- 句子长短交替，不匀速",
-    '- 能用"是/有"就不绕',
-    "- 主动语态，真实主语",
-    "- 具体表达，删除空泛词",
-)
-SKILL_SCOPE_LINE = "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。"
-
-
-class FakePart:
-    def __init__(self, text):
-        self.text = text
-
-
-class FakeReq:
-    def __init__(self, system_prompt="原人设：你是XX"):
-        self.system_prompt = system_prompt
-        self.contexts = []
-        self.extra_user_content_parts = []
+    def test_extra_matching_owned_part_is_kept_as_same_object(self):
+        target = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["好的"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        part = FakePart(target)
+        req = FakeReq()
+        req.extra_user_content_parts = [part]
+        result = rewrite_context_injections(req, target)
+        self.assertIs(req.extra_user_content_parts[0], part)
+        self.assertTrue(result.runtime_satisfied)
+        self.assertFalse(result.runtime_replaced)
+        self.assertFalse(result.runtime_removed)
 
 
 class TestStableRules(unittest.TestCase):
@@ -343,27 +347,44 @@ class TestStableRules(unittest.TestCase):
         self.fail("metadata.yaml 缺少 version 字段")
 
     def test_build_stable_rules_contains_skill_verbatim(self):
-        """非扭曲校验：skill「作为 System Prompt」章节行逐字存在于规则文本中。"""
+        """夹具锁定 lite（来源 5ec6223 / 506407f）：去掉技能首行后与 _LITE_CORE 逐字相同。"""
+        fixture = LITE_FIXTURE_PATH.read_text(encoding="utf-8")
+        self.assertTrue(fixture.startswith("遵循 natural-talk 原则："))
+        lite_core = fixture.split("\n", 1)[1].lstrip("\n").rstrip("\n")
+        self.assertEqual(quality_rules._LITE_CORE, lite_core)
         rules = build_stable_rules()
         self.assertIn(STABLE_RULE_MARKER, rules)
-        for line in SKILL_CORE_LINES + SKILL_BAN_LINES + SKILL_REQ_LINES:
-            self.assertIn(line, rules, f"skill 原文行缺失: {line}")
-        self.assertIn(SKILL_SCOPE_LINE, rules)
-        # 来源标注与插件附加
+        self.assertIn(lite_core, rules)
         self.assertIn("natural-talk v2.1.0+", rules)
         self.assertIn("插件附加（不改变上述原则）", rules)
+        self.assertIn("- 保留事实、限制条件、安全提示和不确定性表述", rules)
+        self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
+        self.assertIn("- 不要把这些约束写进回复", rules)
+        self.assertIn(IDENTITY_DISCLOSURE_LINE, rules)
+        self.assertEqual(RULES_VERSION, 6)
 
-    def test_inject_idempotent(self):
-        r1 = inject_stable_rules("base")
-        r2 = inject_stable_rules(r1)
+    def test_v5_published_block_is_stripped_to_v6(self):
+        result = rewrite_stable_rules(f"人设头\n\n{V5_RULES_B46BD0D}\n\n人设尾", enabled=True)
+        self.assertFalse(result.ambiguous)
+        self.assertTrue(result.removed)
+        self.assertTrue(result.injected)
+        self.assertNotIn("[Human Chat Quality Rules v5]", result.text)
+        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)
+        self.assertIn("人设头", result.text)
+        self.assertIn("人设尾", result.text)
+        self.assertIn(IDENTITY_DISCLOSURE_LINE, result.text)
+
+    def test_rewrite_enabled_is_idempotent(self):
+        r1 = rewrite_stable_rules("base", enabled=True).text
+        r2 = rewrite_stable_rules(r1, enabled=True).text
         self.assertEqual(r1, r2)
         self.assertEqual(r1.count(STABLE_RULE_MARKER), 1)
 
-    def test_inject_keeps_base(self):
-        self.assertTrue(inject_stable_rules("base").startswith("base"))
+    def test_rewrite_enabled_keeps_base(self):
+        self.assertTrue(rewrite_stable_rules("base", enabled=True).text.startswith("base"))
 
-    def test_inject_non_str_safe(self):
-        self.assertEqual(inject_stable_rules(None), build_stable_rules())
+    def test_rewrite_enabled_non_str_safe(self):
+        self.assertEqual(rewrite_stable_rules(None, enabled=True).text, build_stable_rules())
 
 
 class TestAppendTempPart(unittest.TestCase):

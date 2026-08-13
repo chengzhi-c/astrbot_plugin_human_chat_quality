@@ -20,9 +20,9 @@ except ImportError:  # pragma: no cover
 
 # 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
 MAX_AVOID_OPENERS = 5
-# opener 入库/加载/提取的截断长度（前缀 ≤8 与普通开头同口径）
+# 开头截断长度（前缀 ≤8 与普通开头同口径）
 MAX_OPENER_LEN = 8
-# 重复开头/套路词入库与注入的长度上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）
+# 避用短语上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）
 MAX_OPEN_LEN = 20
 DAY_SECONDS = 86400
 # 同一 opener 在最近窗口内至少出现这么多次才视为重复信号（阈值 3：降低误报）
@@ -355,6 +355,7 @@ OPENING_CLICHES: tuple[str, ...] = (
     "好问题",
     "让我来",
     "感谢你的提问",
+    "Great question",
 )
 
 # 默认检测只保留高置信度末尾模板：仅当回复以这些短语收尾时命中，
@@ -382,6 +383,7 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
     # 收尾腔总结（natural-talk Tier 2：收尾腔 = 0；仅结尾命中，正文不报）
     "综上所述",
     "由此可见",
+    "I hope this helps",
 )
 
 # 末尾匹配前剔除的收尾标点/语气符
@@ -415,9 +417,10 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         return []
     hits: list[str] = []
     tail = normalized.rstrip(_TRAILING_PUNCT)
+    folded_tail = tail.casefold()
     # 各 ending 互斥（同一结尾不可能同时以两个短语收尾），取首个命中即足够
     for phrase in DEFAULT_ENDINGS:
-        if tail.endswith(phrase):
+        if folded_tail.endswith(phrase.casefold()):
             hits.append(phrase)
             break
     # natural-talk Tier 1：自我暴露短语，任意位置精确命中即报
@@ -425,9 +428,9 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         if phrase in normalized and phrase not in hits:
             hits.append(phrase)
     # natural-talk Tier 1/2：谄媚/预告式开场，仅首部（首个标点前）命中
-    first_clause = _OPENER_DELIM.split(normalized, maxsplit=1)[0]
+    first_clause = _OPENER_DELIM.split(normalized, maxsplit=1)[0].casefold()
     for phrase in OPENING_CLICHES:
-        if phrase not in hits and first_clause.startswith(phrase):
+        if phrase not in hits and first_clause.startswith(phrase.casefold()):
             hits.append(phrase)
     for phrase in custom_cliches:
         if phrase and phrase in normalized and phrase not in hits:

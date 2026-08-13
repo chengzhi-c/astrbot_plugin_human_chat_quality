@@ -8,7 +8,14 @@ import unittest
 
 from pathlib import Path
 
-from tests._support import V2_RULES_E4AA983, ensure_plugin_package, temporary_directory
+from tests._support import (
+    FakePart,
+    FakeReq,
+    V2_RULES_E4AA983,
+    V5_RULES_B46BD0D,
+    ensure_plugin_package,
+    temporary_directory,
+)
 
 ensure_plugin_package()
 
@@ -23,11 +30,6 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
 from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore, SessionState
 
 
-class FakePart:
-    def __init__(self, text):
-        self.text = text
-
-
 class FakeEvent:
     def __init__(self, origin):
         self.unified_msg_origin = origin
@@ -37,13 +39,6 @@ class FakeLLMResp:
     def __init__(self, text):
         self.completion_text = text
         self.result_chain = None
-
-
-class FakeReq:
-    def __init__(self):
-        self.system_prompt = "原人设：你是XX"
-        self.contexts = []
-        self.extra_user_content_parts = []
 
 
 EXPECTED_MIN_RUNTIME_HINT_CHARS = 80
@@ -126,7 +121,15 @@ class TestCoreFlow(unittest.TestCase):
         self.core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=FakePart)
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")
 
-    def test_stable_rules_v4_injected(self):
+    def test_published_v5_block_is_replaced_with_current_rules(self):
+        req = FakeReq()
+        req.system_prompt = f"原人设：你是XX\n\n{V5_RULES_B46BD0D}"
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertNotIn("[Human Chat Quality Rules v5]", req.system_prompt)
+        self.assertEqual(req.system_prompt.count(STABLE_RULE_MARKER), 1)
+        self.assertIn("用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避", req.system_prompt)
+
+    def test_current_stable_rules_injected(self):
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": "在吗"}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -160,6 +163,22 @@ class TestCoreFlow(unittest.TestCase):
         self.assertEqual(len(req.extra_user_content_parts), 1)
         self.assertIn(RUNTIME_HINT_MARKER, req.extra_user_content_parts[0].text)
         self.assertIn("好的", req.extra_user_content_parts[0].text)
+
+    def test_stale_extra_part_is_replaced_by_factory_product_not_dict(self):
+        for _ in range(3):
+            req = FakeReq()
+            asyncio.run(self.core.on_llm_request(self.ev, req))
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
+        old_hint = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        req = FakeReq()
+        req.extra_user_content_parts = [FakePart(old_hint)]
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertEqual(len(req.extra_user_content_parts), 1)
+        part = req.extra_user_content_parts[0]
+        self.assertIsInstance(part, FakePart)
+        self.assertFalse(isinstance(part, dict))
+        self.assertIn("好的", part.text)
+        self.assertNotIn("旧开头", part.text)
 
     def test_replace_in_history_no_accumulation(self):
         for _ in range(3):
@@ -197,10 +216,25 @@ class TestCoreFlow(unittest.TestCase):
     def test_status_text_active_and_inactive(self):
         text_active = self.core.status_text(self.ev.unified_msg_origin, self.ev)
         self.assertIn("启用", text_active)
+        self.assertIn("下一轮避用：无（尚未形成重复或套话信号）", text_active)
+        self.assertNotIn("下一轮请求会带上动态提醒", text_active)
         core_off = HumanChatQualityCore(
             AppConfig.from_config({"enabled": False}), self.store, text_part_factory=FakePart
         )
         self.assertIn("关闭", core_off.status_text(self.ev.unified_msg_origin, self.ev))
+
+    def test_status_text_names_next_round_hint(self):
+        for _ in range(3):
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
+        text = self.core.status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("下一轮避用：好的", text)
+        self.assertIn("下一轮请求会带上动态提醒", text)
+        core_no_hint = HumanChatQualityCore(
+            AppConfig.from_config({"inject_runtime_state": False}), self.store, text_part_factory=FakePart
+        )
+        quiet = core_no_hint.status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("下一轮避用：好的", quiet)
+        self.assertNotIn("下一轮请求会带上动态提醒", quiet)
 
 
 class TestResponseTextExtraction(unittest.TestCase):

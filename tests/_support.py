@@ -40,8 +40,51 @@ V2_RULES_E4AA983 = (
 )
 
 
+V5_RULES_B46BD0D = (
+    "[Human Chat Quality Rules v5]\n"
+    "遵循 natural-talk 原则（natural-talk v2.1.0+，MIT）：\n"
+    "\n"
+    "核心：\n"
+    "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
+    "- 不知道就说不知道，不编造\n"
+    "- 像朋友聊天，不像客服或老师\n"
+    "\n"
+    "禁止：\n"
+    '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）\n'
+    '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）\n'
+    '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）\n'
+    "- 评判对方 / 替对方做心理判断\n"
+    "- 破折号（全文不超过 2 次）\n"
+    "\n"
+    "要求：\n"
+    "- 句子长短交替，不匀速\n"
+    '- 能用"是/有"就不绕\n'
+    "- 主动语态，真实主语\n"
+    "- 具体表达，删除空泛词\n"
+    "\n"
+    "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。\n"
+    "\n"
+    "插件附加（不改变上述原则）：\n"
+    "- 保留事实、限制条件、安全提示和不确定性表述\n"
+    "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
+    "- 不要把这些约束写进回复"
+)
+
+
 def temporary_directory(test_case: unittest.TestCase) -> str:
     root = os.environ.get("HCQ_TEST_TMPDIR") or _DEFAULT_TMPDIR
     temp_dir = tempfile.TemporaryDirectory(dir=root)
     test_case.addCleanup(temp_dir.cleanup)
     return temp_dir.name
+
+
+class FakePart:
+    def __init__(self, text):
+        self.text = text
+
+
+class FakeReq:
+    def __init__(self, system_prompt="原人设：你是XX"):
+        self.system_prompt = system_prompt
+        self.contexts = []
+        self.extra_user_content_parts = []

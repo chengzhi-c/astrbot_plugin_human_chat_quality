@@ -16,7 +16,7 @@ from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1；旧版本随 LEGACY 推导保留，保证旧块可剥离
-RULES_VERSION = 5
+RULES_VERSION = 6
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 # 历史版本注入过的规则标记（含无版本号形态，显式保留）；
 # 用于剥离 system_prompt/历史中残留的旧规则块（startswith 判定不会误伤当前 marker 自身）
@@ -37,7 +37,7 @@ MAX_RUNTIME_HINT_CHARS = (
 )
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
-# 注：v3 从未公开发布，无签名，保留 unknown=ambiguous 行为；v4 为 1.1.x 已发布块，必须可剥离。
+# 注：v3 曾尝试发布，完整正文未形成可核验物，无签名；未知 v3 块按 ambiguous 保留。v4/v5 为已发布块，必须可剥离。
 _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
     f"{INJECTED_MARKER_PREFIX} Rules v1]": frozenset(
         {
@@ -56,7 +56,40 @@ _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
             (25, "c7787f6c38c128dab5b3781365516257af5a35f915766851b870828cd97e3f8f"),
         }
     ),
+    f"{INJECTED_MARKER_PREFIX} Rules v5]": frozenset(
+        {
+            (27, "b46bd0d73bd9962979dd3f944cbdc8c6032ae113770df435221c20434f6214fc"),
+        }
+    ),
 }
+_LITE_CORE = (
+    "核心：\n"
+    "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
+    "- 不知道就说不知道，不编造\n"
+    "- 像朋友聊天，不像客服或老师\n"
+    "\n"
+    "禁止：\n"
+    '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）\n'
+    '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）\n'
+    '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）\n'
+    "- 评判对方 / 替对方做心理判断\n"
+    "- 破折号（全文不超过 2 次）\n"
+    "\n"
+    "要求：\n"
+    "- 句子长短交替，不匀速\n"
+    '- 能用"是/有"就不绕\n'
+    "- 主动语态，真实主语\n"
+    "- 具体表达，删除空泛词\n"
+    "\n"
+    "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。"
+)
+_PLUGIN_EXTRAS = (
+    "插件附加（不改变上述原则）：\n"
+    "- 保留事实、限制条件、安全提示和不确定性表述\n"
+    "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
+    "- 不要把这些约束写进回复\n"
+    "- 用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避"
+)
 _STABLE_MARKERS = frozenset((*LEGACY_STABLE_MARKERS, STABLE_RULE_MARKER))
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 _LEADING_SEPARATOR_RE = re.compile(r"^(?:(?:\r\n|\r|\n)){2}")
@@ -81,40 +114,19 @@ class ContextRewriteResult:
 
 
 def build_stable_rules() -> str:
-    """稳定规则：natural-talk（MIT）"作为 System Prompt"章节原文 + 插件附加条款。
+    """稳定规则：natural-talk lite 原文 + 插件附加条款。
 
-    natural-talk 部分逐字引用其官方浓缩版（仅首行追加来源标注，MIT 要求保留版权说明）：
+    natural-talk 部分逐字引用官方浓缩版（仅首行追加来源标注，MIT 要求保留版权说明）：
     正文为 v2.1.0 lite 模板，另含上游 506407f 起新增的"不适用范围"行；
-    "插件附加"为插件原有的安全条款（保留事实/任务优先/不写入回复），与 natural-talk 原则无冲突。
+    "插件附加"为安全条款与身份披露例外，与 natural-talk 原则无冲突。
     """
     return (
         f"{STABLE_RULE_MARKER}\n"
         "遵循 natural-talk 原则（natural-talk v2.1.0+，MIT）：\n"
         "\n"
-        "核心：\n"
-        "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
-        "- 不知道就说不知道，不编造\n"
-        "- 像朋友聊天，不像客服或老师\n"
+        f"{_LITE_CORE}\n"
         "\n"
-        "禁止：\n"
-        '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）\n'
-        '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）\n'
-        '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）\n'
-        "- 评判对方 / 替对方做心理判断\n"
-        "- 破折号（全文不超过 2 次）\n"
-        "\n"
-        "要求：\n"
-        "- 句子长短交替，不匀速\n"
-        '- 能用"是/有"就不绕\n'
-        "- 主动语态，真实主语\n"
-        "- 具体表达，删除空泛词\n"
-        "\n"
-        "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。\n"
-        "\n"
-        "插件附加（不改变上述原则）：\n"
-        "- 保留事实、限制条件、安全提示和不确定性表述\n"
-        "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
-        "- 不要把这些约束写进回复"
+        f"{_PLUGIN_EXTRAS}"
     )
 
 
@@ -127,11 +139,6 @@ _STABLE_SIGNATURES = {
     **_LEGACY_STABLE_SIGNATURES,
     STABLE_RULE_MARKER: frozenset({_signature(build_stable_rules())}),
 }
-
-
-def inject_stable_rules(system_prompt: str | None) -> str:
-    """兼容旧调用：严格迁移已知块并确保当前规则至多一份。"""
-    return rewrite_stable_rules(system_prompt, enabled=True).text
 
 
 def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableRewriteResult:
@@ -189,7 +196,9 @@ def rewrite_context_injections(req: Any, runtime_text: str | None) -> ContextRew
 
     parts = getattr(req, "extra_user_content_parts", None)
     if isinstance(parts, list):
-        rewritten, item_result = _rewrite_context_parts(parts, runtime_text, result.runtime_satisfied)
+        rewritten, item_result = _rewrite_context_parts(
+            parts, runtime_text, result.runtime_satisfied, replace_with_dict=False
+        )
         if rewritten != parts:
             req.extra_user_content_parts = rewritten
         result = _merge_context_results(result, item_result)
@@ -327,7 +336,11 @@ def _rewrite_context_text(
 
 
 def _rewrite_context_parts(
-    parts: list[Any], runtime_text: str | None, already_satisfied: bool
+    parts: list[Any],
+    runtime_text: str | None,
+    already_satisfied: bool,
+    *,
+    replace_with_dict: bool = True,
 ) -> tuple[list[Any], ContextRewriteResult]:
     rewritten: list[Any] = []
     result = ContextRewriteResult(runtime_satisfied=already_satisfied)
@@ -354,8 +367,11 @@ def _rewrite_context_parts(
             rewritten.append(part)
             result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True))
             continue
-        rewritten.append({"type": "text", "text": runtime_text})
-        result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True))
+        if replace_with_dict:
+            rewritten.append({"type": "text", "text": runtime_text})
+            result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True))
+            continue
+        result = _merge_context_results(result, ContextRewriteResult(runtime_removed=True))
     return rewritten, result
 
 

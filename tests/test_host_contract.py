@@ -128,6 +128,24 @@ class TestHostRegistration(unittest.TestCase):
         asyncio.run(HumanChatQualityPlugin.terminate(plugin))
         store.flush.assert_awaited_once()
 
+    def test_extra_parts_must_support_model_dump(self):
+        from astrbot.core.agent.message import TextPart
+        from astrbot.core.provider.entities import ProviderRequest
+
+        part = TextPart(text="owned")
+        dumped = part.model_dump()
+        self.assertEqual(dumped["type"], "text")
+        self.assertEqual(dumped["text"], "owned")
+
+        req = ProviderRequest(prompt="hi")
+        req.extra_user_content_parts = [part]
+        assembled = asyncio.run(req.assemble_context())
+        self.assertTrue(any(block.get("text") == "owned" for block in assembled["content"]))
+
+        req.extra_user_content_parts = [{"type": "text", "text": "owned"}]
+        with self.assertRaises(AttributeError):
+            asyncio.run(req.assemble_context())
+
     def test_terminate_logs_failed_final_flush(self):
         store = mock.Mock()
         store.flush = mock.AsyncMock(return_value=False)
