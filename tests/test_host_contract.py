@@ -146,6 +146,38 @@ class TestHostRegistration(unittest.TestCase):
         with self.assertRaises(AttributeError):
             asyncio.run(req.assemble_context())
 
+    def test_stale_extra_text_part_is_rewritten_then_assembled(self):
+        from astrbot.core.agent.message import TextPart
+        from astrbot.core.provider.entities import ProviderRequest
+        from astrbot_plugin_human_chat_quality.quality_rules import (
+            MAX_RUNTIME_HINT_CHARS,
+            RUNTIME_HINT_MARKER,
+            append_temp_text_part,
+            build_runtime_hint,
+            rewrite_context_injections,
+        )
+        from astrbot_plugin_human_chat_quality.runtime_state import SessionState
+
+        old = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(SessionState(avoid_openers=["新开头"]), MAX_RUNTIME_HINT_CHARS)
+        req = ProviderRequest(prompt="hi")
+        req.extra_user_content_parts = [TextPart(text=old)]
+
+        result = rewrite_context_injections(req, new)
+        self.assertEqual(req.extra_user_content_parts, [])
+        self.assertTrue(result.runtime_removed)
+        self.assertFalse(result.runtime_replaced)
+
+        self.assertTrue(append_temp_text_part(req, new, TextPart, marker=RUNTIME_HINT_MARKER))
+        self.assertTrue(all(hasattr(part, "model_dump") for part in req.extra_user_content_parts))
+        self.assertFalse(any(isinstance(part, dict) for part in req.extra_user_content_parts))
+
+        assembled = asyncio.run(req.assemble_context())
+        texts = [block.get("text") for block in assembled["content"] if isinstance(block, dict)]
+        self.assertIn("hi", texts)
+        self.assertIn(new, texts)
+        self.assertNotIn(old, texts)
+
     def test_terminate_logs_failed_final_flush(self):
         store = mock.Mock()
         store.flush = mock.AsyncMock(return_value=False)

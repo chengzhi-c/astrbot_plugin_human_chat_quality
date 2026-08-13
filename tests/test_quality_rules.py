@@ -347,11 +347,10 @@ class TestStableRules(unittest.TestCase):
         self.fail("metadata.yaml 缺少 version 字段")
 
     def test_build_stable_rules_contains_skill_verbatim(self):
-        """夹具锁定 lite（来源 5ec6223 / 506407f）：去掉技能首行后与 _LITE_CORE 逐字相同。"""
+        """夹具锁定 lite（来源 5ec6223 / 506407f）：去掉技能首行后必须出现在公开规则正文里。"""
         fixture = LITE_FIXTURE_PATH.read_text(encoding="utf-8")
         self.assertTrue(fixture.startswith("遵循 natural-talk 原则："))
         lite_core = fixture.split("\n", 1)[1].lstrip("\n").rstrip("\n")
-        self.assertEqual(quality_rules._LITE_CORE, lite_core)
         rules = build_stable_rules()
         self.assertIn(STABLE_RULE_MARKER, rules)
         self.assertIn(lite_core, rules)

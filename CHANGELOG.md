@@ -2,9 +2,9 @@
 
 本插件版本变更记录。版本号遵循语义化版本。
 
-## [1.3.0] - 2026-08-13
+## [1.3.0] - 2026-08-14
 
-- 动态 extra 只保留或删除已有对象，过期提示改由宿主 `TextPart` 追加，不再把 dict 写进 `extra_user_content_parts`。
+- 动态 extra 只保留或删除已有对象，过期提示改由宿主 `TextPart` 追加，不再把 dict 写进 `extra_user_content_parts`。历史块仍可原位换成最新提示；两条路径分开写，extra 没有写成 dict 的分支。
 - 固定规则升到 v6：lite 正文保持逐字对照；插件附加增加身份披露例外。已发布 v5 块可剥离，无法核验的 v3 块仍保留。
 - 检测增加句末 `I hope this helps`、句首 `Great question`；`/humanq status` 写明下一轮避用项和是否会带动态提醒。
 

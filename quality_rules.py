@@ -189,16 +189,14 @@ def rewrite_context_injections(req: Any, runtime_text: str | None) -> ContextRew
                     ctx["content"] = rewritten
                 result = _merge_context_results(result, item_result)
             elif isinstance(content, list):
-                rewritten, item_result = _rewrite_context_parts(content, runtime_text, result.runtime_satisfied)
+                rewritten, item_result = _rewrite_history_parts(content, runtime_text, result.runtime_satisfied)
                 if rewritten != content:
                     ctx["content"] = rewritten
                 result = _merge_context_results(result, item_result)
 
     parts = getattr(req, "extra_user_content_parts", None)
     if isinstance(parts, list):
-        rewritten, item_result = _rewrite_context_parts(
-            parts, runtime_text, result.runtime_satisfied, replace_with_dict=False
-        )
+        rewritten, item_result = _rewrite_extra_parts(parts, runtime_text, result.runtime_satisfied)
         if rewritten != parts:
             req.extra_user_content_parts = rewritten
         result = _merge_context_results(result, item_result)
@@ -335,43 +333,54 @@ def _rewrite_context_text(
     return runtime_text, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True)
 
 
-def _rewrite_context_parts(
-    parts: list[Any],
-    runtime_text: str | None,
-    already_satisfied: bool,
-    *,
-    replace_with_dict: bool = True,
+def _owned_part_action(
+    part: Any, runtime_text: str | None, already_satisfied: bool
+) -> tuple[str, ContextRewriteResult]:
+    text = _text_value(part)
+    if text is None:
+        return "keep", ContextRewriteResult()
+    if _is_known_stable_text(text):
+        return "drop", ContextRewriteResult(stable_removed=True)
+    kind = _runtime_kind(text)
+    if kind == "ordinary":
+        return "keep", ContextRewriteResult()
+    if kind == "ambiguous":
+        return "keep", ContextRewriteResult(runtime_ambiguous=True)
+    if not runtime_text or already_satisfied:
+        return "drop", ContextRewriteResult(runtime_removed=True)
+    if _normalize_newlines(text) == _normalize_newlines(runtime_text):
+        return "keep", ContextRewriteResult(runtime_satisfied=True)
+    return "stale", ContextRewriteResult()
+
+
+def _rewrite_history_parts(
+    parts: list[Any], runtime_text: str | None, already_satisfied: bool
 ) -> tuple[list[Any], ContextRewriteResult]:
     rewritten: list[Any] = []
     result = ContextRewriteResult(runtime_satisfied=already_satisfied)
     for part in parts:
-        text = _text_value(part)
-        if text is None:
+        action, flags = _owned_part_action(part, runtime_text, result.runtime_satisfied)
+        if action == "keep":
             rewritten.append(part)
-            continue
-        if _is_known_stable_text(text):
-            result = _merge_context_results(result, ContextRewriteResult(stable_removed=True))
-            continue
-        kind = _runtime_kind(text)
-        if kind == "ordinary":
-            rewritten.append(part)
-            continue
-        if kind == "ambiguous":
-            rewritten.append(part)
-            result = _merge_context_results(result, ContextRewriteResult(runtime_ambiguous=True))
-            continue
-        if not runtime_text or result.runtime_satisfied:
-            result = _merge_context_results(result, ContextRewriteResult(runtime_removed=True))
-            continue
-        if _normalize_newlines(text) == _normalize_newlines(runtime_text):
-            rewritten.append(part)
-            result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True))
-            continue
-        if replace_with_dict:
+        elif action == "stale":
             rewritten.append({"type": "text", "text": runtime_text})
-            result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True))
-            continue
-        result = _merge_context_results(result, ContextRewriteResult(runtime_removed=True))
+            flags = ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True)
+        result = _merge_context_results(result, flags)
+    return rewritten, result
+
+
+def _rewrite_extra_parts(
+    parts: list[Any], runtime_text: str | None, already_satisfied: bool
+) -> tuple[list[Any], ContextRewriteResult]:
+    rewritten: list[Any] = []
+    result = ContextRewriteResult(runtime_satisfied=already_satisfied)
+    for part in parts:
+        action, flags = _owned_part_action(part, runtime_text, result.runtime_satisfied)
+        if action == "keep":
+            rewritten.append(part)
+        elif action == "stale":
+            flags = ContextRewriteResult(runtime_removed=True)
+        result = _merge_context_results(result, flags)
     return rewritten, result
 
 
