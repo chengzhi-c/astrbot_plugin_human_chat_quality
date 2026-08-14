@@ -327,7 +327,8 @@ class TestPruneExpired(unittest.TestCase):
                 self.assertTrue(await store.set_enabled("disabled", False))
             with open(path, encoding="utf-8") as file:
                 saved = json.load(file)
-            self.assertEqual(saved["sessions"]["fresh"]["updated_at"], fresh_mtime)
+            # 新格式使用 "t" 字段（紧凑格式）
+            self.assertEqual(saved["sessions"]["fresh"]["t"], int(fresh_mtime))
 
         asyncio.run(run())
 

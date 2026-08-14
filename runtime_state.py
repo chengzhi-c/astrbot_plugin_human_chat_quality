@@ -357,9 +357,25 @@ def repeated_items(items: list[str], limit: int, threshold: int = OPENER_REPEAT_
 
 
 def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionState:
+    """从字典加载状态（兼容新旧格式）。
+
+    新格式（v2，紧凑）：{"a": [...], "r": "x,y,z", "t": 123456}
+    旧格式（v1）：{"avoid_openers": [...], "recent_openers": [...], "updated_at": 123.456, ...}
+    """
+    # 新格式（紧凑）
+    if "a" in data:
+        recent_str = data.get("r", "")
+        recent = [s for s in recent_str.split(",") if s] if recent_str else []
+        return SessionState(
+            avoid_openers=_list_of_str(data.get("a", []), MAX_AVOID_OPENERS),
+            recent_openers=[item[:MAX_OPENER_LEN] for item in recent[:recent_reply_window]],
+            last_response_at=None,
+            updated_at=float(data.get("t", 0)) if data.get("t") else None,
+        )
+
+    # 旧格式（向后兼容）
     return SessionState(
         avoid_openers=_list_of_str(data.get("avoid_openers", []), MAX_AVOID_OPENERS),
-        # 加载侧 clamp：与 save 侧共同维持"条目 ≤MAX_OPENER_LEN 字"不变量（防外部编辑塞入超长条目）
         recent_openers=[
             item[:MAX_OPENER_LEN] for item in _list_of_str(data.get("recent_openers", []), recent_reply_window)
         ],
@@ -369,12 +385,18 @@ def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionS
 
 
 def _state_to_dict(state: SessionState, recent_reply_window: int) -> dict[str, Any]:
-    # 手工构建替代 asdict：avoid_openers/recent_openers 需切片，避免 asdict 深拷贝后覆盖的重复分配
+    """保存状态（仅使用新格式）。
+
+    紧凑格式：
+    - a = avoid_openers (list)
+    - r = recent_openers (comma-separated string)
+    - t = updated_at (integer timestamp, seconds)
+    """
+    timestamp = state.updated_at if state.updated_at is not None else state.last_response_at
     return {
-        "avoid_openers": state.avoid_openers[:MAX_AVOID_OPENERS],
-        "recent_openers": state.recent_openers[:recent_reply_window],
-        "last_response_at": state.last_response_at,
-        "updated_at": state.updated_at,
+        "a": state.avoid_openers[:MAX_AVOID_OPENERS],
+        "r": ",".join(state.recent_openers[:recent_reply_window]),
+        "t": int(timestamp) if timestamp else 0,
     }
 
 
