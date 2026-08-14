@@ -44,6 +44,29 @@ class TestReleaseBuild(unittest.TestCase):
         out_dir.mkdir()
         return repo, out_dir
 
+    def test_runtime_manifest_covers_module_imports(self):
+        """发布清单必须包含所有被包内代码相对导入的模块（防新增模块漏进清单）。"""
+        import ast
+
+        repo = Path(__file__).resolve().parents[1]
+        imported: set[str] = set()
+        for path in repo.glob("*.py"):
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+            for node in ast.walk(tree):
+                if not isinstance(node, ast.ImportFrom) or node.level < 1:
+                    continue
+                if node.module:
+                    # from .module import symbol：node.module 是模块名，symbol 不是
+                    imported.add(node.module.split(".")[0])
+                else:
+                    # from . import module：alias.name 是模块名
+                    for alias in node.names:
+                        imported.add(alias.name.split(".")[0])
+
+        manifest_modules = {Path(p).stem for p in build_release.RUNTIME_MANIFEST if p.endswith(".py")}
+        missing = imported - manifest_modules
+        self.assertEqual(missing, set(), f"发布清单缺少被导入的模块: {sorted(missing)}")
+
     def test_archive_uses_metadata_name_and_runtime_manifest(self):
         repo, out_dir = self._copy_repo()
         (repo / "data").mkdir()

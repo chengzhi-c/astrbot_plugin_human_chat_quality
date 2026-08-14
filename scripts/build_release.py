@@ -15,6 +15,8 @@ RUNTIME_MANIFEST = (
     "core.py",
     "quality_rules.py",
     "runtime_state.py",
+    "signal_detectors.py",
+    "protocols.py",
     "__init__.py",
     "_conf_schema.json",
     "metadata.yaml",
