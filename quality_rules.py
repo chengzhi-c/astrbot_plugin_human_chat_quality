@@ -33,8 +33,8 @@ _LEGACY_RUNTIME_PREFIX = (
 )
 _RUNTIME_ITEM_SEPARATOR = "、"
 MIN_RUNTIME_HINT_CHARS = 80
-# 提高上限以支持更多避用项和更详细的提示内容
-MAX_RUNTIME_HINT_CHARS = 1000
+# 理论容量上限：53 字前缀 + 5 项 × 20 字 + 4 个分隔符 = 157；超过即预算冗余（避用项数与单条长度均有上限）
+MAX_RUNTIME_HINT_CHARS = 157
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
 # 注：v3 曾尝试发布，完整正文未形成可核验物，无签名；未知 v3 块按 ambiguous 保留。v4/v5 为已发布块，必须可剥离。

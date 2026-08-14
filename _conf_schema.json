@@ -22,10 +22,10 @@
   "max_runtime_hint_chars": {
     "description": "运行时提示最大字符数",
     "type": "int",
-    "default": 1000,
-    "hint": "限制每轮动态提示长度，按完整短语装入，不会截断半个短语。取值范围 80–1000。",
+    "default": 157,
+    "hint": "限制每轮动态提示长度，按完整短语装入，不会截断半个短语。取值范围 80–157（理论容量上限）。",
     "condition": {"enabled": true, "inject_runtime_state": true},
-    "slider": {"min": 80, "max": 1000, "step": 10}
+    "slider": {"min": 80, "max": 157, "step": 1}
   },
   "recent_reply_window": {
     "description": "重复开头检测范围",

@@ -43,7 +43,7 @@ class FakeLLMResp:
 
 
 EXPECTED_MIN_RUNTIME_HINT_CHARS = 80
-EXPECTED_MAX_RUNTIME_HINT_CHARS = 1000
+EXPECTED_MAX_RUNTIME_HINT_CHARS = 157
 
 
 class TestConfigParse(unittest.TestCase):
@@ -145,7 +145,7 @@ class TestConfigParse(unittest.TestCase):
         )
         self.assertEqual(
             schema["max_runtime_hint_chars"]["slider"],
-            {"min": EXPECTED_MIN_RUNTIME_HINT_CHARS, "max": EXPECTED_MAX_RUNTIME_HINT_CHARS, "step": 10},
+            {"min": EXPECTED_MIN_RUNTIME_HINT_CHARS, "max": EXPECTED_MAX_RUNTIME_HINT_CHARS, "step": 1},
         )
         self.assertEqual(schema["recent_reply_window"]["slider"], {"min": 3, "max": 50, "step": 1})
         for name in ("recent_reply_window", "custom_cliches", "state_retention_days", "disabled_sessions", "debug_log"):
