@@ -16,6 +16,7 @@ from .quality_rules import (
     rewrite_stable_rules,
 )
 from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
+from .signal_detectors import detect_cliches
 
 logger = logging.getLogger(__name__)
 
@@ -30,7 +31,8 @@ class QualityStats:
     runtime_hints_injected: int = 0
 
     # 信号统计
-    repeated_openers_avoided: int = 0
+    avoid_openers_seen: int = 0
+    runtime_hint_missed: int = 0
     cliche_hits: dict[str, int] = field(default_factory=dict)
 
     # 清理统计
@@ -144,15 +146,17 @@ class HumanChatQualityCore:
 
     def __init__(
         self,
-        config: Any,
+        config: AppConfig,
         store: RuntimeStateStore,
         text_part_factory: Any | None = None,
     ) -> None:
-        self.cfg = config if isinstance(config, AppConfig) else AppConfig.from_config(config)
+        self.cfg = config
         self.store = store
         self.text_part_factory = text_part_factory
         self.injection_count = 0
         self.stats = QualityStats()
+        # 本轮请求是否注入过动态提醒（按会话，响应时消费；用于效果观测）
+        self._hinted_sessions: set[str] = set()
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
@@ -191,6 +195,8 @@ class HumanChatQualityCore:
         if stable_result.injected or injected_hint:
             self.injection_count += 1
             self.stats.total_injections += 1
+        if injected_hint and session_id:
+            self._hinted_sessions.add(session_id)
         if stable_result.removed:
             self.stats.legacy_blocks_removed += 1
         if context_result.runtime_removed:
@@ -227,14 +233,22 @@ class HumanChatQualityCore:
 
     async def on_llm_response(self, event: MessageEventProtocol, resp: LLMResponseProtocol) -> None:
         session_id = unified_origin(event)
+        # 立即消费提醒标志（无论会话是否仍启用），防止跨轮残留误计
+        hinted = session_id in self._hinted_sessions
+        self._hinted_sessions.discard(session_id)
         if not session_id or not self._is_effectively_active(session_id, event):
             return
         text = extract_response_text(resp)
         if not text:
             return
 
+        # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略
+        if hinted:
+            lowered = text.casefold()
+            if any(item.casefold() in lowered for item in self.store.get(session_id).avoid_openers):
+                self.stats.runtime_hint_missed += 1
+
         # 记录响应前先检测信号（用于统计）
-        from .signal_detectors import detect_cliches
         cliches = detect_cliches(text, self.store.custom_cliches)
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
@@ -242,10 +256,10 @@ class HumanChatQualityCore:
         # 记录到状态存储
         await self.store.record_response(session_id, text)
 
-        # 统计避用项数量
+        # 统计避用项数量（如实口径：累计记录到的避用项次数，非“实际避免”次数）
         state = self.store.get(session_id)
         if state.avoid_openers:
-            self.stats.repeated_openers_avoided += len(state.avoid_openers)
+            self.stats.avoid_openers_seen += len(state.avoid_openers)
 
         if self.cfg.debug_log:
             logger.debug("response recorded for %s: %s", session_id, state.avoid_openers)

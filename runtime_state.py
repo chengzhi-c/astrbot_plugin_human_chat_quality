@@ -17,7 +17,7 @@ except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
 from .protocols import MessageEventProtocol
-from .signal_detectors import detect_cliches
+from .signal_detectors import OPENER_DELIM, detect_cliches
 
 
 # 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
@@ -323,9 +323,8 @@ def _parse_group_id_from_origin(origin: str) -> str:
     return ""
 
 
-# opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）；切分正则编译一次，避免每次响应重建
+# opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）
 _OPENER_PREFIXES: tuple[str, ...] = ("我会", "好的", "可以", "没问题", "没事", "别急", "明白", "行吧", "好嘞")
-_OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
 
 def extract_opener(text: str) -> str:
@@ -335,7 +334,7 @@ def extract_opener(text: str) -> str:
     for prefix in _OPENER_PREFIXES:
         if text.startswith(prefix):
             return prefix
-    first = _OPENER_DELIM.split(text, maxsplit=1)[0].strip()
+    first = OPENER_DELIM.split(text, maxsplit=1)[0].strip()
     if not first:
         return ""
     # 单字开头（我/你/这/就…）噪声大且无重复信号价值，不纳入
@@ -353,7 +352,6 @@ def repeated_items(items: list[str], limit: int, threshold: int = OPENER_REPEAT_
         if counts[item] == threshold and item not in repeated:
             repeated.append(item)
     return repeated[:limit]
-
 
 
 def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionState:

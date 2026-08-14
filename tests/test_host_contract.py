@@ -1,6 +1,7 @@
 import asyncio
 import unittest
 
+from pathlib import Path
 from unittest import mock
 
 from tests._support import ensure_plugin_package
@@ -19,6 +20,18 @@ class TestVersionParse(unittest.TestCase):
         self.assertEqual(_version_from_lines(['version: "1.0.0"']), "1.0.0")
         self.assertEqual(_version_from_lines(["name: x"]), "0.0.0")
         self.assertEqual(_version_from_lines(["version:"]), "0.0.0")
+
+    def test_plugin_id_matches_metadata_name(self):
+        """PLUGIN_ID（数据目录依据）与 metadata.name（发布包名）必须一致。"""
+        from astrbot_plugin_human_chat_quality.main import PLUGIN_ID
+
+        meta = Path(__file__).resolve().parents[1] / "metadata.yaml"
+        for line in meta.read_text(encoding="utf-8").splitlines():
+            text = line.strip()
+            if text.startswith("name:"):
+                self.assertEqual(PLUGIN_ID, text.split(":", 1)[1].strip().strip("\"'"))
+                return
+        self.fail("metadata.yaml 缺少 name 字段")
 
 
 class TestHostRegistration(unittest.TestCase):

@@ -4,6 +4,7 @@ import asyncio
 from dataclasses import fields
 import json
 import os
+import re
 import unittest
 
 from pathlib import Path
@@ -94,6 +95,43 @@ class TestConfigParse(unittest.TestCase):
             if isinstance(expected, (tuple, frozenset)):
                 expected = []
             self.assertEqual(field_schema["default"], expected, name)
+
+    def test_readme_config_table_matches_schema(self):
+        """README 配置表与 schema 逐字段一致（防文档漂移复发）。"""
+        repo_root = Path(__file__).resolve().parents[1]
+        readme = (repo_root / "README.md").read_text(encoding="utf-8")
+        schema = json.loads((repo_root / "_conf_schema.json").read_text(encoding="utf-8"))
+
+        row_re = re.compile(r"^\| `([a-z_]+)` \| ([^|]+?) \|")
+        rows: dict[str, str] = {}
+        for line in readme.splitlines():
+            match = row_re.match(line.strip())
+            if match:
+                rows[match.group(1)] = line.strip()
+
+        for key, field_schema in schema.items():
+            with self.subTest(field=key):
+                self.assertIn(key, rows, f"README 配置表缺少 {key}")
+                row = rows[key]
+                default_cell = row_re.match(row).group(2).strip()
+                default = field_schema["default"]
+                if isinstance(default, bool):
+                    self.assertEqual(default_cell, "true" if default else "false")
+                elif isinstance(default, int):
+                    self.assertEqual(default_cell, str(default))
+                elif isinstance(default, list):
+                    expected = "空" if not default else "、".join(str(item) for item in default)
+                    self.assertEqual(default_cell, expected)
+                else:
+                    self.fail(f"{key} 的 default 类型未覆盖: {type(default).__name__}")
+                slider = field_schema.get("slider")
+                if slider:
+                    range_match = re.search(r"(\d+)\s*–\s*(\d+)", row)
+                    self.assertIsNotNone(range_match, f"{key} README 行缺少范围描述")
+                    self.assertEqual(
+                        (int(range_match.group(1)), int(range_match.group(2))),
+                        (slider["min"], slider["max"]),
+                    )
 
     def test_schema_conditions_and_numeric_controls_match_runtime_semantics(self):
         schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
@@ -383,6 +421,31 @@ class TestCoreFlowExtra(unittest.TestCase):
         req2.contexts = [{"role": "user", "content": [{"type": "text", "text": RUNTIME_HINT_MARKER + "\n旧"}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req2))
         self.assertEqual(self.core.injection_count, 1)
+
+    def test_runtime_hint_missed_counts_repetition_after_hint(self):
+        for _ in range(3):
+            req = FakeReq()
+            asyncio.run(self.core.on_llm_request(self.ev, req))
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
+        # 第四轮请求注入提醒（avoid_openers=["好的"]），回复仍用同一开头 → 计一次忽略
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，还在重复")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
+        # 下一轮换了开头，不再计数
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("换了个自然开头")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
+
+    def test_runtime_hint_missed_not_counted_without_hint(self):
+        for _ in range(3):
+            req = FakeReq()
+            asyncio.run(self.core.on_llm_request(self.ev, req))
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
+        # 无提醒注入的响应（如另一会话）：不计数
+        asyncio.run(self.core.on_llm_response(FakeEvent("aiocqhttp:GroupMessage:999"), FakeLLMResp("好的，重复")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
 
     def test_no_origin_skips_everything(self):
         ev = FakeEvent("")

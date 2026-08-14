@@ -149,7 +149,8 @@ class HumanChatQualityPlugin(Star):
             f"- 累计注入：{stats.total_injections} 次",
             f"  └ 固定规则：{stats.stable_rules_injected} 次",
             f"  └ 动态提醒：{stats.runtime_hints_injected} 次",
-            f"- 重复开头避免：{stats.repeated_openers_avoided} 次",
+            f"- 累计避用项记录：{stats.avoid_openers_seen} 项次",
+            f"- 提醒被忽略：{stats.runtime_hint_missed} 轮（有提醒的轮次中仍出现避用项）",
             f"- 历史块清理：{stats.legacy_blocks_removed} 个旧规则 + {stats.stale_hints_removed} 个旧提示",
         ]
 

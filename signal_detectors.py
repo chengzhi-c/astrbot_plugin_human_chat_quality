@@ -7,8 +7,6 @@ from __future__ import annotations
 
 import math
 import re
-from dataclasses import dataclass
-from typing import Callable
 
 
 # natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报
@@ -54,13 +52,11 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
 # 末尾匹配前剔除的收尾标点/语气符
 _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
 
-# 切分正则
-_OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
+# 切分正则（供 detect_opening_cliches 与 runtime_state.extract_opener 共用）
+OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
 # 固定计数类信号
-_FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
-    ("然而连发", re.compile(r"然而"), 2),
-)
+_FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (("然而连发", re.compile(r"然而"), 2),)
 
 # 密度项与 natural-talk 计数口径一致
 _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
@@ -92,7 +88,7 @@ def detect_ai_self_exposure(text: str) -> list[str]:
 
 def detect_opening_cliches(text: str) -> list[str]:
     """检测开场套话（仅首部命中）。"""
-    first_clause = _OPENER_DELIM.split(text, maxsplit=1)[0].casefold()
+    first_clause = OPENER_DELIM.split(text, maxsplit=1)[0].casefold()
     return [phrase for phrase in OPENING_CLICHES if first_clause.startswith(phrase.casefold())]
 
 
@@ -120,26 +116,6 @@ def detect_density_signals(text: str) -> list[str]:
     return hits
 
 
-@dataclass(frozen=True)
-class SignalDetector:
-    """信号检测器抽象。"""
-
-    name: str
-    detect: Callable[[str], list[str]]
-    priority: int
-
-
-# 检测器列表（按优先级排序）
-_DETECTORS: tuple[SignalDetector, ...] = (
-    SignalDetector("ending", detect_ending_cliches, 1),
-    SignalDetector("ai_self", detect_ai_self_exposure, 2),
-    SignalDetector("opening", detect_opening_cliches, 3),
-    SignalDetector("custom", lambda t: [], 4),  # 占位符，实际使用时传入 custom_cliches
-    SignalDetector("fixed", detect_fixed_pattern_signals, 5),
-    SignalDetector("density", detect_density_signals, 6),
-)
-
-
 def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
     """检测高置信度 AI 腔信号（去重、保序）。
 
@@ -156,12 +132,14 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
     hits: list[str] = []
     seen: set[str] = set()
 
-    for detector in _DETECTORS:
-        if detector.name == "custom":
-            signals = detect_custom_cliches(normalized, custom_cliches)
-        else:
-            signals = detector.detect(normalized)
-
+    for signals in (
+        detect_ending_cliches(normalized),
+        detect_ai_self_exposure(normalized),
+        detect_opening_cliches(normalized),
+        detect_custom_cliches(normalized, custom_cliches),
+        detect_fixed_pattern_signals(normalized),
+        detect_density_signals(normalized),
+    ):
         for signal in signals:
             if signal not in seen:
                 hits.append(signal)

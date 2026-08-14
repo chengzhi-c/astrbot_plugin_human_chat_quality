@@ -72,7 +72,7 @@
 | `enabled` | true | 总开关。关闭后插件仍加载，但不注入规则、不记录状态 |
 | `inject_stable_rules` | true | 注入固定规则。与其它改写 system 的插件冲突时可关闭 |
 | `inject_runtime_state` | true | 注入动态提醒；关闭后仍记录轻量状态 |
-| `max_runtime_hint_chars` | 157 | 每轮动态提示的最大字符数（80–157），只装入完整短语 |
+| `max_runtime_hint_chars` | 1000 | 每轮动态提示的最大字符数（80–1000），只装入完整短语 |
 | `recent_reply_window` | 8 | 重复开头看最近 N 条（3–50） |
 | `state_retention_days` | 14 | 会话状态超过该天数未更新则清理（1–365） |
 | `custom_cliches` | 空 | 自定义避用词，每行一个 |
