@@ -137,6 +137,29 @@ class HumanChatQualityPlugin(Star):
         """查看固定规则原文"""
         yield event.plain_result(build_stable_rules())
 
+    @permission_type(PermissionType.ADMIN)
+    @humanq.command("stats")
+    async def humanq_stats(self, event: AstrMessageEvent):
+        """查看质量层累计统计"""
+        stats = self.core.stats
+        top_cliches = stats.top_cliches(5)
+
+        lines = [
+            "Human Chat Quality 统计（本次运行）：",
+            f"- 累计注入：{stats.total_injections} 次",
+            f"  └ 固定规则：{stats.stable_rules_injected} 次",
+            f"  └ 动态提醒：{stats.runtime_hints_injected} 次",
+            f"- 重复开头避免：{stats.repeated_openers_avoided} 次",
+            f"- 历史块清理：{stats.legacy_blocks_removed} 个旧规则 + {stats.stale_hints_removed} 个旧提示",
+        ]
+
+        if top_cliches:
+            lines.append("- 高频信号 TOP 5：")
+            for cliche, count in top_cliches:
+                lines.append(f"  {count:>3} 次 {cliche}")
+
+        yield event.plain_result("\n".join(lines))
+
     async def terminate(self) -> None:
         if not await self.store.flush():
             logger.warning("[HumanChatQuality] pending runtime state could not be persisted during terminate")

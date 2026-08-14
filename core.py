@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import logging
 from typing import Any
 
@@ -18,6 +18,32 @@ from .quality_rules import (
 from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class QualityStats:
+    """质量层累计统计（进程内，不持久化）。"""
+
+    # 注入统计
+    total_injections: int = 0
+    stable_rules_injected: int = 0
+    runtime_hints_injected: int = 0
+
+    # 信号统计
+    repeated_openers_avoided: int = 0
+    cliche_hits: dict[str, int] = field(default_factory=dict)
+
+    # 清理统计
+    legacy_blocks_removed: int = 0
+    stale_hints_removed: int = 0
+
+    def record_cliche_hit(self, cliche: str) -> None:
+        """记录信号命中。"""
+        self.cliche_hits[cliche] = self.cliche_hits.get(cliche, 0) + 1
+
+    def top_cliches(self, limit: int = 5) -> list[tuple[str, int]]:
+        """返回命中最多的信号（降序）。"""
+        return sorted(self.cliche_hits.items(), key=lambda x: x[1], reverse=True)[:limit]
 
 
 def _parse_bool(value: Any, default: bool) -> bool:
@@ -126,6 +152,7 @@ class HumanChatQualityCore:
         self.store = store
         self.text_part_factory = text_part_factory
         self.injection_count = 0
+        self.stats = QualityStats()
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
@@ -156,8 +183,19 @@ class HumanChatQualityCore:
         removed_stale = removed_stale or stable_result.removed
         ambiguous_kept = ambiguous_kept or stable_result.ambiguous
 
+        # 统计收集
+        if stable_result.injected:
+            self.stats.stable_rules_injected += 1
+        if injected_hint:
+            self.stats.runtime_hints_injected += 1
         if stable_result.injected or injected_hint:
             self.injection_count += 1
+            self.stats.total_injections += 1
+        if stable_result.removed:
+            self.stats.legacy_blocks_removed += 1
+        if context_result.runtime_removed:
+            self.stats.stale_hints_removed += 1
+
         if (stable_result.injected or injected_hint or removed_stale or ambiguous_kept) and self.cfg.debug_log:
             self._log_injection(
                 session_id or "<unknown>",
@@ -194,9 +232,23 @@ class HumanChatQualityCore:
         text = extract_response_text(resp)
         if not text:
             return
+
+        # 记录响应前先检测信号（用于统计）
+        from .signal_detectors import detect_cliches
+        cliches = detect_cliches(text, self.store.custom_cliches)
+        for cliche in cliches:
+            self.stats.record_cliche_hit(cliche)
+
+        # 记录到状态存储
         await self.store.record_response(session_id, text)
+
+        # 统计避用项数量
+        state = self.store.get(session_id)
+        if state.avoid_openers:
+            self.stats.repeated_openers_avoided += len(state.avoid_openers)
+
         if self.cfg.debug_log:
-            logger.debug("response recorded for %s: %s", session_id, self.store.get(session_id).avoid_openers)
+            logger.debug("response recorded for %s: %s", session_id, state.avoid_openers)
 
     async def set_session_enabled(self, session_id: str, enabled: bool) -> bool:
         return await self.store.set_enabled(session_id, enabled)
