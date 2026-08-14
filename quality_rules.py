@@ -143,7 +143,7 @@ _STABLE_SIGNATURES = {
 
 def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableRewriteResult:
     text = system_prompt if isinstance(system_prompt, str) else ""
-    matches, ambiguous = _find_stable_blocks(text)
+    matches, current_present, ambiguous = _find_stable_blocks(text)
     current_kept = False
     removals: list[tuple[int, int]] = []
 
@@ -157,7 +157,7 @@ def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableR
         text = _remove_spans(text, removals)
 
     injected = False
-    if enabled and not current_kept and not ambiguous:
+    if enabled and not current_present:
         rules = build_stable_rules()
         if text:
             newline = _first_newline(text)
@@ -207,7 +207,14 @@ def _normalize_newlines(text: str) -> str:
     return _NEWLINE_RE.sub("\n", text)
 
 
-def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool]:
+def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool, bool]:
+    """返回 (签名匹配的可剥离块, 当前版本块是否已存在, 是否含无法核验的历史块)。
+
+    - 当前版本 marker：无论签名是否匹配都视为已注入（被用户编辑过的当前规则块保留，不重复注入）；
+      签名匹配的块仍进 matches，由调用方决定保留首个还是剥离（关闭时清理）。
+    - 历史版本 marker：仅签名匹配的块可安全剥离（签名同时提供块边界，旧块内部含空行分段）；
+      无法核验的块（v3 事故块、被编辑的旧块）边界未知，只能保留，不参与注入判定。
+    """
     lines = text.splitlines(keepends=True)
     starts: list[int] = []
     offset = 0
@@ -216,11 +223,14 @@ def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool]:
         offset += len(line)
 
     matches: list[tuple[int, int, str]] = []
+    current_present = False
     ambiguous = False
     for index, line in enumerate(lines):
         marker = line.rstrip("\r\n")
         if marker not in _STABLE_MARKERS:
             continue
+        if marker == STABLE_RULE_MARKER:
+            current_present = True
         matched = False
         for line_count, expected_hash in _STABLE_SIGNATURES.get(marker, ()):
             last = index + line_count - 1
@@ -232,9 +242,9 @@ def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool]:
                 matches.append((starts[index], end, marker))
                 matched = True
                 break
-        if not matched:
+        if not matched and marker != STABLE_RULE_MARKER:
             ambiguous = True
-    return matches, ambiguous
+    return matches, current_present, ambiguous
 
 
 def _expand_stable_removal(text: str, start: int, end: int) -> tuple[int, int]:

@@ -161,18 +161,48 @@ class TestStableRewrite(unittest.TestCase):
         self.assertFalse(result.injected)
         self.assertTrue(result.removed)
 
-    def test_unknown_v3_is_ambiguous_and_blocks_new_injection(self):
+    def test_unknown_v3_block_preserved_but_does_not_block_injection(self):
         unknown = "[Human Chat Quality Rules v3]\n无法验证的正文"
-        result = rewrite_stable_rules(f"人设\n\n{unknown}\n\n尾巴", enabled=True)
-        self.assertEqual(result.text, f"人设\n\n{unknown}\n\n尾巴")
+        prompt = f"人设\n\n{unknown}\n\n尾巴"
+        result = rewrite_stable_rules(prompt, enabled=True)
+        # v3 块边界未知（无签名可核验），保留不剥离；但不再阻断当前规则注入
+        self.assertIn(unknown, result.text)
         self.assertTrue(result.ambiguous)
-        self.assertFalse(result.injected)
+        self.assertTrue(result.injected)
+        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)
+        # 幂等：二次重写不重复注入
+        again = rewrite_stable_rules(result.text, enabled=True)
+        self.assertEqual(again.text, result.text)
+        self.assertFalse(again.injected)
 
     def test_unknown_unversioned_rules_are_preserved(self):
         unknown = "[Human Chat Quality Rules]\n无法验证的正文"
         result = rewrite_stable_rules(unknown, enabled=False)
         self.assertEqual(result.text, unknown)
         self.assertTrue(result.ambiguous)
+        # 无版本残留块不再阻断注入
+        active = rewrite_stable_rules(unknown, enabled=True)
+        self.assertIn(unknown, active.text)
+        self.assertTrue(active.injected)
+        self.assertEqual(active.text.count(STABLE_RULE_MARKER), 1)
+
+    def test_edited_current_rules_block_is_kept_and_not_duplicated(self):
+        rules = build_stable_rules()
+        edited = rules.replace("像朋友聊天", "像老朋友聊天", 1)  # 用户微调当前规则正文
+        first = rewrite_stable_rules(f"人设\n\n{edited}", enabled=True)
+        self.assertIn(edited, first.text)
+        self.assertFalse(first.injected)  # 视为已注入，不重复
+        again = rewrite_stable_rules(first.text, enabled=True)
+        self.assertEqual(again.text, first.text)
+        self.assertFalse(again.injected)
+
+    def test_edited_legacy_block_does_not_block_injection(self):
+        legacy = V1_RULES_74BB884.replace("避免模板腔", "避免模板腔和官腔", 1)  # 用户编辑过旧块
+        result = rewrite_stable_rules(f"人设\n\n{legacy}", enabled=True)
+        self.assertIn(legacy, result.text)  # 边界未知，保留
+        self.assertTrue(result.ambiguous)
+        self.assertTrue(result.injected)  # 但注入不受阻
+        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)
 
     def test_inline_marker_mention_does_not_block_injection(self):
         prompt = "请解释 [Human Chat Quality Rules v3] 是什么"
