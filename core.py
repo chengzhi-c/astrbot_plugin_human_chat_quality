@@ -4,6 +4,7 @@ from dataclasses import dataclass
 import logging
 from typing import Any
 
+from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
 from .quality_rules import (
     MAX_RUNTIME_HINT_CHARS,
     MIN_RUNTIME_HINT_CHARS,
@@ -82,7 +83,7 @@ class AppConfig:
         )
 
 
-def extract_response_text(resp: Any) -> str:
+def extract_response_text(resp: LLMResponseProtocol) -> str:
     completion = getattr(resp, "completion_text", None)
     if isinstance(completion, str):
         completion_text = completion.strip()
@@ -91,7 +92,7 @@ def extract_response_text(resp: Any) -> str:
     return " ".join(part for part in (_extract_text_from_part(item) for item in _normalize_chain(resp)) if part).strip()
 
 
-def _normalize_chain(resp: Any) -> list[Any]:
+def _normalize_chain(resp: LLMResponseProtocol) -> list[Any]:
     chain = getattr(resp, "result_chain", None) or getattr(resp, "message", None) or []
     chain_items = getattr(chain, "chain", None)
     if chain_items is not None:
@@ -126,7 +127,7 @@ class HumanChatQualityCore:
         self.text_part_factory = text_part_factory
         self.injection_count = 0
 
-    async def on_llm_request(self, event: Any, req: Any) -> None:
+    async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
         effective_active = bool(session_id) and self._is_effectively_active(session_id, event)
         injected_hint = ""
@@ -186,7 +187,7 @@ class HumanChatQualityCore:
         if ambiguous_kept:
             logger.debug("ambiguous owned marker kept for %s", session_id)
 
-    async def on_llm_response(self, event: Any, resp: Any) -> None:
+    async def on_llm_response(self, event: MessageEventProtocol, resp: LLMResponseProtocol) -> None:
         session_id = unified_origin(event)
         if not session_id or not self._is_effectively_active(session_id, event):
             return
@@ -203,7 +204,7 @@ class HumanChatQualityCore:
     async def reset_session(self, session_id: str) -> bool:
         return await self.store.reset(session_id)
 
-    def status_text(self, session_id: str, event: Any | None = None) -> str:
+    def status_text(self, session_id: str, event: MessageEventProtocol | None = None) -> str:
         persistence = "待重试" if self.store.has_pending_save else "正常"
         if not self._is_effectively_active(session_id, event):
             return f"Human Chat Quality 状态：\n- 当前会话：关闭\n- 无运行时状态\n- 状态持久化：{persistence}"
@@ -225,5 +226,5 @@ class HumanChatQualityCore:
     def _is_active(self, session_id: str) -> bool:
         return self.cfg.enabled and self.store.is_enabled(session_id)
 
-    def _is_effectively_active(self, session_id: str, event: Any | None = None) -> bool:
+    def _is_effectively_active(self, session_id: str, event: MessageEventProtocol | None = None) -> bool:
         return self._is_active(session_id) and not is_session_disabled(self.cfg.disabled_sessions, session_id, event)

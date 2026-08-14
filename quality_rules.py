@@ -10,6 +10,7 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
+from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
 
@@ -175,7 +176,7 @@ def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableR
     return StableRewriteResult(text, injected, bool(removals), ambiguous)
 
 
-def rewrite_context_injections(req: Any, runtime_text: str | None) -> ContextRewriteResult:
+def rewrite_context_injections(req: ProviderRequestProtocol, runtime_text: str | None) -> ContextRewriteResult:
     result = ContextRewriteResult()
     contexts = getattr(req, "contexts", None)
     if isinstance(contexts, list):
@@ -409,7 +410,7 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
     return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(selected) if selected else ""
 
 
-def make_text_part(text: str, factory: Any | None = None) -> Any | None:
+def make_text_part(text: str, factory: TextPartFactoryProtocol | None = None) -> Any | None:
     """构造临时文本 part；factory 为 None 时返回 None（调用方自行降级）。
 
     TextPart 暂无 astrbot.api 公开导出，探测由 Core 构造时完成并注入 factory。
@@ -426,9 +427,9 @@ def make_text_part(text: str, factory: Any | None = None) -> Any | None:
 
 
 def append_temp_text_part(
-    req: Any,
+    req: ProviderRequestProtocol,
     text: str,
-    factory: Any | None = None,
+    factory: TextPartFactoryProtocol | None = None,
     *,
     marker: str | None = None,
 ) -> bool:

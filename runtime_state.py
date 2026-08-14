@@ -17,6 +17,8 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
+from .protocols import MessageEventProtocol
+
 
 # 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
 MAX_AVOID_OPENERS = 5
@@ -264,7 +266,7 @@ class RuntimeStateStore:
 # ===== 会话身份与禁用匹配 =====
 
 
-def unified_origin(event: Any) -> str:
+def unified_origin(event: MessageEventProtocol) -> str:
     """从 event 取统一会话源标识（session_id / group 兜底共用）。"""
     return str(getattr(event, "unified_msg_origin", "") or "").strip()
 
@@ -288,7 +290,7 @@ def match_keys(session_id: str, group_id: str = "") -> frozenset[str]:
     return frozenset(c.lower() for c in candidates if c)
 
 
-def is_session_disabled(disabled: frozenset[str], session_id: str, event: Any | None = None) -> bool:
+def is_session_disabled(disabled: frozenset[str], session_id: str, event: MessageEventProtocol | None = None) -> bool:
     """配置禁用列表是否命中本会话（event 可提供更准的 group_id）。"""
     if not disabled:
         return False
@@ -296,7 +298,7 @@ def is_session_disabled(disabled: frozenset[str], session_id: str, event: Any | 
     return not match_keys(session_id, group_id).isdisjoint(disabled)
 
 
-def group_id_from_event(event: Any) -> str:
+def group_id_from_event(event: MessageEventProtocol) -> str:
     """从事件提取群号：平台标准接口优先，origin 解析兜底（两级）。
 
     4.23.x 全部群消息适配器上 get_group_id() 或 unified_msg_origin 至少一条可用；
