@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import math
 import os
 import re
 import shutil
@@ -18,6 +17,7 @@ except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
 from .protocols import MessageEventProtocol
+from .signal_detectors import detect_cliches
 
 
 # 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
@@ -131,7 +131,7 @@ class RuntimeStateStore:
         return await self.flush() if needs_flush else True
 
     async def record_response(self, session_id: str, response_text: str) -> bool:
-        text = _normalize_text(response_text)
+        text = re.sub(r"\s+", " ", (response_text or "")).strip()
         if not text:
             return not self.has_pending_save
 
@@ -344,114 +344,6 @@ def extract_opener(text: str) -> str:
     return first[:MAX_OPENER_LEN]
 
 
-# natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报（近零误报）
-DEFAULT_AI_CLICHES: tuple[str, ...] = (
-    "作为AI",
-    "根据我的训练",
-    "截至我的知识更新",
-)
-
-# natural-talk Tier 1/2：谄媚/预告式开场，仅回复首部（首个标点前）命中；
-# 刻意不用宽泛前缀（如"感谢你"），避免"感谢你的建议"等人话误报
-OPENING_CLICHES: tuple[str, ...] = (
-    "好问题",
-    "让我来",
-    "感谢你的提问",
-    "Great question",
-)
-
-# 默认检测只保留高置信度末尾模板：仅当回复以这些短语收尾时命中，
-# 正文中出现不再误报。普通连接词（此外/事实上/总之等）与黑话词已移除，
-# 用户特殊需求用 custom_cliches（任意位置精确命中）。
-# 分段注释仅便于阅读：客服收尾 → 空泛打气收尾 → 收尾腔总结；对外只暴露 DEFAULT_ENDINGS。
-DEFAULT_ENDINGS: tuple[str, ...] = (
-    # 客服收尾
-    "希望能帮到你",
-    "希望这能帮到你",
-    "希望对你有帮助",
-    "希望对您有帮助",
-    "希望对你有所帮助",
-    "如果还有问题",
-    "如果还有其他问题",
-    "有任何问题随时",
-    "随时联系我",
-    "随时问我",
-    # 空泛打气收尾
-    "未来可期",
-    "一起加油",
-    "共同努力",
-    "砥砺前行",
-    "不忘初心",
-    # 收尾腔总结（natural-talk Tier 2：收尾腔 = 0；仅结尾命中，正文不报）
-    "综上所述",
-    "由此可见",
-    "I hope this helps",
-)
-
-# 末尾匹配前剔除的收尾标点/语气符
-_TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
-
-# 结构级 AI 腔信号分两类：固定计数类（插件自有强信号）与密度类（对齐 natural-talk 计数口径）
-_FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
-    # "然而"是口语高频转折词，单次使用不提示，连发才提示
-    ("然而连发", re.compile(r"然而"), CONSECUTIVE_THRESHOLD),
-)
-# 密度项与 natural-talk 计数口径一致：上限 = 每 300 字基准 × 全文档位，超过才报
-# （破折号/路标词 ≤2 次、感叹号 ≤3 次，均按出现次数计；em dash 与 en dash 都算破折号）
-_DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
-    ("破折号", re.compile(r"[—–]"), 2),
-    ("感叹号", re.compile(r"[！!]"), 3),
-    ("路标词堆砌", re.compile(r"事实上|实际上|换句话说|本质上|归根结底|与此同时"), 2),
-)
-
-
-def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
-    """检测高置信度 AI 腔信号，返回命中标签（去重、保序）。
-
-    内置末尾模板仅在回复结尾命中；AI 自我暴露短语任意位置精确命中；
-    谄媚/预告式开场仅回复首部命中；custom_cliches 是管理员显式词库，
-    任意位置一次精确命中即提示。
-    结构信号：固定计数类（然而连发 ≥2）；密度类对齐 natural-talk 计数口径
-    （破折号/路标词 ≤2 次、感叹号 ≤3 次，300 字基准按篇幅折算，超上限才报）。
-    """
-    normalized = _normalize_text(text)
-    if not normalized:
-        return []
-    hits: list[str] = []
-    tail = normalized.rstrip(_TRAILING_PUNCT)
-    folded_tail = tail.casefold()
-    # 各 ending 互斥（同一结尾不可能同时以两个短语收尾），取首个命中即足够
-    for phrase in DEFAULT_ENDINGS:
-        if folded_tail.endswith(phrase.casefold()):
-            hits.append(phrase)
-            break
-    # natural-talk Tier 1：自我暴露短语，任意位置精确命中即报
-    for phrase in DEFAULT_AI_CLICHES:
-        if phrase in normalized and phrase not in hits:
-            hits.append(phrase)
-    # natural-talk Tier 1/2：谄媚/预告式开场，仅首部（首个标点前）命中
-    first_clause = _OPENER_DELIM.split(normalized, maxsplit=1)[0].casefold()
-    for phrase in OPENING_CLICHES:
-        if phrase not in hits and first_clause.startswith(phrase.casefold()):
-            hits.append(phrase)
-    for phrase in custom_cliches:
-        if phrase and phrase in normalized and phrase not in hits:
-            hits.append(phrase)
-    for label, pattern, threshold in _FIXED_PATTERN_CHECKS:
-        if label in hits:
-            continue
-        if len(pattern.findall(normalized)) >= threshold:
-            hits.append(label)
-    # 密度项：上限随篇幅折算，超过上限才报（与 natural-talk 计数口径一致）
-    density_cap = max(1, math.ceil(len(normalized) / 300))
-    for label, pattern, per_300 in _DENSITY_CHECKS:
-        if label in hits:
-            continue
-        if len(pattern.findall(normalized)) > density_cap * per_300:
-            hits.append(label)
-    return hits
-
-
 def repeated_items(items: list[str], limit: int, threshold: int = OPENER_REPEAT_THRESHOLD) -> list[str]:
     """返回在窗口内出现达 threshold 次的项（保首次重复顺序）。"""
     counts: dict[str, int] = {}
@@ -462,9 +354,6 @@ def repeated_items(items: list[str], limit: int, threshold: int = OPENER_REPEAT_
             repeated.append(item)
     return repeated[:limit]
 
-
-def _normalize_text(text: str) -> str:
-    return re.sub(r"\s+", " ", (text or "")).strip()
 
 
 def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionState:
