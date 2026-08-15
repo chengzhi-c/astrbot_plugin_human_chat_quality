@@ -10,6 +10,7 @@ import os
 import time
 import threading
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from tests._support import ensure_plugin_package, temporary_directory
@@ -221,6 +222,36 @@ class TestStore(unittest.TestCase):
         s = RuntimeStateStore(p, 14, 8)
         self.assertIn("good", s.sessions)
         self.assertNotIn("bad", s.sessions)
+
+    def test_compact_invalid_entries_do_not_reset_valid_sessions(self):
+        p = self._path("compact-invalid.json")
+        now = int(time.time())
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(
+                {
+                    "sessions": {
+                        "good": {"a": ["好的"], "r": "好的", "t": now},
+                        "bad-r": {"a": [], "r": [], "t": now},
+                        "bad-t": {"a": [], "r": "好的", "t": "not-a-number"},
+                    }
+                },
+                f,
+            )
+
+        s = RuntimeStateStore(p, 14, 8)
+
+        self.assertEqual(s.get("good").avoid_openers, ["好的"])
+        self.assertNotIn("bad-r", s.sessions)
+        self.assertNotIn("bad-t", s.sessions)
+        self.assertEqual(len(list(Path(self.dir).glob("compact-invalid.corrupt.*.json"))), 1)
+
+        async def persist_new_session():
+            self.assertTrue(await s.record_response("new", "可以，继续处理。"))
+
+        asyncio.run(persist_new_session())
+        with open(p, encoding="utf-8") as f:
+            saved = json.load(f)
+        self.assertEqual(set(saved["sessions"]), {"good", "new"})
 
     def test_runtime_disabled_persisted(self):
         async def run():
@@ -669,7 +700,10 @@ class TestDisabledMatch(unittest.TestCase):
         self.assertFalse(is_session_disabled(frozenset(), "aiocqhttp:GroupMessage:222", None))
 
     def test_parse_group_id_from_two_part_origin(self):
-        self.assertEqual(_parse_group_id_from_origin("GroupMessage:111"), "")
+        self.assertEqual(_parse_group_id_from_origin("GroupMessage:111"), "111")
+
+    def test_is_session_disabled_two_part_origin_matches_numeric_group_id(self):
+        self.assertTrue(is_session_disabled(frozenset({"111"}), "GroupMessage:111", None))
 
     def test_parse_group_id_from_three_part_origin(self):
         self.assertEqual(_parse_group_id_from_origin("aiocqhttp:GroupMessage:111"), "111")

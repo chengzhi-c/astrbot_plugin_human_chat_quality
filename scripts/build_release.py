@@ -101,24 +101,15 @@ def _run_gate(command: list[str], repo: Path) -> None:
     subprocess.run(command, cwd=repo, check=True)
 
 
+def _compile_command() -> list[str]:
+    runtime_python = [path for path in RUNTIME_MANIFEST if path.endswith(".py")]
+    return [sys.executable, "-m", "compileall", "-q", *runtime_python, "scripts", "tests"]
+
+
 def main() -> int:
     repo = Path(__file__).resolve().parents[1]
     _run_gate([sys.executable, "scripts/run_tests.py", "all"], repo)
-    _run_gate(
-        [
-            sys.executable,
-            "-m",
-            "compileall",
-            "-q",
-            "main.py",
-            "core.py",
-            "quality_rules.py",
-            "runtime_state.py",
-            "scripts",
-            "tests",
-        ],
-        repo,
-    )
+    _run_gate(_compile_command(), repo)
     _run_gate(["ruff", "check", "."], repo)
     _run_gate(["ruff", "format", "--check", "."], repo)
     archive = build_archive(repo, repo.parent)

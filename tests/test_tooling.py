@@ -67,6 +67,17 @@ class TestReleaseBuild(unittest.TestCase):
         missing = imported - manifest_modules
         self.assertEqual(missing, set(), f"发布清单缺少被导入的模块: {sorted(missing)}")
 
+    def test_compile_command_covers_runtime_manifest(self):
+        command_factory = getattr(build_release, "_compile_command", None)
+        self.assertIsNotNone(command_factory, "release compile command must be derived from the runtime manifest")
+        if command_factory is None:
+            return
+
+        runtime_python = [path for path in build_release.RUNTIME_MANIFEST if path.endswith(".py")]
+        self.assertEqual(
+            command_factory(), [sys.executable, "-m", "compileall", "-q", *runtime_python, "scripts", "tests"]
+        )
+
     def test_archive_uses_metadata_name_and_runtime_manifest(self):
         repo, out_dir = self._copy_repo()
         (repo / "data").mkdir()

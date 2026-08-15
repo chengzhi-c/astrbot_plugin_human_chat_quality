@@ -48,6 +48,7 @@ class TestHostRegistration(unittest.TestCase):
                 "humanq_off",
                 "humanq_reset",
                 "humanq_rules",
+                "humanq_stats",
             }
             <= names
         )
@@ -59,7 +60,7 @@ class TestHostRegistration(unittest.TestCase):
 
     def test_commands_keep_admin_permission_filter(self):
         handlers = star_handlers_registry.get_handlers_by_module_name(HumanChatQualityPlugin.__module__)
-        commands = {"humanq_status", "humanq_on", "humanq_off", "humanq_reset", "humanq_rules"}
+        commands = {"humanq_status", "humanq_on", "humanq_off", "humanq_reset", "humanq_rules", "humanq_stats"}
         for handler in handlers:
             if handler.handler_name not in commands:
                 continue

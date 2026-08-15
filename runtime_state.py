@@ -195,7 +195,15 @@ class RuntimeStateStore:
                             f"[HumanChatQuality] session {session_id!r} malformed ({type(value).__name__}), skipped"
                         )
                     continue
-                state = _state_from_dict(value, self.recent_reply_window)
+                try:
+                    state = _state_from_dict(value, self.recent_reply_window)
+                except (AttributeError, TypeError, ValueError) as error:
+                    if not backed_up:
+                        self._backup_corrupt_state_file()
+                        backed_up = True
+                    if logger is not None:
+                        logger.warning(f"[HumanChatQuality] session {session_id!r} malformed ({error}), skipped")
+                    continue
                 if state.updated_at is None and state.last_response_at is None:
                     state.updated_at = file_mtime
                 loaded[str(session_id)] = state
@@ -320,6 +328,8 @@ def _parse_group_id_from_origin(origin: str) -> str:
     parts = str(origin or "").strip().split(":", 2)
     if len(parts) >= 3 and "group" in parts[1].lower():
         return parts[2].strip()
+    if len(parts) == 2 and "group" in parts[0].lower():
+        return parts[1].strip()
     return ""
 
 
@@ -363,6 +373,8 @@ def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionS
     # 新格式（紧凑）
     if "a" in data:
         recent_str = data.get("r", "")
+        if not isinstance(recent_str, str):
+            raise TypeError(f"r must be a string, got {type(recent_str).__name__}")
         recent = [s for s in recent_str.split(",") if s] if recent_str else []
         return SessionState(
             avoid_openers=_list_of_str(data.get("a", []), MAX_AVOID_OPENERS),
