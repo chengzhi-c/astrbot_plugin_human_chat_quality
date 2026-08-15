@@ -168,12 +168,15 @@ class RuntimeStateStore:
             return
 
         try:
+            backed_up = False
             raw_disabled = raw.get("disabled_sessions") or []
             if isinstance(raw_disabled, list):
                 self.runtime_disabled = {str(item) for item in raw_disabled}
             else:
                 # 条目级畸形：备份现场并跳过，不触发全清（与 sessions 单条容错一致）
-                self._backup_corrupt_state_file()
+                if not backed_up:
+                    self._backup_corrupt_state_file()
+                    backed_up = True
                 self.runtime_disabled = set()
                 if logger is not None:
                     logger.warning(
@@ -183,7 +186,6 @@ class RuntimeStateStore:
             if not isinstance(sessions, dict):
                 raise TypeError(f"sessions must be a dict, got {type(sessions).__name__}")
             loaded: dict[str, SessionState] = {}
-            backed_up = False
             for session_id, value in sessions.items():
                 if not isinstance(value, dict):
                     # 条目级畸形：备份现场一次并跳过坏键，其余会话不受影响
@@ -210,7 +212,8 @@ class RuntimeStateStore:
             self.sessions = loaded
             self._prune_expired()
         except Exception as e:
-            self._backup_corrupt_state_file()
+            if not backed_up:
+                self._backup_corrupt_state_file()
             self.sessions = {}
             self.runtime_disabled = set()
             if logger is not None:

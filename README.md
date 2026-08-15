@@ -64,6 +64,7 @@
 | `/humanq off` | 关闭当前会话（直到再次 on） |
 | `/humanq reset` | 清空当前会话的提醒记录 |
 | `/humanq rules` | 查看固定规则原文 |
+| `/humanq stats` | 查看本次运行的注入、信号与清理统计 |
 
 ## 配置
 

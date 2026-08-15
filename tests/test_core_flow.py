@@ -408,6 +408,19 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(req.extra_user_content_parts, [])
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
+    def test_missing_text_part_factory_removes_existing_runtime_hint(self):
+        for _ in range(3):
+            asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答"))
+        core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=None)
+        old_hint = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
+
+        asyncio.run(core.on_llm_request(self.ev, req))
+
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(req.extra_user_content_parts, [])
+
     def test_injection_count_only_real_injections(self):
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))

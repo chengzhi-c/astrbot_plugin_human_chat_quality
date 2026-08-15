@@ -68,6 +68,12 @@ class TestHostRegistration(unittest.TestCase):
             self.assertEqual(len(permissions), 1, handler.handler_name)
             self.assertEqual(permissions[0].permission_type, PermissionType.ADMIN)
 
+    def test_readme_lists_all_humanq_commands(self):
+        readme = (Path(__file__).resolve().parents[1] / "README.md").read_text(encoding="utf-8")
+        for command in ("status", "on", "off", "reset", "rules", "stats"):
+            with self.subTest(command=command):
+                self.assertIn(f"| `/humanq {command}` |", readme)
+
     def test_plugin_adapter_swallows_core_errors(self):
         async def fail(event, req):
             raise RuntimeError("boom")

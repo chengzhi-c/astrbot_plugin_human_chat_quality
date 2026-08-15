@@ -166,7 +166,7 @@ class HumanChatQualityCore:
         avoid_openers: list[str] | None = None
 
         hint = ""
-        if effective_active and self.cfg.inject_runtime_state:
+        if effective_active and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
             hint = build_runtime_hint(state, max_chars=self.cfg.max_runtime_hint_chars)

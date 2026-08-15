@@ -253,6 +253,17 @@ class TestStore(unittest.TestCase):
             saved = json.load(f)
         self.assertEqual(set(saved["sessions"]), {"good", "new"})
 
+    def test_multiple_malformed_sections_create_one_backup(self):
+        p = self._path("multiple-malformed.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"disabled_sessions": "not-a-list", "sessions": {"bad": "not-a-session"}}, f)
+
+        s = RuntimeStateStore(p, 14, 8)
+
+        self.assertEqual(s.runtime_disabled, set())
+        self.assertEqual(s.sessions, {})
+        self.assertEqual(len(list(Path(self.dir).glob("multiple-malformed.corrupt.*.json"))), 1)
+
     def test_runtime_disabled_persisted(self):
         async def run():
             p = self._path("s3.json")
