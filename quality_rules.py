@@ -176,6 +176,23 @@ def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableR
 
 
 def rewrite_context_injections(req: ProviderRequestProtocol, runtime_text: str | None) -> ContextRewriteResult:
+    """清理历史中的本插件注入块，注入/替换本轮动态提示。
+
+    协作图（两路重写，结果经 _merge_context_results OR 合并）::
+
+        rewrite_context_injections
+        ├── contexts[role=user]
+        │   ├── content=str  → _rewrite_context_text
+        │   └── content=list → _rewrite_history_parts (逐 part → _owned_part_action)
+        └── extra_user_content_parts → _rewrite_extra_parts (逐 part → _owned_part_action)
+
+    _owned_part_action 返回 (action, flags):
+      "keep"   → 普通/匹配/ambiguous，保留原 part
+      "drop"   → 已知稳定块或无 runtime_text，删除
+      "stale"  → 旧 runtime 块：历史路径替换为 runtime_text，extra 路径删除
+
+    runtime_satisfied 一旦置 True，同流后续 part 不再注入（去重）。
+    """
     result = ContextRewriteResult()
     contexts = getattr(req, "contexts", None)
     if isinstance(contexts, list):
@@ -291,7 +308,8 @@ def _is_known_stable_text(text: str) -> bool:
 
 def _runtime_kind(text: str) -> str:
     normalized = _normalize_newlines(text)
-    if not normalized.splitlines() or normalized.splitlines()[0] != RUNTIME_HINT_MARKER:
+    lines = normalized.splitlines()
+    if not lines or lines[0] != RUNTIME_HINT_MARKER:
         return "ordinary"
     if _is_complete_runtime(normalized) or _is_legacy_truncated_runtime(normalized):
         return "owned"
@@ -410,12 +428,17 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
     if not openers:
         return ""
 
+    prefix_len = len(_RUNTIME_PREFIX)
+    sep_len = len(_RUNTIME_ITEM_SEPARATOR)
     selected: list[str] = []
+    current_len = prefix_len
     for item in openers:
-        candidate = _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join([*selected, item])
-        if len(candidate) > max_chars:
+        # 增量：分隔符（非首项）+ 当前项
+        increment = (sep_len if selected else 0) + len(item)
+        if current_len + increment > max_chars:
             break
         selected.append(item)
+        current_len += increment
     return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(selected) if selected else ""
 
 

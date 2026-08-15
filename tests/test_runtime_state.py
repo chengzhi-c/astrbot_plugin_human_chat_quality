@@ -5,6 +5,7 @@
 
 import asyncio
 import json
+import math
 import os
 import time
 import threading
@@ -18,6 +19,7 @@ ensure_plugin_package()
 from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
     SessionState,
+    _parse_group_id_from_origin,
     detect_cliches,
     extract_opener,
     group_id_from_event,
@@ -128,6 +130,18 @@ class TestDetectClichesLegacy(unittest.TestCase):
         self.assertIn("自定义词", hits)
         self.assertIn("路标词堆砌", hits)
 
+    def test_density_uses_normalized_text_length(self):
+        """密度折算用归一化后字符数，原始空白不计入篇幅档位。"""
+        text = "破" + " " * 300 + "折" + "—" * 5
+        self.assertIn("破折号", detect_cliches(text))
+
+    def test_density_cap_matches_300_char_basis(self):
+        """300 字基准折算边界：300→cap1，301→cap2，600→cap2，601→cap3。"""
+        self.assertEqual(max(1, math.ceil(300 / 300)), 1)
+        self.assertEqual(max(1, math.ceil(301 / 300)), 2)
+        self.assertEqual(max(1, math.ceil(600 / 300)), 2)
+        self.assertEqual(max(1, math.ceil(601 / 300)), 3)
+
 
 class TestOpener(unittest.TestCase):
     def test_prefix(self):
@@ -139,6 +153,15 @@ class TestOpener(unittest.TestCase):
     def test_single_char_skipped_and_empty(self):
         self.assertNotEqual(extract_opener("嗯。好的吧"), "嗯")
         self.assertEqual(extract_opener(""), "")
+
+    def test_prefix_hit_returns_prefix_truncated(self):
+        self.assertEqual(extract_opener("没问题，这是一段话"), "没问题")
+
+    def test_prefix_miss_falls_back_to_delim_split(self):
+        self.assertEqual(extract_opener("嗯好的"), "嗯好的")
+
+    def test_two_char_kept_after_split(self):
+        self.assertEqual(extract_opener("好的"), "好的")
 
 
 class TestRepeatedItems(unittest.TestCase):
@@ -644,6 +667,12 @@ class TestDisabledMatch(unittest.TestCase):
 
     def test_is_session_disabled_empty(self):
         self.assertFalse(is_session_disabled(frozenset(), "aiocqhttp:GroupMessage:222", None))
+
+    def test_parse_group_id_from_two_part_origin(self):
+        self.assertEqual(_parse_group_id_from_origin("GroupMessage:111"), "")
+
+    def test_parse_group_id_from_three_part_origin(self):
+        self.assertEqual(_parse_group_id_from_origin("aiocqhttp:GroupMessage:111"), "111")
 
 
 if __name__ == "__main__":

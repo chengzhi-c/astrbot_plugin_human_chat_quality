@@ -462,5 +462,29 @@ class TestRuntimeHint(unittest.TestCase):
         self.assertFalse(short.endswith("..."))
 
 
+class TestSignatureTableCompleteness(unittest.TestCase):
+    """签名表完整性：v3 之外每个 legacy marker 至少有一个签名条目；
+    夹具实际签名与表一致。v3 为事故版本，有意无签名（按 ambiguous 保留）。"""
+
+    _UNSIGNED_MARKERS = frozenset({"[Human Chat Quality Rules]", "[Human Chat Quality Rules v3]"})
+
+    def test_every_legacy_marker_has_signature(self):
+        for marker in LEGACY_STABLE_MARKERS:
+            if marker == STABLE_RULE_MARKER or marker in self._UNSIGNED_MARKERS:
+                continue
+            with self.subTest(marker=marker):
+                self.assertIn(marker, quality_rules._LEGACY_STABLE_SIGNATURES)
+                self.assertTrue(quality_rules._LEGACY_STABLE_SIGNATURES[marker])
+
+    def test_legacy_signatures_match_fixtures(self):
+        for block in REAL_LEGACY_RULES:
+            marker_line = block.splitlines()[0]
+            if marker_line not in LEGACY_STABLE_MARKERS or marker_line in self._UNSIGNED_MARKERS:
+                continue
+            with self.subTest(marker=marker_line):
+                actual = quality_rules._signature(block)
+                self.assertIn(actual, quality_rules._LEGACY_STABLE_SIGNATURES.get(marker_line, frozenset()))
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -37,6 +37,8 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 | `main.py` | 连接 AstrBot 平台：订阅 `on_llm_request` / `on_llm_response`、注册 `/humanq` 命令组、加载配置、terminate 落盘 | `HumanChatQualityPlugin` |
 | `core.py` | 编排：会话启用判定（配置开关 × 会话开关 × 静态黑名单）、注入流程、响应记录、进程内统计 | `HumanChatQualityCore`、`AppConfig`、`QualityStats` |
 | `quality_rules.py` | 稳定规则重写（注入/剥离/幂等）、动态提示构建与历史块清理、临时 part 追加 | `rewrite_stable_rules`、`rewrite_context_injections`、`build_runtime_hint` |
+
+`rewrite_context_injections` 内部协作图见 `quality_rules.py` 中该函数 docstring。两路重写（contexts + extra_user_content_parts）经 `_merge_context_results` OR 合并，`runtime_satisfied` 置 True 后同流后续 part 不再注入。
 | `runtime_state.py` | 会话状态（重复开头、避用项）的读写、持久化（原子写、失败重试、损坏容错）、会话匹配 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
 | `signal_detectors.py` | 分层检测 AI 腔信号（收尾模板/自我暴露/开场套话/自定义/结构/密度），去重保序 | `detect_cliches` |
 | `protocols.py` | 宿主对象契约（`ProviderRequest` / `LLMResponse` / `MessageEvent` 等），纯类型标注 | 6 个 Protocol |
@@ -66,7 +68,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **决策**：块以整行 marker（`[Human Chat Quality Rules vN]`）声明所有权。剥离旧块时，仅当整块内容通过已发布签名（行数 + sha256）核验才执行；无法核验的块保留不动。
 
-**权衡**：签名表同时承担"确定块边界"的职责，因为旧版 v2 块内部含空行分段，无法按空行安全切分。代价是每次升级规则需要维护签名表，收益是零误删保证。
+**权衡**：签名表同时承担"确定块边界"的职责，因为旧版 v2 块内部含空行分段，无法按空行安全切分。代价是每次升级规则需要维护签名表，收益是零误删保证。签名表完整性由 `tests/test_quality_rules.py::TestSignatureTableCompleteness` 兜底，漏填会在测试期捕获。
 
 **结论**：签名核验的剥离是唯一安全路径，保留。
 
@@ -99,6 +101,18 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 ### D6. 依赖面收敛
 
 **决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
+
+### D7. 历史截断提示兼容代码的退场计划
+
+**背景**：`_LEGACY_RUNTIME_PREFIX` 与 `_is_legacy_truncated_runtime`（quality_rules.py 约 20 行）是为已发布版本的截断提示做的兜底，每次 `_runtime_kind` 调用都会进入该函数判断。
+
+**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v5 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。
+
+### D8. hinted_sessions 不持久化
+
+**背景**：`core.py` `self._hinted_sessions: set[str]` 是进程内集合。若进程在"注入提醒"后、"处理响应"前崩溃，该标志丢失，`runtime_hint_missed` 统计会漏计。
+
+**决策**：不实现持久化。`hinted_sessions` 为进程内集合，不持久化。崩溃导致的漏计仅影响 `runtime_hint_missed` 统计精度，不影响提醒注入功能。持久化的成本（schema 扩展 + 跨重启语义）高于收益（秒级崩溃窗口的统计精度）。
 
 ## 5. 测试与发布
 
