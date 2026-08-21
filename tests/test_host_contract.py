@@ -142,11 +142,11 @@ class TestHostRegistration(unittest.TestCase):
 
     def test_terminate_flushes_pending_state(self):
         store = mock.Mock()
-        store.flush = mock.AsyncMock(return_value=True)
+        store.terminate = mock.AsyncMock(return_value=True)
         core = type("Core", (), {"injection_count": 0})()
         plugin = type("StubPlugin", (), {"store": store, "core": core})()
         asyncio.run(HumanChatQualityPlugin.terminate(plugin))
-        store.flush.assert_awaited_once()
+        store.terminate.assert_awaited_once()
 
     def test_extra_parts_must_support_model_dump(self):
         from astrbot.core.agent.message import TextPart
@@ -199,7 +199,7 @@ class TestHostRegistration(unittest.TestCase):
 
     def test_terminate_logs_failed_final_flush(self):
         store = mock.Mock()
-        store.flush = mock.AsyncMock(return_value=False)
+        store.terminate = mock.AsyncMock(return_value=False)
         core = type("Core", (), {"injection_count": 0})()
         plugin = type("StubPlugin", (), {"store": store, "core": core})()
         with mock.patch("astrbot_plugin_human_chat_quality.main.logger.warning") as warning:

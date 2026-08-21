@@ -162,7 +162,7 @@ class HumanChatQualityPlugin(Star):
         yield event.plain_result("\n".join(lines))
 
     async def terminate(self) -> None:
-        if not await self.store.flush():
+        if not await self.store.terminate():
             logger.warning("[HumanChatQuality] pending runtime state could not be persisted during terminate")
         logger.info(
             "[HumanChatQuality] terminated, total injections this run: "

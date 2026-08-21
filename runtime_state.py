@@ -22,6 +22,7 @@ from .constants import (
     MAX_AVOID_ITEMS,
     MAX_OPENER_LEN as _CONST_MAX_OPENER_LEN,
     OPENER_REPEAT_THRESHOLD,
+    STATE_SAVE_DEBOUNCE_SECONDS,
     CONSECUTIVE_THRESHOLD,  # noqa: F401 re-export
 )
 from .protocols import MessageEventProtocol
@@ -82,6 +83,9 @@ class RuntimeStateStore:
         self._write_lock = asyncio.Lock()
         self._generation = 0
         self._saved_generation = 0
+        self._save_task: asyncio.Task[None] | None = None
+        self._save_waiting = False
+        self._save_failed = False
         self._load()
 
     def get(self, session_id: str) -> SessionState:
@@ -102,12 +106,49 @@ class RuntimeStateStore:
             try:
                 await asyncio.to_thread(self._write_snapshot_sync, payload)
             except Exception as e:
-                if logger is not None:
+                if logger is not None and not self._save_failed:
                     logger.warning(f"[HumanChatQuality] state save failed: {e}")
+                self._save_failed = True
                 return False
             async with self._state_lock:
                 self._saved_generation = max(self._saved_generation, generation)
+            if logger is not None and self._save_failed:
+                logger.debug("[HumanChatQuality] state persistence recovered")
+            self._save_failed = False
             return True
+
+    def _schedule_flush(self) -> None:
+        if self._save_task is None or self._save_task.done():
+            self._save_waiting = True
+            self._save_task = asyncio.create_task(self._flush_after_delay())
+
+    async def _flush_after_delay(self) -> None:
+        current_task = asyncio.current_task()
+        try:
+            self._save_waiting = True
+            await asyncio.sleep(STATE_SAVE_DEBOUNCE_SECONDS)
+            self._save_waiting = False
+            while self.has_pending_save:
+                if not await self.flush():
+                    break
+        finally:
+            self._save_waiting = False
+            if self._save_task is current_task:
+                self._save_task = None
+
+    async def terminate(self) -> bool:
+        task = self._save_task
+        if task is not None and not task.done():
+            if self._save_waiting:
+                task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+        while self.has_pending_save:
+            if not await self.flush():
+                return False
+        return True
 
     async def reset(self, session_id: str) -> bool:
         async with self._state_lock:
@@ -159,7 +200,8 @@ class RuntimeStateStore:
 
             self.sessions[session_id] = state
             self._generation += 1
-        return await self.flush()
+        self._schedule_flush()
+        return True
 
     def _load(self) -> None:
         """状态加载。损坏策略：顶层损坏（JSON 解析失败/根结构非预期）备份+全清；
