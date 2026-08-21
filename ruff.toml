@@ -5,7 +5,9 @@
 line-length = 120
 
 [lint]
-ignore = ["BLE001", "S110", "N999"]
+ignore = ["S110", "N999"]
 
 [lint.per-file-ignores]
+"main.py" = ["BLE001"]
+"core.py" = ["BLE001"]
 "tests/*" = ["E402"]

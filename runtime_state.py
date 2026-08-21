@@ -16,22 +16,31 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
+from .constants import (
+    DAY_SECONDS,
+    MAX_AVOID_ITEM_LEN,
+    MAX_AVOID_ITEMS,
+    MAX_OPENER_LEN as _CONST_MAX_OPENER_LEN,
+    OPENER_REPEAT_THRESHOLD,
+    CONSECUTIVE_THRESHOLD,
+)
 from .protocols import MessageEventProtocol
 from .signal_detectors import OPENER_DELIM, detect_cliches
 
 
-# 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）
-MAX_AVOID_OPENERS = 5
-# 开头截断长度（前缀 ≤8 与普通开头同口径）
-MAX_OPENER_LEN = 8
-# 避用短语上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）
-MAX_OPEN_LEN = 20
-DAY_SECONDS = 86400
-# 同一 opener 在最近窗口内至少出现这么多次才视为重复信号（阈值 3：降低误报）
-OPENER_REPEAT_THRESHOLD = 3
-# 带次数阈值的结构信号（然而连发）需命中达这么多次，避免口语单次使用误报
-CONSECUTIVE_THRESHOLD = 2
+# 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）— 集中至 constants.py
+MAX_AVOID_OPENERS = MAX_AVOID_ITEMS
+# 开头截断长度（前缀 ≤8 与普通开头同口径）— 集中至 constants.py
+MAX_OPENER_LEN = _CONST_MAX_OPENER_LEN
+# 避用短语上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）— 集中至 constants.py
+MAX_OPEN_LEN = MAX_AVOID_ITEM_LEN
+# 兼容别名：历史代码引用 MAX_OPEN_LEN，保留；新代码应使用 MAX_AVOID_ITEM_LEN
+MAX_AVOID_ITEM_LEN_ALIAS = MAX_AVOID_ITEM_LEN
+# 阈值与基准集中至 constants.py，保留模块级别名以兼容测试与外部导入
+OPENER_REPEAT_THRESHOLD = OPENER_REPEAT_THRESHOLD
+CONSECUTIVE_THRESHOLD = CONSECUTIVE_THRESHOLD
 # natural-talk 密度口径基准：每 300 字为一个折算档位，更长回复按比例放宽上限
+DENSITY_BASE = 300
 
 
 def _now() -> float:
