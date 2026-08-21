@@ -3,8 +3,10 @@
 This project includes portions of the Natural Talk system-prompt rules:
 
 - Source: https://github.com/chengzhi-c/natural-talk
-- Compared against: lite template at commit 5ec6223, scope line from 506407f
+- Compared against: templates/system-prompt-lite.txt 344c (main @ 2026-08-16) + core/rules.yaml extensions.iron_rule/action_compact
 - License: MIT
+- Upstream SKILL.md verbatim included via build_stable_rules() with plugin extras (iron rule + action compact) — see quality_rules.py
+- Lexicon synced from dist/lexicon.json (tier1_identity/courtesy/tier2/signposts)
 
 MIT License
 

@@ -122,6 +122,8 @@ class TestConfigParse(unittest.TestCase):
                 elif isinstance(default, list):
                     expected = "空" if not default else "、".join(str(item) for item in default)
                     self.assertEqual(default_cell, expected)
+                elif isinstance(default, str):
+                    self.assertEqual(default_cell, default)
                 else:
                     self.fail(f"{key} 的 default 类型未覆盖: {type(default).__name__}")
                 slider = field_schema.get("slider")

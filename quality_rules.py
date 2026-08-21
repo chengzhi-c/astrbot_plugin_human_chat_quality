@@ -10,6 +10,7 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
+from .constants import MAX_RUNTIME_HINT_CHARS as _CONST_MAX_HINT, MIN_RUNTIME_HINT_CHARS as _CONST_MIN_HINT
 from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
@@ -17,7 +18,7 @@ from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1；旧版本随 LEGACY 推导保留，保证旧块可剥离
-RULES_VERSION = 6
+RULES_VERSION = 7
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 # 历史版本注入过的规则标记（含无版本号形态，显式保留）；
 # 用于剥离 system_prompt/历史中残留的旧规则块（startswith 判定不会误伤当前 marker 自身）
@@ -32,9 +33,9 @@ _LEGACY_RUNTIME_PREFIX = (
     "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
 )
 _RUNTIME_ITEM_SEPARATOR = "、"
-MIN_RUNTIME_HINT_CHARS = 80
-# 理论容量上限：53 字前缀 + 5 项 × 20 字 + 4 个分隔符 = 157；超过即预算冗余（避用项数与单条长度均有上限）
-MAX_RUNTIME_HINT_CHARS = 157
+# MIN/MAX 集中至 constants.py，此处保留别名兼容旧导入
+MIN_RUNTIME_HINT_CHARS = _CONST_MIN_HINT
+MAX_RUNTIME_HINT_CHARS = _CONST_MAX_HINT
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
 # 注：v3 曾尝试发布，完整正文未形成可核验物，无签名；未知 v3 块按 ambiguous 保留。v4/v5 为已发布块，必须可剥离。
@@ -59,6 +60,11 @@ _LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
     f"{INJECTED_MARKER_PREFIX} Rules v5]": frozenset(
         {
             (27, "b46bd0d73bd9962979dd3f944cbdc8c6032ae113770df435221c20434f6214fc"),
+        }
+    ),
+    f"{INJECTED_MARKER_PREFIX} Rules v6]": frozenset(
+        {
+            (28, "2ff440645532f44c9e081e2848761e0382176c0c8f9d04140fd2637a51ba52a8"),
         }
     ),
 }
@@ -88,7 +94,9 @@ _PLUGIN_EXTRAS = (
     "- 保留事实、限制条件、安全提示和不确定性表述\n"
     "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
     "- 不要把这些约束写进回复\n"
-    "- 用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避"
+    "- 用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避\n"
+    "- 连续动作尽量一句写完，紧张/暧昧/恐惧/受伤可慢放（例：伸手按下按钮）\n"
+    "- 铁律：先否定后肯定（不是/与其/很久…久到）删否定留肯定，直接说Y；角色引号内除外（例：不是优化而是重构→重构）"
 )
 _STABLE_MARKERS = frozenset((*LEGACY_STABLE_MARKERS, STABLE_RULE_MARKER))
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
@@ -116,9 +124,10 @@ class ContextRewriteResult:
 def build_stable_rules() -> str:
     """稳定规则：natural-talk lite 原文 + 插件附加条款。
 
-    natural-talk 部分逐字引用官方浓缩版（仅首行追加来源标注，MIT 要求保留版权说明）：
-    正文为 v2.1.0 lite 模板，另含上游 506407f 起新增的"不适用范围"行；
-    "插件附加"为安全条款与身份披露例外，与 natural-talk 原则无冲突。
+    natural-talk 部分逐字引用官方 lite 模板（templates/system-prompt-lite.txt 344c，MIT）：
+    正文为 v2.1.0+ lite 模板含"不适用范围"行；
+    "插件附加"含安全条款、身份披露例外及上游 extensions.iron_rule/action_compact
+    （连续动作一句、铁律删否定留肯定），与 natural-talk 原则无冲突。
     """
     return (
         f"{STABLE_RULE_MARKER}\n"

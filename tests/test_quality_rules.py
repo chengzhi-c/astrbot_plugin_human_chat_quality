@@ -390,7 +390,10 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
         self.assertIn(IDENTITY_DISCLOSURE_LINE, rules)
-        self.assertEqual(RULES_VERSION, 6)
+        # 2.2.0 起铁律与动作一句入正文，锚点更新至 upstream 344c + extensions
+        self.assertIn("连续动作尽量一句写完", rules)
+        self.assertIn("铁律：先否定后肯定", rules)
+        self.assertEqual(RULES_VERSION, 7)
 
     def test_v5_published_block_is_stripped_to_v6(self):
         result = rewrite_stable_rules(f"人设头\n\n{V5_RULES_B46BD0D}\n\n人设尾", enabled=True)

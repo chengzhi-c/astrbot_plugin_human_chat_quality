@@ -9,10 +9,15 @@ import math
 import re
 
 
-# natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报
+# natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报（对齐 upstream dist/lexicon tier1_identity 高置信子集）
 DEFAULT_AI_CLICHES: tuple[str, ...] = (
     "作为AI",
+    "作为人工智能",
     "根据我的训练",
+    "基于我的训练数据",
+    "训练数据截至",
+    "截至我的知识",
+    "基于我所掌握的信息",
     "截至我的知识更新",
 )
 
@@ -24,7 +29,7 @@ OPENING_CLICHES: tuple[str, ...] = (
     "Great question",
 )
 
-# 默认检测只保留高置信度末尾模板
+# 默认检测只保留高置信度末尾模板（upstream courtesy 高置信收尾 + 打气）
 DEFAULT_ENDINGS: tuple[str, ...] = (
     # 客服收尾
     "希望能帮到你",
@@ -37,6 +42,8 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
     "有任何问题随时",
     "随时联系我",
     "随时问我",
+    "欢迎继续交流",
+    "欢迎随时",
     # 空泛打气收尾
     "未来可期",
     "一起加油",
@@ -58,11 +65,27 @@ OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 # 固定计数类信号
 _FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (("然而连发", re.compile(r"然而"), 2),)
 
-# 密度项与 natural-talk 计数口径一致
+# 密度项与 natural-talk 计数口径一致（连续化 scale=max(1,len/300)）
 _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     ("破折号", re.compile(r"[—–]"), 2),
     ("感叹号", re.compile(r"[！!]"), 3),
-    ("路标词堆砌", re.compile(r"事实上|实际上|换句话说|本质上|归根结底|与此同时"), 2),
+    (
+        "路标词堆砌",
+        re.compile(r"值得注意的是|需要强调的是|更关键的是|事实上|实际上|换句话说|说白了|本质上|归根结底|与此同时"),
+        2,
+    ),
+)
+
+# Tier3 铁律：结构性表演（精简 4 条高置信，去回溯风险：句内 [^。\n] 限长）
+_TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("结构性表演", re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)")),
+    ("结构性表演", re.compile(r"与其[^。\n]{0,16}不如")),
+    ("结构性表演", re.compile(r"很久[^。\n]{0,6}久到")),
+    ("结构性表演", re.compile(r"真正的问题是")),
+)
+_HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
+    re.compile(r"(?:通常来说|一般来说|通常情况下).{0,10}(?:可能|或许|大概|大致|也许)"),
 )
 
 
@@ -107,7 +130,7 @@ def detect_fixed_pattern_signals(text: str) -> list[str]:
 
 
 def detect_density_signals(text: str) -> list[str]:
-    """检测密度类信号（按篇幅折算上限）。"""
+    """检测密度类信号（按篇幅折算，上游 engine/detector 同口径，阶梯档位）。"""
     density_cap = max(1, math.ceil(len(text) / 300))
     hits: list[str] = []
     for label, pattern, per_300 in _DENSITY_CHECKS:
@@ -116,14 +139,40 @@ def detect_density_signals(text: str) -> list[str]:
     return hits
 
 
-def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
-    """检测高置信度 AI 腔信号（去重、保序）。
+def detect_iron_rule(text: str) -> list[str]:
+    """Tier3 铁律：先否定后肯定等结构性表演（引号内豁免由调用方弱判定）。"""
+    for label, pat in _TIER3_PATTERNS:
+        m = pat.search(text)
+        if m:
+            hit = m.group(0)[:24]
+            # 轻量引号豁免：命中前后 30 字内成对引号则视为角色台词，不报
+            try:
+                idx = text.find(hit[:6])
+                if idx != -1:
+                    left = max(text.rfind(q, 0, idx) for q in ['"', "'", "“", "”"])
+                    right_candidates = [text.find(q, idx + 6) for q in ['"', "'", "“", "”"]]
+                    right = min((p for p in right_candidates if p != -1), default=-1)
+                    if left != -1 and right != -1 and left < idx < right:
+                        return []
+            except Exception:
+                pass
+            return [label]
+    return []
 
-    内置末尾模板仅在回复结尾命中；AI 自我暴露短语任意位置精确命中；
-    谄媚/预告式开场仅回复首部命中；custom_cliches 是管理员显式词库，
-    任意位置一次精确命中即提示。
-    结构信号：固定计数类（然而连发 ≥2）；密度类对齐 natural-talk 计数口径
-    （破折号/路标词 ≤2 次、感叹号 ≤3 次，300 字基准按篇幅折算，超上限才报）。
+
+def detect_hedge(text: str) -> list[str]:
+    """模糊叠加：可能或许等紧邻模糊词。"""
+    for pat in _HEDGE_PATTERNS:
+        if pat.search(text):
+            return ["模糊叠加"]
+    return []
+
+
+def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
+    """检测高置信度 AI 腔信号（去重、保序，分层对齐 upstream Tier1-6 精简）。
+
+    内置末尾模板仅结尾命中；AI 自我暴露任意位置；开场仅首部；custom_cliches 任意位置。
+    新增：Tier3 铁律（不是…而是等 4 条）与模糊叠加；密度按 300 字基准折算。
     """
     normalized = _normalize_text(text)
     if not normalized:
@@ -138,6 +187,8 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_opening_cliches(normalized),
         detect_custom_cliches(normalized, custom_cliches),
         detect_fixed_pattern_signals(normalized),
+        detect_iron_rule(normalized),
+        detect_hedge(normalized),
         detect_density_signals(normalized),
     ):
         for signal in signals:
