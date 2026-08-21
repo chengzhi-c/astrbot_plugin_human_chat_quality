@@ -21,6 +21,4 @@ CONSECUTIVE_THRESHOLD: int = 2  # 然而连发等固定模式阈值
 DENSITY_BASE: int = 300  # 密度折算基准：每300字一档，长文按比例放宽（上游 engines/detector scale=max(1,len/300)）
 DAY_SECONDS: int = 86400
 
-# 版本与预算档位（对应 upstream budgets，当前未暴露为配置，保持极致轻量）
-# PROMPT_LEVELS 保留为内部常量，暂不开放为用户配置，避免过度抽象
-PROMPT_LEVELS: tuple[str, ...] = ("auto", "L0", "L1", "L2")  # noqa: F401 内部预留
+# 预算档位对应 upstream budgets，暂不暴露为用户配置，保持最轻量（需档位时再引入）

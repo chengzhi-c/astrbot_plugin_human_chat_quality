@@ -5,9 +5,8 @@
 ## [2.2.0] - 2026-08-16
 
 - 固定规则升级至 v7：同步上游 natural-talk `extensions.iron_rule / action_compact`（连续动作一句、铁律删否定留肯定），RULES_VERSION 6→7，旧 v6 块可平滑剥离。
-- 词表对齐上游 lexicon.json：AI暴露 3→8、末尾收尾 +2、路标词 6→10，检测新增 Tier3 铁律与模糊叠加，密度改连续化 `scale=max(1,len/300)` 消阶梯。
-- 三要素极致：`constants.py` 单源治理阈值（命名 `MAX_AVOID_ITEM_LEN` 兼容旧名）、`ruff` 收敛为 per-file BLE001、可维护 9.6；正式/情绪场景感知让位；统计口径 delta 化、hint 边界修复，高质量 9.5。
-- 实用性：`prompt_level`（auto/L0/L1/L2）档位可配，默认 auto；`THIRD_PARTY` 锚点更新至 upstream 344c 模板。
+- 词表对齐上游 lexicon.json：AI暴露 3→8、末尾收尾 +2、路标词 6→10，检测新增 Tier3 铁律与模糊叠加，仍按 300 字折算。
+- 三要素极致：`constants.py` 单源治理阈值（命名 `MAX_AVOID_ITEM_LEN` 兼容旧名）、`ruff` 收敛为 per-file BLE001、可维护；正式/情绪场景感知让位；统计口径 delta 化、hint 边界修复，高质量 9.5。
 
 ## [2.1.0] - 2026-08-15
 

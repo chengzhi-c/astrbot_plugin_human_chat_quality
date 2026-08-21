@@ -10,7 +10,7 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
-from .constants import MAX_RUNTIME_HINT_CHARS as _CONST_MAX_HINT, MIN_RUNTIME_HINT_CHARS as _CONST_MIN_HINT
+from .constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS  # noqa: F401 re-export
 from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
@@ -33,9 +33,6 @@ _LEGACY_RUNTIME_PREFIX = (
     "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
 )
 _RUNTIME_ITEM_SEPARATOR = "、"
-# MIN/MAX 集中至 constants.py，此处保留别名兼容旧导入
-MIN_RUNTIME_HINT_CHARS = _CONST_MIN_HINT
-MAX_RUNTIME_HINT_CHARS = _CONST_MAX_HINT
 
 # 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
 # 注：v3 曾尝试发布，完整正文未形成可核验物，无签名；未知 v3 块按 ambiguous 保留。v4/v5 为已发布块，必须可剥离。

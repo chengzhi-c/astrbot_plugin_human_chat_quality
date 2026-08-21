@@ -22,24 +22,16 @@ from .constants import (
     MAX_AVOID_ITEMS,
     MAX_OPENER_LEN as _CONST_MAX_OPENER_LEN,
     OPENER_REPEAT_THRESHOLD,
-    CONSECUTIVE_THRESHOLD,
+    CONSECUTIVE_THRESHOLD,  # noqa: F401 re-export
 )
 from .protocols import MessageEventProtocol
 from .signal_detectors import OPENER_DELIM, detect_cliches
 
 
-# 状态文件里 avoid_openers 的上限（重复开头 + 套路词合计）— 集中至 constants.py
+# 阈值单源来自 constants.py，保留模块别名以兼容测试与外部导入
 MAX_AVOID_OPENERS = MAX_AVOID_ITEMS
-# 开头截断长度（前缀 ≤8 与普通开头同口径）— 集中至 constants.py
 MAX_OPENER_LEN = _CONST_MAX_OPENER_LEN
-# 避用短语上限（超长短语注入会被截断成半截，入库即过滤，与注入口径一致）— 集中至 constants.py
-MAX_OPEN_LEN = MAX_AVOID_ITEM_LEN
-# 兼容别名：历史代码引用 MAX_OPEN_LEN，保留；新代码应使用 MAX_AVOID_ITEM_LEN
-MAX_AVOID_ITEM_LEN_ALIAS = MAX_AVOID_ITEM_LEN
-# 阈值与基准集中至 constants.py，保留模块级别名以兼容测试与外部导入
-OPENER_REPEAT_THRESHOLD = OPENER_REPEAT_THRESHOLD
-CONSECUTIVE_THRESHOLD = CONSECUTIVE_THRESHOLD
-# natural-talk 密度口径基准：每 300 字为一个折算档位，更长回复按比例放宽上限
+MAX_OPEN_LEN = MAX_AVOID_ITEM_LEN  # 兼容旧名，新代码用 MAX_AVOID_ITEM_LEN
 DENSITY_BASE = 300
 
 
