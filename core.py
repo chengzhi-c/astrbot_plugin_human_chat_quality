@@ -4,10 +4,11 @@ from dataclasses import dataclass, field
 import logging
 from typing import Any
 
+import re as _re_core
+
+from .constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
 from .quality_rules import (
-    MAX_RUNTIME_HINT_CHARS,
-    MIN_RUNTIME_HINT_CHARS,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
     append_temp_text_part,
@@ -141,6 +142,36 @@ def _extract_text_from_part(item: Any) -> str:
     return content if isinstance(content, str) else ""
 
 
+def _detect_scene(event: MessageEventProtocol | None) -> str:
+    """场景感知（复刻 natural-talk engine/detector._detect_scene 轻量版）。"""
+    text = ""
+    if event is not None:
+        for attr in ("get_message_str", "message_str", "message", "text"):
+            try:
+                v = getattr(event, attr, None)
+                if callable(v):
+                    v = v()
+                if isinstance(v, str) and v.strip():
+                    text = v.strip()
+                    break
+            except Exception:
+                continue
+        # 兜底：unified_origin 含群聊上下文但非用户正文，仅作 formal 宽松匹配
+        if not text:
+            try:
+                text = str(getattr(event, "unified_msg_origin", "") or "")
+            except Exception:
+                text = ""
+    t = text or ""
+    if _re_core.search(r"去世|难受|焦虑|抑郁|分手", t):
+        return "emotion"
+    if _re_core.search(r"论文|公文|演讲稿|营销文案|法律|声明", t):
+        return "formal"
+    if _re_core.search(r"怎么.*装|步骤|先.*再|压缩分区|备份", t):
+        return "tech_steps"
+    return "chat"
+
+
 class HumanChatQualityCore:
     """Host-independent request, response, and session behavior."""
 
@@ -160,7 +191,12 @@ class HumanChatQualityCore:
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
-        effective_active = bool(session_id) and self._is_effectively_active(session_id, event)
+        scene = _detect_scene(event)
+        # formal 场景：规则让位，直接走清理分支（不注入新内容，仅剥离旧块）
+        if scene == "formal":
+            effective_active = False
+        else:
+            effective_active = bool(session_id) and self._is_effectively_active(session_id, event)
         injected_hint = ""
         removed_stale = False
         avoid_openers: list[str] | None = None
@@ -242,10 +278,23 @@ class HumanChatQualityCore:
         if not text:
             return
 
-        # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略
+        # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略（英文用词边界避免子串误伤）
         if hinted:
             lowered = text.casefold()
-            if any(item.casefold() in lowered for item in self.store.get(session_id).avoid_openers):
+            avoid = self.store.get(session_id).avoid_openers
+            hit = False
+            for item in avoid:
+                cand = item.casefold()
+                if not cand:
+                    continue
+                if cand.isascii():
+                    if _re_core.search(rf"\b{_re_core.escape(cand)}\b", lowered):
+                        hit = True
+                        break
+                elif cand in lowered:
+                    hit = True
+                    break
+            if hit:
                 self.stats.runtime_hint_missed += 1
 
         # 记录响应前先检测信号（用于统计）
@@ -253,13 +302,16 @@ class HumanChatQualityCore:
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
 
+        # 记录前快照，用于 delta 统计（避免重复清单重复计数膨胀）
+        before_avoid = set(self.store.get(session_id).avoid_openers)
         # 记录到状态存储
         await self.store.record_response(session_id, text)
 
-        # 统计避用项数量（如实口径：累计记录到的避用项次数，非“实际避免”次数）
+        # 统计避用项数量：仅计新增项（delta），避免同一清单停留多轮重复膨胀
         state = self.store.get(session_id)
         if state.avoid_openers:
-            self.stats.avoid_openers_seen += len(state.avoid_openers)
+            new_items = set(state.avoid_openers) - before_avoid
+            self.stats.avoid_openers_seen += len(new_items) if new_items else 0
 
         if self.cfg.debug_log:
             logger.debug("response recorded for %s: %s", session_id, state.avoid_openers)

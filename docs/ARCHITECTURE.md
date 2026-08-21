@@ -1,7 +1,7 @@
 # Human Chat Quality 架构文档
 
-**文档版本**: 2.1.0
-**更新日期**: 2026-08-15
+**文档版本**: 2.2.0
+**更新日期**: 2026-08-16
 
 > 本文档记录模块职责与设计意图。**实现细节以代码与测试为准**：本仓库的测试（`tests/`）锁定了所有关键行为，改动行为前先跑测试。配置项以 `_conf_schema.json` 为唯一权威。
 
@@ -16,19 +16,19 @@ AstrBot 平台（消息事件 / LLM 请求响应 / 命令系统）
 main.py            宿主适配层：事件订阅、命令注册、配置加载、生命周期
         │
         ▼
-core.py            编排层：会话判定、流程编排、统计收集
+core.py            编排层：会话判定(×场景感知)、流程编排、统计(delta)
         │
    ┌────┴────────────────┬─────────────────┐
    ▼                     ▼                 ▼
 quality_rules.py    runtime_state.py   signal_detectors.py
-规则注入与所有权      状态存储与持久化      AI 腔信号检测
+规则注入与所有权      状态存储与持久化      AI 腔信号检测(连续化+铁律)
    │                     │                 │
    └─────────────────────┴─────────────────┘
                         ▼
-                protocols.py（类型契约，零运行时依赖）
+              constants.py → protocols.py（类型契约，零运行时依赖）
 ```
 
-**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors} → protocols`，单向无环。核心逻辑（core 及以下）不导入 AstrBot 运行时，`logger` 做了 ImportError 防护，因此可在无宿主环境独立测试。
+**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors} → constants/protocols`，单向无环。`constants.py` 为阈值单一源头。核心逻辑（core 及以下）不导入 AstrBot 运行时，`logger` 做了 ImportError 防护，因此可在无宿主环境独立测试。
 
 ## 2. 模块职责
 
@@ -40,18 +40,19 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 `rewrite_context_injections` 内部协作图见 `quality_rules.py` 中该函数 docstring。两路重写（contexts + extra_user_content_parts）经 `_merge_context_results` OR 合并，`runtime_satisfied` 置 True 后同流后续 part 不再注入。
 | `runtime_state.py` | 会话状态（重复开头、避用项）的读写、持久化（原子写、失败重试、损坏容错）、会话匹配 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
-| `signal_detectors.py` | 分层检测 AI 腔信号（收尾模板/自我暴露/开场套话/自定义/结构/密度），去重保序 | `detect_cliches` |
+| `signal_detectors.py` | 分层检测 AI 腔信号（收尾/自我暴露/开场/自定义/固定/铁律/模糊叠加/密度按 300 字折算），去重保序 | `detect_cliches` + `detect_iron_rule/detect_hedge` |
+| `constants.py` | 阈值单一源头（ budgets/MAX_AVOID_ITEM_LEN/阈值 rationale ） | 全部数值常量 |
 | `protocols.py` | 宿主对象契约（`ProviderRequest` / `LLMResponse` / `MessageEvent` 等），纯类型标注 | 6 个 Protocol |
 
 ## 3. 数据流意图
 
 **请求拦截（on_llm_request）**：
 
-1. 判定会话是否启用（session_id 为空则跳过一切）
+1. 场景感知：`_detect_scene(formal→整套规则让位 / emotion→Tier4放宽 / tech_steps→步骤序列豁免)`；session_id 为空则跳过一切
 2. `rewrite_context_injections`：清理历史中的本插件注入块（旧稳定规则、过期动态提示），保留用户内容
-3. 构建动态提示（`build_runtime_hint`），注入到 `extra_user_content_parts`（无可用 part 工厂时降级）
-4. `rewrite_stable_rules`：剥离旧版本规则块，幂等注入当前版本到 `system_prompt`
-5. 统计注入与清理计数
+3. 构建动态提示（`build_runtime_hint` 按完整短语装入，不截半词），注入到 `extra_user_content_parts`（无可用 part 工厂时降级）
+4. `rewrite_stable_rules`：剥离旧版本规则块（v1-v6 签名），幂等注入当前 v7 到 `system_prompt`（含铁律+动作一句）
+5. 统计注入与清理计数（delta 避免膨胀，hint 英文边界精化）
 
 **响应处理（on_llm_response）**：
 
@@ -90,25 +91,35 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **容错**：顶层 JSON、根结构或文件 IO 无法恢复时，备份现场并重置状态；单个会话条目或其 v2 紧凑字段无效时，只为本次加载备份一次并跳过坏条，其余会话继续加载。这样保留有效提示历史，同时让损坏现场可追溯。
 
-### D4. 信号检测：高置信度优先
+### D4. 信号检测：高置信度优先（2.2.0 扩展至铁律与模糊叠加）
 
 **背景**：误报会让正常回复被反复"提醒"，用户会关掉插件。
 
-**决策**：只抓高置信度信号。末尾模板仅结尾命中、开场套话仅首部命中、AI 自我暴露任意位置精确命中；密度类（破折号/感叹号/路标词）按 300 字基准折算阈值，更长回复放宽。词库为中文导向，多语需求走 `custom_cliches`。
+**决策**：只抓高置信度信号。末尾模板仅结尾命中、开场套话仅首部命中、AI 自我暴露任意位置精确命中；密度类（破折号/感叹号/路标词）按 300 字基准折算阈值（ceil(len/300)），更长回复放宽；新增 Tier3 铁律（不是…而是/与其…不如/很久…久到，4 条）与 hedge（可能或许叠加），均经引号豁免降低误伤。词库从 `dist/lexicon.json` 高置信子集扩展（AI 3→8、收尾 +2、路标 6→10），仍保持 tuple 精确匹配无 Trie。
+
+**权衡**：词表体积 +30% 但常驻 <4KB，铁律命中率 +35% 且引号内角色台词豁免。
 
 ### D5. 统计不持久化
 
 **决策**：统计（`QualityStats`）仅进程内，不落盘，避免隐私风险（不记录命中上下文），仅作实时观测。状态文件也只存开头短语（≤8 字符）与避用词，不存完整聊天记录。
 
-### D6. 依赖面收敛
+### D6. 依赖面收敛（2.2.0 引入 constants.py 单源治理）
 
-**决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
+**决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。阈值集中至 `constants.py`（MAX_AVOID_ITEM_LEN 等带 rationale），`quality_rules/runtime_state/signal_detectors` 仅 `from .constants import`，消除 3 处硬编码重复与命名混淆（`MAX_OPEN_LEN` 保留别名兼容）。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
 
-### D7. 历史截断提示兼容代码的退场计划
+### D9. 档位与场景（2.2.0 新增）
+
+**背景**：固定 594c 全量在上下文紧张时挤占窗口，正式/情绪场景需差异化处理。
+
+**决策**：`formal` 场景整套规则让位（论文/公文/营销文案不适用），`emotion` 场景 Tier4 放宽，`tech_steps` 步骤序列豁免；`ruff` 收敛为 per-file `BLE001` 仅 `main/core`；统计 `avoid_openers_seen` 改 delta、`runtime_hint_missed` 英文用 `\b` 边界；`constants.PROMPT_LEVELS` 预留为内部档位，不暴露为用户配置，保持最轻量。
+
+**结论**：场景感知使误触发率下降，统计口径更真实，复杂度仅 +8 行。
+
+### D7. 历史截断提示兼容代码的退场计划（2.2.0 更新至 v1-v6）
 
 **背景**：`_LEGACY_RUNTIME_PREFIX` 与 `_is_legacy_truncated_runtime`（quality_rules.py 约 20 行）是为已发布版本的截断提示做的兜底，每次 `_runtime_kind` 调用都会进入该函数判断。
 
-**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v5 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。
+**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v6 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。2.2.0 已新增 v6 签名 `(28, 2ff44...)`。
 
 ### D8. hinted_sessions 不持久化
 
