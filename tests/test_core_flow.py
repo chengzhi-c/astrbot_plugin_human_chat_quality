@@ -6,6 +6,7 @@ import json
 import os
 import re
 import unittest
+from unittest import mock
 
 from pathlib import Path
 
@@ -21,7 +22,9 @@ from tests._support import (
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore, extract_response_text
+from astrbot_plugin_human_chat_quality import core as core_module
 from astrbot_plugin_human_chat_quality import quality_rules
+from astrbot_plugin_human_chat_quality import runtime_state as runtime_state_module
 from astrbot_plugin_human_chat_quality.quality_rules import (
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
@@ -232,7 +235,9 @@ class TestCoreFlow(unittest.TestCase):
         ).replace("好的", "旧开头")
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
-        self.assertEqual(len(req.extra_user_content_parts), 0)
+        self.assertEqual(len(req.extra_user_content_parts), 1)
+        self.assertIn("好的", req.extra_user_content_parts[0].text)
+        self.assertEqual(req.contexts[0]["content"], [])
         self.assertNotIn("旧开头", json.dumps(req.contexts, ensure_ascii=False))
 
     def test_global_off_no_inject(self):
@@ -397,7 +402,9 @@ class TestCoreFlowExtra(unittest.TestCase):
         req = self._request_with_owned_blocks()
         asyncio.run(core.on_llm_request(self.ev, req))
         self.assertEqual(req.system_prompt, "原人设")
-        self.assertIn(RUNTIME_HINT_MARKER, req.contexts[0]["content"][0]["text"])
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(len(req.extra_user_content_parts), 1)
+        self.assertIn(RUNTIME_HINT_MARKER, req.extra_user_content_parts[0].text)
 
     def test_missing_text_part_factory_still_cleans_history_without_fake_part(self):
         asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答一"))
@@ -437,6 +444,36 @@ class TestCoreFlowExtra(unittest.TestCase):
         req2.contexts = [{"role": "user", "content": [{"type": "text", "text": RUNTIME_HINT_MARKER + "\n旧"}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req2))
         self.assertEqual(self.core.injection_count, 1)
+
+    def test_response_signals_are_detected_once(self):
+        core_detect = core_module.detect_cliches
+        store_detect = runtime_state_module.detect_cliches
+        with (
+            mock.patch.object(core_module, "detect_cliches", wraps=core_detect) as core_mock,
+            mock.patch.object(runtime_state_module, "detect_cliches", wraps=store_detect) as store_mock,
+        ):
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好问题，回答")))
+
+        self.assertEqual(core_mock.call_count + store_mock.call_count, 1)
+
+    def test_cleanup_stats_count_all_removed_blocks(self):
+        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        req = FakeReq(system_prompt=f"{build_stable_rules()}\n\n{build_stable_rules()}")
+        req.contexts = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": V2_RULES_E4AA983},
+                    {"type": "text", "text": runtime},
+                    {"type": "text", "text": runtime},
+                ],
+            }
+        ]
+
+        asyncio.run(self.core.on_llm_request(FakeEvent(""), req))
+
+        self.assertEqual(self.core.stats.legacy_blocks_removed, 3)
+        self.assertEqual(self.core.stats.stale_hints_removed, 2)
 
     def test_runtime_hint_missed_counts_repetition_after_hint(self):
         for _ in range(3):

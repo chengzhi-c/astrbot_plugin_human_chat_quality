@@ -161,6 +161,11 @@ class TestStableRewrite(unittest.TestCase):
         self.assertFalse(result.injected)
         self.assertTrue(result.removed)
 
+    def test_stable_removal_reports_the_number_of_removed_blocks(self):
+        rules = build_stable_rules()
+        result = rewrite_stable_rules(f"{rules}\n\n{rules}\n\n{rules}", enabled=False)
+        self.assertEqual(result.removed, 3)
+
     def test_unknown_v3_block_preserved_but_does_not_block_injection(self):
         unknown = "[Human Chat Quality Rules v3]\n无法验证的正文"
         prompt = f"人设\n\n{unknown}\n\n尾巴"
@@ -213,6 +218,43 @@ class TestStableRewrite(unittest.TestCase):
 
 
 class TestContextRewrite(unittest.TestCase):
+    def test_history_runtime_is_removed_instead_of_replaced(self):
+        old = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        new = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": old}]}]
+
+        result = rewrite_context_injections(req, new)
+
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(result.runtime_removed, 1)
+        self.assertFalse(result.runtime_satisfied)
+
+    def test_context_removal_counts_every_owned_block(self):
+        runtime = build_runtime_hint(
+            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
+        )
+        req = FakeReq()
+        req.contexts = [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": V2_RULES_E4AA983},
+                    {"type": "text", "text": runtime},
+                    {"type": "text", "text": runtime},
+                ],
+            }
+        ]
+
+        result = rewrite_context_injections(req, None)
+
+        self.assertEqual(result.stable_removed, 1)
+        self.assertEqual(result.runtime_removed, 2)
+
     def test_marker_mention_in_user_text_is_preserved(self):
         req = FakeReq()
         text = f"我在文档里看到了 {RUNTIME_HINT_MARKER}，它是什么意思？"
@@ -235,7 +277,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.runtime_ambiguous)
         self.assertFalse(result.runtime_removed)
 
-    def test_list_replacement_and_str_ambiguity_are_both_reported(self):
+    def test_history_removal_and_str_ambiguity_are_both_reported(self):
         old = build_runtime_hint(
             quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
         )
@@ -248,9 +290,9 @@ class TestContextRewrite(unittest.TestCase):
             {"role": "user", "content": RUNTIME_HINT_MARKER + "\n未知正文"},
         ]
         result = rewrite_context_injections(req, new)
-        self.assertEqual(req.contexts[0]["content"][0]["text"], new)
-        self.assertTrue(result.runtime_replaced)
-        self.assertTrue(result.runtime_satisfied)
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertEqual(result.runtime_removed, 1)
+        self.assertFalse(result.runtime_satisfied)
         self.assertTrue(result.runtime_ambiguous)
 
     def test_multiple_runtime_blocks_converge_without_reordering_other_parts(self):
@@ -277,10 +319,10 @@ class TestContextRewrite(unittest.TestCase):
         result = rewrite_context_injections(req, new)
         self.assertEqual(
             req.contexts[0]["content"],
-            [{"type": "text", "text": "前"}, image, {"type": "text", "text": new}, {"type": "text", "text": "后"}],
+            [{"type": "text", "text": "前"}, image, {"type": "text", "text": "后"}],
         )
-        self.assertTrue(result.runtime_replaced)
-        self.assertTrue(result.runtime_removed)
+        self.assertEqual(result.runtime_removed, 2)
+        self.assertFalse(result.runtime_satisfied)
 
     def test_truncated_110_runtime_blocks_are_removed(self):
         old_instruction = (
@@ -297,7 +339,7 @@ class TestContextRewrite(unittest.TestCase):
                 self.assertEqual(req.contexts[0]["content"], [])
                 self.assertTrue(result.runtime_removed)
 
-    def test_matching_runtime_block_is_satisfied_without_rewrite(self):
+    def test_matching_runtime_block_is_removed_from_history(self):
         target = build_runtime_hint(
             quality_rules.SessionState(avoid_openers=["好的"]), quality_rules.MAX_RUNTIME_HINT_CHARS
         )
@@ -305,10 +347,9 @@ class TestContextRewrite(unittest.TestCase):
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [part]}]
         result = rewrite_context_injections(req, target)
-        self.assertIs(req.contexts[0]["content"][0], part)
-        self.assertTrue(result.runtime_satisfied)
-        self.assertFalse(result.runtime_replaced)
-        self.assertFalse(result.runtime_removed)
+        self.assertEqual(req.contexts[0]["content"], [])
+        self.assertFalse(result.runtime_satisfied)
+        self.assertEqual(result.runtime_removed, 1)
 
     def test_known_stable_block_is_removed_from_history(self):
         req = FakeReq()
@@ -331,9 +372,8 @@ class TestContextRewrite(unittest.TestCase):
         result = rewrite_context_injections(req, new)
         self.assertTrue(all(not isinstance(part, dict) for part in req.extra_user_content_parts))
         self.assertEqual(req.extra_user_content_parts, [])
-        self.assertTrue(result.runtime_removed)
+        self.assertEqual(result.runtime_removed, 1)
         self.assertFalse(result.runtime_satisfied)
-        self.assertFalse(result.runtime_replaced)
 
     def test_extra_matching_owned_part_is_kept_as_same_object(self):
         target = build_runtime_hint(
@@ -345,8 +385,7 @@ class TestContextRewrite(unittest.TestCase):
         result = rewrite_context_injections(req, target)
         self.assertIs(req.extra_user_content_parts[0], part)
         self.assertTrue(result.runtime_satisfied)
-        self.assertFalse(result.runtime_replaced)
-        self.assertFalse(result.runtime_removed)
+        self.assertEqual(result.runtime_removed, 0)
 
 
 class TestStableRules(unittest.TestCase):

@@ -105,17 +105,16 @@ _TRAILING_SEPARATOR_RE = re.compile(r"(?:(?:\r\n|\r|\n)){2}$")
 class StableRewriteResult:
     text: str
     injected: bool
-    removed: bool
+    removed: int
     ambiguous: bool
 
 
 @dataclass(frozen=True)
 class ContextRewriteResult:
-    stable_removed: bool = False
+    stable_removed: int = 0
     runtime_satisfied: bool = False
-    runtime_replaced: bool = False
-    runtime_removed: bool = False
-    runtime_ambiguous: bool = False
+    runtime_removed: int = 0
+    runtime_ambiguous: int = 0
 
 
 def build_stable_rules() -> str:
@@ -178,27 +177,11 @@ def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableR
             text = rules
         injected = True
 
-    return StableRewriteResult(text, injected, bool(removals), ambiguous)
+    return StableRewriteResult(text, injected, len(removals), ambiguous)
 
 
 def rewrite_context_injections(req: ProviderRequestProtocol, runtime_text: str | None) -> ContextRewriteResult:
-    """清理历史中的本插件注入块，注入/替换本轮动态提示。
-
-    协作图（两路重写，结果经 _merge_context_results OR 合并）::
-
-        rewrite_context_injections
-        ├── contexts[role=user]
-        │   ├── content=str  → _rewrite_context_text
-        │   └── content=list → _rewrite_history_parts (逐 part → _owned_part_action)
-        └── extra_user_content_parts → _rewrite_extra_parts (逐 part → _owned_part_action)
-
-    _owned_part_action 返回 (action, flags):
-      "keep"   → 普通/匹配/ambiguous，保留原 part
-      "drop"   → 已知稳定块或无 runtime_text，删除
-      "stale"  → 旧 runtime 块：历史路径替换为 runtime_text，extra 路径删除
-
-    runtime_satisfied 一旦置 True，同流后续 part 不再注入（去重）。
-    """
+    """清理历史注入块，并在当前请求 extra parts 中保留至多一个匹配提示。"""
     result = ContextRewriteResult()
     contexts = getattr(req, "contexts", None)
     if isinstance(contexts, list):
@@ -207,19 +190,19 @@ def rewrite_context_injections(req: ProviderRequestProtocol, runtime_text: str |
                 continue
             content = ctx.get("content")
             if isinstance(content, str):
-                rewritten, item_result = _rewrite_context_text(content, runtime_text, result.runtime_satisfied)
+                rewritten, item_result = _rewrite_history_text(content)
                 if rewritten != content:
                     ctx["content"] = rewritten
                 result = _merge_context_results(result, item_result)
             elif isinstance(content, list):
-                rewritten, item_result = _rewrite_history_parts(content, runtime_text, result.runtime_satisfied)
+                rewritten, item_result = _rewrite_history_parts(content)
                 if rewritten != content:
                     ctx["content"] = rewritten
                 result = _merge_context_results(result, item_result)
 
     parts = getattr(req, "extra_user_content_parts", None)
     if isinstance(parts, list):
-        rewritten, item_result = _rewrite_extra_parts(parts, runtime_text, result.runtime_satisfied)
+        rewritten, item_result = _rewrite_extra_parts(parts, runtime_text)
         if rewritten != parts:
             req.extra_user_content_parts = rewritten
         result = _merge_context_results(result, item_result)
@@ -348,83 +331,70 @@ def _is_legacy_truncated_runtime(text: str) -> bool:
     )
 
 
-def _rewrite_context_text(
-    text: str, runtime_text: str | None, already_satisfied: bool
-) -> tuple[str, ContextRewriteResult]:
+def _rewrite_history_text(text: str) -> tuple[str, ContextRewriteResult]:
     if _is_known_stable_text(text):
-        return "", ContextRewriteResult(stable_removed=True)
+        return "", ContextRewriteResult(stable_removed=1)
     kind = _runtime_kind(text)
     if kind == "ordinary":
         return text, ContextRewriteResult()
     if kind == "ambiguous":
-        return text, ContextRewriteResult(runtime_ambiguous=True)
-    if not runtime_text:
-        return "", ContextRewriteResult(runtime_removed=True)
-    if already_satisfied:
-        return "", ContextRewriteResult(runtime_removed=True)
-    if _normalize_newlines(text) == _normalize_newlines(runtime_text):
-        return text, ContextRewriteResult(runtime_satisfied=True)
-    return runtime_text, ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True)
+        return text, ContextRewriteResult(runtime_ambiguous=1)
+    return "", ContextRewriteResult(runtime_removed=1)
 
 
-def _owned_part_action(
-    part: Any, runtime_text: str | None, already_satisfied: bool
-) -> tuple[str, ContextRewriteResult]:
-    text = _text_value(part)
-    if text is None:
-        return "keep", ContextRewriteResult()
-    if _is_known_stable_text(text):
-        return "drop", ContextRewriteResult(stable_removed=True)
-    kind = _runtime_kind(text)
-    if kind == "ordinary":
-        return "keep", ContextRewriteResult()
-    if kind == "ambiguous":
-        return "keep", ContextRewriteResult(runtime_ambiguous=True)
-    if not runtime_text or already_satisfied:
-        return "drop", ContextRewriteResult(runtime_removed=True)
-    if _normalize_newlines(text) == _normalize_newlines(runtime_text):
-        return "keep", ContextRewriteResult(runtime_satisfied=True)
-    return "stale", ContextRewriteResult()
-
-
-def _rewrite_history_parts(
-    parts: list[Any], runtime_text: str | None, already_satisfied: bool
-) -> tuple[list[Any], ContextRewriteResult]:
+def _rewrite_history_parts(parts: list[Any]) -> tuple[list[Any], ContextRewriteResult]:
     rewritten: list[Any] = []
-    result = ContextRewriteResult(runtime_satisfied=already_satisfied)
+    result = ContextRewriteResult()
     for part in parts:
-        action, flags = _owned_part_action(part, runtime_text, result.runtime_satisfied)
-        if action == "keep":
+        text = _text_value(part)
+        if text is None:
             rewritten.append(part)
-        elif action == "stale":
-            rewritten.append({"type": "text", "text": runtime_text})
-            flags = ContextRewriteResult(runtime_satisfied=True, runtime_replaced=True)
+            continue
+        replacement, flags = _rewrite_history_text(text)
+        if replacement:
+            rewritten.append(part)
         result = _merge_context_results(result, flags)
     return rewritten, result
 
 
-def _rewrite_extra_parts(
-    parts: list[Any], runtime_text: str | None, already_satisfied: bool
-) -> tuple[list[Any], ContextRewriteResult]:
+def _rewrite_extra_parts(parts: list[Any], runtime_text: str | None) -> tuple[list[Any], ContextRewriteResult]:
     rewritten: list[Any] = []
-    result = ContextRewriteResult(runtime_satisfied=already_satisfied)
+    result = ContextRewriteResult()
     for part in parts:
-        action, flags = _owned_part_action(part, runtime_text, result.runtime_satisfied)
-        if action == "keep":
+        text = _text_value(part)
+        if text is None:
             rewritten.append(part)
-        elif action == "stale":
-            flags = ContextRewriteResult(runtime_removed=True)
+            continue
+        if _is_known_stable_text(text):
+            result = _merge_context_results(result, ContextRewriteResult(stable_removed=1))
+            continue
+        kind = _runtime_kind(text)
+        if kind == "ordinary":
+            rewritten.append(part)
+            continue
+        if kind == "ambiguous":
+            rewritten.append(part)
+            result = _merge_context_results(result, ContextRewriteResult(runtime_ambiguous=1))
+            continue
+        if (
+            runtime_text
+            and not result.runtime_satisfied
+            and _normalize_newlines(text) == _normalize_newlines(runtime_text)
+        ):
+            rewritten.append(part)
+            result = _merge_context_results(result, ContextRewriteResult(runtime_satisfied=True))
+            continue
+        flags = ContextRewriteResult(runtime_removed=1)
         result = _merge_context_results(result, flags)
     return rewritten, result
 
 
 def _merge_context_results(left: ContextRewriteResult, right: ContextRewriteResult) -> ContextRewriteResult:
     return ContextRewriteResult(
-        stable_removed=left.stable_removed or right.stable_removed,
+        stable_removed=left.stable_removed + right.stable_removed,
         runtime_satisfied=left.runtime_satisfied or right.runtime_satisfied,
-        runtime_replaced=left.runtime_replaced or right.runtime_replaced,
-        runtime_removed=left.runtime_removed or right.runtime_removed,
-        runtime_ambiguous=left.runtime_ambiguous or right.runtime_ambiguous,
+        runtime_removed=left.runtime_removed + right.runtime_removed,
+        runtime_ambiguous=left.runtime_ambiguous + right.runtime_ambiguous,
     )
 
 

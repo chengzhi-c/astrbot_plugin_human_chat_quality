@@ -203,9 +203,7 @@ class HumanChatQualityCore:
         context_result = rewrite_context_injections(req, hint or None)
         removed_stale = context_result.stable_removed or context_result.runtime_removed
         ambiguous_kept = context_result.runtime_ambiguous
-        if context_result.runtime_replaced:
-            injected_hint = hint
-        elif hint and not context_result.runtime_satisfied and not context_result.runtime_ambiguous:
+        if hint and not context_result.runtime_satisfied and not context_result.runtime_ambiguous:
             if append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER):
                 injected_hint = hint
 
@@ -227,10 +225,8 @@ class HumanChatQualityCore:
         if session_id:
             pending = self._pending_hints.setdefault(session_id, deque())
             pending.append(runtime_hint_items(injected_hint))
-        if stable_result.removed:
-            self.stats.legacy_blocks_removed += 1
-        if context_result.runtime_removed:
-            self.stats.stale_hints_removed += 1
+        self.stats.legacy_blocks_removed += stable_result.removed + context_result.stable_removed
+        self.stats.stale_hints_removed += context_result.runtime_removed
 
         if (stable_result.injected or injected_hint or removed_stale or ambiguous_kept) and self.cfg.debug_log:
             self._log_injection(
@@ -299,7 +295,7 @@ class HumanChatQualityCore:
         # 记录前快照，用于 delta 统计（避免重复清单重复计数膨胀）
         before_avoid = set(self.store.get(session_id).avoid_openers)
         # 记录到状态存储
-        await self.store.record_response(session_id, text)
+        await self.store.record_response(session_id, text, tuple(cliches))
 
         # 统计避用项数量：仅计新增项（delta），避免同一清单停留多轮重复膨胀
         state = self.store.get(session_id)

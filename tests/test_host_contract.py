@@ -185,8 +185,7 @@ class TestHostRegistration(unittest.TestCase):
 
         result = rewrite_context_injections(req, new)
         self.assertEqual(req.extra_user_content_parts, [])
-        self.assertTrue(result.runtime_removed)
-        self.assertFalse(result.runtime_replaced)
+        self.assertEqual(result.runtime_removed, 1)
 
         self.assertTrue(append_temp_text_part(req, new, TextPart, marker=RUNTIME_HINT_MARKER))
         self.assertTrue(all(hasattr(part, "model_dump") for part in req.extra_user_content_parts))

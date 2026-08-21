@@ -131,7 +131,12 @@ class RuntimeStateStore:
             needs_flush = self.has_pending_save
         return await self.flush() if needs_flush else True
 
-    async def record_response(self, session_id: str, response_text: str) -> bool:
+    async def record_response(
+        self,
+        session_id: str,
+        response_text: str,
+        detected_cliches: Sequence[str] | None = None,
+    ) -> bool:
         text = re.sub(r"\s+", " ", (response_text or "")).strip()
         if not text:
             return not self.has_pending_save
@@ -145,7 +150,7 @@ class RuntimeStateStore:
                 state.recent_openers = [opener, *state.recent_openers][: self.recent_reply_window]
             # 两路合并进动态提示清单：① 最近窗口里高频重复的开头；② 本轮命中的高置信度信号。
             repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_OPENERS)
-            cliches = detect_cliches(text, self.custom_cliches)
+            cliches = detected_cliches if detected_cliches is not None else detect_cliches(text, self.custom_cliches)
             merged: list[str] = []
             for item in [*repeated, *cliches]:
                 if item and len(item) <= MAX_OPEN_LEN and item not in merged:
