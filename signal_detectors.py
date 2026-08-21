@@ -8,6 +8,8 @@ from __future__ import annotations
 import math
 import re
 
+from .constants import CONSECUTIVE_THRESHOLD, DENSITY_BASE
+
 
 # natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报（对齐 upstream dist/lexicon tier1_identity 高置信子集）
 DEFAULT_AI_CLICHES: tuple[str, ...] = (
@@ -62,8 +64,7 @@ _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
 # 切分正则（供 detect_opening_cliches 与 runtime_state.extract_opener 共用）
 OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
-# 固定计数类信号
-_FIXED_PATTERN_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (("然而连发", re.compile(r"然而"), 2),)
+_CONSECUTIVE_PATTERN = re.compile(r"然而")
 
 # 密度项与 natural-talk 计数口径一致（连续化 scale=max(1,len/300)）
 _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
@@ -77,11 +78,11 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
 )
 
 # Tier3 铁律：结构性表演（精简 4 条高置信，去回溯风险：句内 [^。\n] 限长）
-_TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    ("结构性表演", re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)")),
-    ("结构性表演", re.compile(r"与其[^。\n]{0,16}不如")),
-    ("结构性表演", re.compile(r"很久[^。\n]{0,6}久到")),
-    ("结构性表演", re.compile(r"真正的问题是")),
+_TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
+    re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)"),
+    re.compile(r"与其[^。\n]{0,16}不如"),
+    re.compile(r"很久[^。\n]{0,6}久到"),
+    re.compile(r"真正的问题是"),
 )
 _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
@@ -153,16 +154,12 @@ def detect_custom_cliches(text: str, custom_cliches: tuple[str, ...]) -> list[st
 
 def detect_fixed_pattern_signals(text: str) -> list[str]:
     """检测固定次数模式（如"然而"连发）。"""
-    hits: list[str] = []
-    for label, pattern, threshold in _FIXED_PATTERN_CHECKS:
-        if len(pattern.findall(text)) >= threshold:
-            hits.append(label)
-    return hits
+    return ["然而连发"] if len(_CONSECUTIVE_PATTERN.findall(text)) >= CONSECUTIVE_THRESHOLD else []
 
 
 def detect_density_signals(text: str) -> list[str]:
     """检测密度类信号（按篇幅折算，上游 engine/detector 同口径，阶梯档位）。"""
-    density_cap = max(1, math.ceil(len(text) / 300))
+    density_cap = max(1, math.ceil(len(text) / DENSITY_BASE))
     hits: list[str] = []
     for label, pattern, per_300 in _DENSITY_CHECKS:
         if len(pattern.findall(text)) > density_cap * per_300:
@@ -173,11 +170,11 @@ def detect_density_signals(text: str) -> list[str]:
 def detect_iron_rule(text: str) -> list[str]:
     """Tier3 铁律：先否定后肯定等结构性表演，角色台词豁免。"""
     quoted = _quoted_spans(text)
-    for label, pat in _TIER3_PATTERNS:
+    for pat in _TIER3_PATTERNS:
         for match in pat.finditer(text):
             if any(start <= match.start() and match.end() <= end for start, end in quoted):
                 continue
-            return [label]
+            return ["结构性表演"]
     return []
 
 

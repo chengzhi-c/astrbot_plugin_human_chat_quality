@@ -213,7 +213,7 @@ class TestCoreFlow(unittest.TestCase):
             req = FakeReq()
             asyncio.run(self.core.on_llm_request(self.ev, req))
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
-        old_hint = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old_hint = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.extra_user_content_parts = [FakePart(old_hint)]
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -231,7 +231,7 @@ class TestCoreFlow(unittest.TestCase):
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         req = FakeReq()
         old_hint = build_runtime_hint(
-            self.store.get(self.ev.unified_msg_origin), quality_rules.MAX_RUNTIME_HINT_CHARS
+            self.store.get(self.ev.unified_msg_origin).avoid_openers, quality_rules.MAX_RUNTIME_HINT_CHARS
         ).replace("好的", "旧开头")
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -303,6 +303,7 @@ class TestCoreFlow(unittest.TestCase):
         text = core.status_text(self.ev.unified_msg_origin, self.ev)
         self.assertIn("宿主临时文本部件不可用", text)
         self.assertIn("配置忽略：3 项", text)
+        self.assertIn("空值 1 项、重复 1 项、过长 1 项", text)
         self.assertNotIn("x" * 21, text)
 
 
@@ -378,7 +379,7 @@ class TestCoreFlowExtra(unittest.TestCase):
     def _request_with_owned_blocks(self):
         req = FakeReq()
         req.system_prompt = f"原人设\n\n{build_stable_rules()}"
-        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": runtime}]}]
         return req
 
@@ -453,7 +454,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         for _ in range(3):
             asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答"))
         core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=None)
-        old_hint = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old_hint = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
 
@@ -488,7 +489,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(core_mock.call_count + store_mock.call_count, 1)
 
     def test_cleanup_stats_count_all_removed_blocks(self):
-        runtime = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS)
+        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq(system_prompt=f"{build_stable_rules()}\n\n{build_stable_rules()}")
         req.contexts = [
             {
@@ -575,6 +576,26 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(self.core.stats.runtime_hint_missed, 0)
         asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("第二项")))
         self.assertEqual(self.core.stats.runtime_hint_missed, 1)
+
+    def test_pending_hint_queue_is_bounded_per_session(self):
+        with mock.patch.object(core_module, "PENDING_HINT_MAX_PER_SESSION", 3, create=True):
+            for index in range(5):
+                self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[f"第{index}项"])
+                asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+
+        self.assertEqual(len(self.core._pending_hints[self.ev.unified_msg_origin]), 3)
+
+    def test_expired_pending_hint_does_not_count_as_missed(self):
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["旧项"])
+        with (
+            mock.patch.object(core_module, "PENDING_HINT_TTL_SECONDS", 10, create=True),
+            mock.patch.object(core_module, "time", create=True) as clock,
+        ):
+            clock.monotonic.side_effect = [0, 11]
+            asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("旧项")))
+
+        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
 
     def test_no_origin_skips_everything(self):
         ev = FakeEvent("")

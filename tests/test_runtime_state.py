@@ -18,6 +18,7 @@ from tests._support import ensure_plugin_package, temporary_directory
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality import runtime_state as runtime_state_module
+from astrbot_plugin_human_chat_quality import signal_detectors
 from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
     SessionState,
@@ -154,6 +155,15 @@ class TestDetectClichesLegacy(unittest.TestCase):
         self.assertEqual(max(1, math.ceil(301 / 300)), 2)
         self.assertEqual(max(1, math.ceil(600 / 300)), 2)
         self.assertEqual(max(1, math.ceil(601 / 300)), 3)
+
+    def test_density_uses_shared_constant(self):
+        with mock.patch.object(signal_detectors, "DENSITY_BASE", 600, create=True):
+            self.assertIn("感叹号", signal_detectors.detect_density_signals("字" * 301 + "！" * 4))
+
+    def test_fixed_pattern_uses_shared_constant(self):
+        with mock.patch.object(signal_detectors, "CONSECUTIVE_THRESHOLD", 3, create=True):
+            self.assertNotIn("然而连发", signal_detectors.detect_fixed_pattern_signals("然而。然而。"))
+            self.assertIn("然而连发", signal_detectors.detect_fixed_pattern_signals("然而。然而。然而。"))
 
 
 class TestOpener(unittest.TestCase):

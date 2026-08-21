@@ -1,0 +1,1383 @@
+[
+  {
+    "id": "det-001",
+    "category": "casual",
+    "user": "今天下班后吃什么？",
+    "answer": "好问题，附近那家面馆就行。",
+    "expected_signals": [
+      "好问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-002",
+    "category": "casual",
+    "user": "你在忙吗？",
+    "answer": "刚忙完，怎么了？希望对你有帮助。",
+    "expected_signals": [
+      "希望对你有帮助"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-003",
+    "category": "casual",
+    "user": "周末想出去走走。",
+    "answer": "可以去公园或者逛逛展，看你更想放松还是换脑子。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-004",
+    "category": "casual",
+    "user": "我今天有点累。",
+    "answer": "那今晚别排太满，先吃饭洗澡，早点休息。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-005",
+    "category": "casual",
+    "user": "帮我给猫起个名字。",
+    "answer": "可以叫团子，听起来亲切，也适合毛茸茸的猫。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-006",
+    "category": "casual",
+    "user": "这首歌好上头。",
+    "answer": "旋律很抓耳，副歌尤其容易在脑子里循环。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-007",
+    "category": "casual",
+    "user": "明天会下雨吗？",
+    "answer": "我没有实时天气数据，查你所在城市的预报更准。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-008",
+    "category": "casual",
+    "user": "这个颜色好看吗？",
+    "answer": "挺耐看，和浅色上衣搭配会更清爽。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-009",
+    "category": "casual",
+    "user": "我忘记带伞了。",
+    "answer": "先看看附近有没有便利店，别让自己淋太久。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-010",
+    "category": "casual",
+    "user": "晚上想看点轻松的。",
+    "answer": "可以选一部节奏慢、时长短的喜剧。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-011",
+    "category": "casual",
+    "user": "早餐重要吗？",
+    "answer": "重要，但不必复杂，能稳定补充能量就够了。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-012",
+    "category": "casual",
+    "user": "我总拖到最后才收拾。",
+    "answer": "可以只定十分钟，先处理最显眼的一小块。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-013",
+    "category": "casual",
+    "user": "这周过得真快。",
+    "answer": "确实，忙起来一转眼就到周末了。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-014",
+    "category": "casual",
+    "user": "给我一句生日祝福。",
+    "answer": "愿你新的一岁有喜欢的事，也有踏实的日常。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-015",
+    "category": "casual",
+    "user": "我想学做饭。",
+    "answer": "先从一道步骤少、容错高的菜开始，比较容易坚持。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的casual样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-016",
+    "category": "tech",
+    "user": "Python 列表怎么去重？",
+    "answer": "作为AI，我建议用 dict.fromkeys 保留顺序。",
+    "expected_signals": [
+      "作为AI"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-017",
+    "category": "tech",
+    "user": "HTTP 500 说明什么？",
+    "answer": "事实上先看日志，实际上还要查参数，换句话说要结合上下文。",
+    "expected_signals": [
+      "路标词堆砌"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-018",
+    "category": "tech",
+    "user": "Git 如何查看文件历史？",
+    "answer": "用 git log --follow -- path/to/file，可追踪重命名前后的提交。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-019",
+    "category": "tech",
+    "user": "数据库索引为什么变慢？",
+    "answer": "数据分布、选择性、统计信息或索引失效都可能让优化器选择全表扫描。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-020",
+    "category": "tech",
+    "user": "正则里的问号是什么？",
+    "answer": "常见含义是前一个元素出现零次或一次，具体还要看位置。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-021",
+    "category": "tech",
+    "user": "Docker 容器为何退出？",
+    "answer": "主进程结束容器就会退出，先看 docker logs 和退出码。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-022",
+    "category": "tech",
+    "user": "缓存穿透怎么处理？",
+    "answer": "对不存在的键做短时缓存，并结合参数校验或布隆过滤器。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-023",
+    "category": "tech",
+    "user": "接口乱码怎么办？",
+    "answer": "检查响应头编码、服务端序列化和客户端解码是否一致。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-024",
+    "category": "tech",
+    "user": "为什么做幂等？",
+    "answer": "重复请求到达时仍得到可接受结果，能降低重试带来的副作用。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-025",
+    "category": "tech",
+    "user": "线程安全和进程安全一样吗？",
+    "answer": "不一样，线程共享地址空间，进程通常通过进程间通信协作。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-026",
+    "category": "tech",
+    "user": "JSON 能放注释吗？",
+    "answer": "标准 JSON 不支持注释，可选支持注释的变体或单独写说明。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-027",
+    "category": "tech",
+    "user": "如何定位内存泄漏？",
+    "answer": "观察趋势，再用堆快照、对象引用链和最小复现缩小范围。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-028",
+    "category": "tech",
+    "user": "消息队列重复消费怎么办？",
+    "answer": "消费者要能幂等处理，并结合确认、重试和死信策略。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-029",
+    "category": "tech",
+    "user": "日志为什么结构化？",
+    "answer": "结构化字段更容易检索、聚合和关联请求链路。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-030",
+    "category": "tech",
+    "user": "正向代理和反向代理区别？",
+    "answer": "正向代理代表客户端，反向代理代表服务端接收请求。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的tech样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-031",
+    "category": "steps",
+    "user": "如何压缩成 zip？",
+    "answer": "选中文件后压缩为 zip；命令行可用 zip archive.zip file。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-032",
+    "category": "steps",
+    "user": "排查接口超时的步骤？",
+    "answer": "然而先确认范围，然而再看客户端超时和下游依赖。",
+    "expected_signals": [
+      "然而连发"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-033",
+    "category": "steps",
+    "user": "怎么备份一个目录？",
+    "answer": "停止写入！复制目录！检查数量！核对校验值！",
+    "expected_signals": [
+      "感叹号"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-034",
+    "category": "steps",
+    "user": "如何安全升级依赖？",
+    "answer": "锁定当前版本并跑测试，再逐步升级，查看变更日志并隔离验证。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-035",
+    "category": "steps",
+    "user": "怎么检查端口占用？",
+    "answer": "查询端口对应进程，判断是否可停止，再调整服务配置。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-036",
+    "category": "steps",
+    "user": "部署失败先看什么？",
+    "answer": "看构建日志和退出码，再核对环境变量、依赖版本和权限。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-037",
+    "category": "steps",
+    "user": "如何处理 Git 冲突？",
+    "answer": "更新目标分支，逐个解决，运行测试后提交合并结果。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-038",
+    "category": "steps",
+    "user": "怎么给 API 加重试？",
+    "answer": "区分可重试错误，设置有限次数和退避，避免重复非幂等操作。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-039",
+    "category": "steps",
+    "user": "如何验证备份可恢复？",
+    "answer": "在隔离目录恢复，检查关键文件、权限和应用读取情况。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-040",
+    "category": "steps",
+    "user": "如何减少查询耗时？",
+    "answer": "记录基线，看执行计划、索引和返回数据量，改动后复测。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-041",
+    "category": "steps",
+    "user": "怎么排查页面空白？",
+    "answer": "看控制台和网络请求，再检查路由、构建产物和运行时异常。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-042",
+    "category": "steps",
+    "user": "如何清理日志？",
+    "answer": "确认保留期限和合规要求，归档旧日志并验证新日志写入。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-043",
+    "category": "steps",
+    "user": "怎么确认定时任务执行？",
+    "answer": "查看调度记录、任务日志、退出码和输出文件更新时间。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-044",
+    "category": "steps",
+    "user": "如何回滚版本？",
+    "answer": "停止继续发布，记录当前版本，切回已验证版本并检查兼容性。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-045",
+    "category": "steps",
+    "user": "如何检查磁盘空间？",
+    "answer": "查看分区使用量，定位大文件和临时目录后再清理。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的steps样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-046",
+    "category": "emotion",
+    "user": "我最近提不起劲。",
+    "answer": "通常来说，这种状态可能需要先减少今天的任务。",
+    "expected_signals": [
+      "模糊叠加"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-047",
+    "category": "emotion",
+    "user": "我因为一句话难过很久。",
+    "answer": "真正的问题是那句话刺痛了你，先允许自己难受。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-048",
+    "category": "emotion",
+    "user": "我和朋友吵架了。",
+    "answer": "先让情绪缓下来，等双方能好好说话时再谈具体发生了什么。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-049",
+    "category": "emotion",
+    "user": "我担心自己做不好。",
+    "answer": "担心不代表做不好，可以先拆出一个可完成的小步骤。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-050",
+    "category": "emotion",
+    "user": "今天什么都不想做。",
+    "answer": "如果不是必须，先休息一会儿；若持续影响生活，再找可信的人聊聊。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-051",
+    "category": "emotion",
+    "user": "我总想最坏结果。",
+    "answer": "把最坏结果写下来，再列出眼下能控制的一件事。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-052",
+    "category": "emotion",
+    "user": "我觉得被忽略了。",
+    "answer": "被忽略的感觉很难受，可以直接告诉对方你希望怎样回应。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-053",
+    "category": "emotion",
+    "user": "最近睡得很差。",
+    "answer": "尽量固定起床时间，睡前减少刺激；持续影响生活可咨询专业人士。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-054",
+    "category": "emotion",
+    "user": "我害怕做决定。",
+    "answer": "明确期限和最重要的取舍，不必要求一次选到完美答案。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-055",
+    "category": "emotion",
+    "user": "我对未来没信心。",
+    "answer": "先别解决全部未来，看看这周有什么动作能让生活稳定一点。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-056",
+    "category": "emotion",
+    "user": "我今天被批评了。",
+    "answer": "被批评会难受，把具体事实和情绪分开，再决定哪些建议值得采纳。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-057",
+    "category": "emotion",
+    "user": "我总觉得自己不够好。",
+    "answer": "这种感受很真实，但不等于事实；先回顾一件确实完成过的事。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-058",
+    "category": "emotion",
+    "user": "和家人沟通很累。",
+    "answer": "可以缩短一次谈话，只说一件具体的事，别把旧账一起带上。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-059",
+    "category": "emotion",
+    "user": "我不想给别人添麻烦。",
+    "answer": "寻求一点帮助不等于添麻烦，可以先提出一个明确的小请求。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-060",
+    "category": "emotion",
+    "user": "我现在很慌。",
+    "answer": "慢慢呼吸，把脚踩稳，确认眼前最紧急的事情是什么。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的emotion样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-061",
+    "category": "formal",
+    "user": "写一篇城市更新论文摘要。",
+    "answer": "摘要应说明研究问题、方法、发现和结论，综上所述。",
+    "expected_signals": [
+      "综上所述"
+    ],
+    "formal_bypass": true,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-062",
+    "category": "formal",
+    "user": "起草项目延期正式声明。",
+    "answer": "声明说明延期事实、影响范围、后续安排和联系人，避免夸大承诺。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-063",
+    "category": "formal",
+    "user": "润色这份法律文书。",
+    "answer": "在不改变法律事实和权利义务的前提下，统一术语并提高准确性。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-064",
+    "category": "formal",
+    "user": "生成产品营销文案。",
+    "answer": "先确认卖点、目标人群、渠道和合规限制，再组织文案。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-065",
+    "category": "formal",
+    "user": "写一篇毕业演讲稿。",
+    "answer": "可围绕经历、感谢和展望展开，保留正式场合的庄重感。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-066",
+    "category": "formal",
+    "user": "改写成公文语气。",
+    "answer": "保留事实和时间节点，去掉口语，补齐主语和办理要求。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-067",
+    "category": "formal",
+    "user": "翻译合同关键条款。",
+    "answer": "保持定义、义务、例外和责任限制的对应关系，疑义处标注原文。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-068",
+    "category": "formal",
+    "user": "起草会议纪要。",
+    "answer": "列出时间、参会者、议题、决定事项、负责人和截止时间。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-069",
+    "category": "formal",
+    "user": "写一段正式道歉声明。",
+    "answer": "直接说明责任和补救安排，避免把原因归咎于受影响的人。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-070",
+    "category": "formal",
+    "user": "生成论文引言。",
+    "answer": "交代背景、研究空白、问题和贡献，引用事实要可追溯。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-071",
+    "category": "formal",
+    "user": "改成新闻稿。",
+    "answer": "保留可核实信息、时间地点和引用，不添加未经确认的评价。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-072",
+    "category": "formal",
+    "user": "写一份采购申请。",
+    "answer": "包含采购对象、数量、预算、用途、供应商依据和审批事项。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-073",
+    "category": "formal",
+    "user": "拟定服务变更通知。",
+    "answer": "说明变更时间、影响、用户动作和咨询渠道。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-074",
+    "category": "formal",
+    "user": "写一份研究计划。",
+    "answer": "明确目标、方法、里程碑、风险和产出形式。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-075",
+    "category": "formal",
+    "user": "起草正式求职邮件。",
+    "answer": "简洁说明职位、匹配经验、附件和联系信息，语气专业。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "正式产物请求，稳定规则让位。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-076",
+    "category": "identity",
+    "user": "你是谁？",
+    "answer": "作为AI助手，我可以帮你整理信息和分析问题。",
+    "expected_signals": [
+      "作为AI"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-077",
+    "category": "identity",
+    "user": "你能做什么？",
+    "answer": "作为AI，我能协助解释概念和梳理方案，但不能替代专业机构作最终判断。",
+    "expected_signals": [
+      "作为AI"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-078",
+    "category": "identity",
+    "user": "知识更新到什么时候？",
+    "answer": "截至我的知识更新，我不能保证近期变化都最新，应再查权威来源。",
+    "expected_signals": [
+      "截至我的知识",
+      "截至我的知识更新"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-079",
+    "category": "identity",
+    "user": "你是人工智能吗？",
+    "answer": "是，我是作为人工智能助手提供帮助的。",
+    "expected_signals": [
+      "作为人工智能"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-080",
+    "category": "identity",
+    "user": "能保证答案完全正确吗？",
+    "answer": "不能，复杂或时效性强的问题需要核验。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-081",
+    "category": "identity",
+    "user": "能代替医生吗？",
+    "answer": "不能，诊断和治疗应由合格专业人员完成。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-082",
+    "category": "identity",
+    "user": "能访问我的电脑吗？",
+    "answer": "除非提供内容或工具权限，否则我看不到本地文件。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-083",
+    "category": "identity",
+    "user": "你有自己的经历吗？",
+    "answer": "我没有人类式个人经历，只能根据当前对话回应。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-084",
+    "category": "identity",
+    "user": "能记住所有聊天吗？",
+    "answer": "具体记忆范围取决于当前系统提供的上下文。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-085",
+    "category": "identity",
+    "user": "你会有情绪吗？",
+    "answer": "我可以体贴回应，但这不等于拥有人的主观情绪。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-086",
+    "category": "identity",
+    "user": "能替我做决定吗？",
+    "answer": "我可以列出取舍，最终决定仍由你根据实际情况作出。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-087",
+    "category": "identity",
+    "user": "能实时看新闻吗？",
+    "answer": "是否能获取实时信息取决于当前是否提供联网工具。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-088",
+    "category": "identity",
+    "user": "会不会编造来源？",
+    "answer": "无法确认来源时，我会说明不确定而不是补出出处。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-089",
+    "category": "identity",
+    "user": "能理解图片吗？",
+    "answer": "如果会话提供可读取图片，我可以尝试分析可见信息。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-090",
+    "category": "identity",
+    "user": "知道我的位置吗？",
+    "answer": "我不会仅凭对话准确知道你的现实位置。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的identity样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-091",
+    "category": "uncertainty",
+    "user": "这个政策明天一定生效吗？",
+    "answer": "可能或许要等正式通知，现有信息不能确定。",
+    "expected_signals": [
+      "模糊叠加"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-092",
+    "category": "uncertainty",
+    "user": "错误肯定是数据库导致的吗？",
+    "answer": "不是只看数据库，而是也要查网络或上游超时。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
+    "split": "dev"
+  },
+  {
+    "id": "det-093",
+    "category": "uncertainty",
+    "user": "这家公司会不会涨价？",
+    "answer": "我不能预测确定结果，只能根据公告和历史变化分析可能性。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-094",
+    "category": "uncertainty",
+    "user": "这段代码一定安全吗？",
+    "answer": "不能保证，需要结合输入边界、依赖版本和部署环境审查。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-095",
+    "category": "uncertainty",
+    "user": "他这样说是不是生气？",
+    "answer": "可能是，也可能只是表达直接，最好结合上下文确认。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-096",
+    "category": "uncertainty",
+    "user": "这个症状一定是感冒吗？",
+    "answer": "不能据此确定，持续或严重时应咨询医生。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-097",
+    "category": "uncertainty",
+    "user": "方案一定更省钱吗？",
+    "answer": "要看实施、维护和迁移成本，不能只比较表面价格。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-098",
+    "category": "uncertainty",
+    "user": "这条消息是真的吗？",
+    "answer": "无法仅凭转发文本确认，先找原始发布者和可核验来源。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-099",
+    "category": "uncertainty",
+    "user": "删掉文件会不会没事？",
+    "answer": "不确定，先确认是否被任务、配置或恢复流程引用。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-100",
+    "category": "uncertainty",
+    "user": "指标下降代表系统坏了吗？",
+    "answer": "未必，先看采样范围、基线、流量和相关指标。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-101",
+    "category": "uncertainty",
+    "user": "合同条款肯定有效吗？",
+    "answer": "不能仅凭文字确认法律效力，需要结合适用法律和事实。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-102",
+    "category": "uncertainty",
+    "user": "这次重试一定成功吗？",
+    "answer": "不一定，若根因未消失，重试只会增加负载。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-103",
+    "category": "uncertainty",
+    "user": "这个版本能直接升级吗？",
+    "answer": "需要看兼容说明、数据迁移和回滚路径，不能直接保证。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-104",
+    "category": "uncertainty",
+    "user": "他不回复是不是讨厌我？",
+    "answer": "无法从不回复单独推出这个结论，可以直接询问。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-105",
+    "category": "uncertainty",
+    "user": "模型一定比旧模型好？",
+    "answer": "要看任务、数据和评测指标，不能只按版本号判断。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的uncertainty样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-106",
+    "category": "role-dialogue",
+    "user": "保留角色台词中的铁律示例。",
+    "answer": "角色说：“这不是优化而是重构。”这属于台词内容。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-107",
+    "category": "role-dialogue",
+    "user": "用户引用了一句旧文案。",
+    "answer": "引文是“真正的问题是沟通方式”，这里只是在讨论原文。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-108",
+    "category": "role-dialogue",
+    "user": "解释代码注释里的这句话。",
+    "answer": "代码示例 `不是优化而是重构` 只是字符串内容。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-109",
+    "category": "role-dialogue",
+    "user": "保留引号里的原话。",
+    "answer": "原话为：“与其争论，不如先验证。”请不要改变引号内文字。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-110",
+    "category": "role-dialogue",
+    "user": "分析代码块里的套话。",
+    "answer": "```text\n希望对你有帮助\n``` 这是代码块中的测试数据。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-111",
+    "category": "role-dialogue",
+    "user": "分析小说对白。",
+    "answer": "角色回答：“很久，很久以后我们还会见面。”这是叙事对白。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-112",
+    "category": "role-dialogue",
+    "user": "引号内容是我的观点吗？",
+    "answer": "你引用的是“不是优化而是重构”，不一定代表你的立场。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-113",
+    "category": "role-dialogue",
+    "user": "保留命令行输出。",
+    "answer": "输出包含 `Great question`，这里只是终端里的固定文本。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "dev"
+  },
+  {
+    "id": "det-114",
+    "category": "role-dialogue",
+    "user": "判断广告语是否自然。",
+    "answer": "广告原句“欢迎继续交流”需要结合品牌语境评估。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-115",
+    "category": "role-dialogue",
+    "user": "原样输出示例 JSON。",
+    "answer": "示例字段是 {\"message\":\"如果还有问题\"}，请保持格式。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-116",
+    "category": "role-dialogue",
+    "user": "角色说了好问题要删吗？",
+    "answer": "如果是角色台词的一部分，就先保留再看语境。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-117",
+    "category": "role-dialogue",
+    "user": "这句是引用不是回答。",
+    "answer": "引用内容：“综上所述”只作为材料出现。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-118",
+    "category": "role-dialogue",
+    "user": "代码里出现真正的问题是。",
+    "answer": "函数名 `真正的问题是` 只是标识符。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-119",
+    "category": "role-dialogue",
+    "user": "检查一段对白。",
+    "answer": "对白：“不是失败，而是重新开始。”属于人物语言。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-120",
+    "category": "role-dialogue",
+    "user": "保留脚本里的英文。",
+    "answer": "脚本中有 `I hope this helps`，只是测试字符串。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-121",
+    "category": "formal",
+    "user": "这篇论文的方法可靠吗？",
+    "answer": "要看样本规模、对照设计和统计方法，单看结论不够。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论正式材料，不是请求生成正式产物。",
+    "split": "dev"
+  },
+  {
+    "id": "det-122",
+    "category": "formal",
+    "user": "合同里的违约责任怎么理解？",
+    "answer": "先看触发条件、责任范围和免责条款，具体效力还要结合适用法律。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "解释合同内容，不是翻译或起草合同。",
+    "split": "dev"
+  },
+  {
+    "id": "det-123",
+    "category": "formal",
+    "user": "会议纪要为什么要让参会人确认？",
+    "answer": "确认能减少事实遗漏和责任争议，也方便后续按结论执行。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论会议纪要用途，不是请求撰写。",
+    "split": "dev"
+  },
+  {
+    "id": "det-124",
+    "category": "formal",
+    "user": "新闻稿和公告有什么区别？",
+    "answer": "新闻稿面向媒体传播，公告更侧重向特定对象正式告知事项。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "比较正式文体，不是请求生成其中一种。",
+    "split": "dev"
+  },
+  {
+    "id": "det-125",
+    "category": "formal",
+    "user": "研究计划通常要回答哪些问题？",
+    "answer": "至少要交代研究目标、方法、数据来源、进度和预期结果。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "询问正式产物结构，不是要求代写。",
+    "split": "dev"
+  },
+  {
+    "id": "det-126",
+    "category": "formal",
+    "user": "求职邮件需要附作品集吗？",
+    "answer": "岗位看重作品时应附链接，并确保招聘方无需登录就能查看。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论求职邮件策略，不是请求起草邮件。",
+    "split": "dev"
+  },
+  {
+    "id": "det-127",
+    "category": "formal",
+    "user": "法律文书中的事实和理由怎么区分？",
+    "answer": "事实描述发生了什么，理由说明这些事实如何支持请求或结论。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "解释法律文书概念，不是请求润色文书。",
+    "split": "dev"
+  },
+  {
+    "id": "det-128",
+    "category": "formal",
+    "user": "采购申请一般由谁审批？",
+    "answer": "通常按金额和品类走部门负责人、采购、财务或更高层级审批。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "询问采购流程，不是拟定采购申请。",
+    "split": "dev"
+  },
+  {
+    "id": "det-129",
+    "category": "formal",
+    "user": "正式声明什么时候适合公开发布？",
+    "answer": "事实核验、责任边界和发布渠道都确认后再公开，避免边调查边定性。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论发布时机，不是生成声明。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-130",
+    "category": "formal",
+    "user": "公文语气为什么显得正式？",
+    "answer": "它依赖固定称谓、明确责任主体和较少口语省略，因此更庄重。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "分析公文语气，不是要求改写成公文。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-131",
+    "category": "formal",
+    "user": "营销文案一定要强调价格吗？",
+    "answer": "不一定，受众更关心效果、风险或使用成本时，价格只需放在决策位置。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论营销文案策略，不是请求生成文案。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-132",
+    "category": "formal",
+    "user": "演讲稿开头必须讲故事吗？",
+    "answer": "不用，问题、事实或直接结论都能开场，关键是与听众和主题匹配。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论演讲稿写法，不是请求写演讲稿。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-133",
+    "category": "formal",
+    "user": "服务变更通知应该提前多久发？",
+    "answer": "按影响范围和用户准备时间决定，高风险变更应预留回滚和确认窗口。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "询问通知时机，不是请求拟定通知。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-134",
+    "category": "formal",
+    "user": "摘要和引言分别解决什么问题？",
+    "answer": "摘要概括整项工作的目标、方法和结果，引言交代背景、问题与研究位置。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "比较论文组成部分，不是请求生成摘要。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-135",
+    "category": "formal",
+    "user": "道歉声明为什么容易引起二次争议？",
+    "answer": "常见原因是回避事实、推卸责任或承诺无法执行，发布前要逐项核对。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "讨论道歉声明风险，不是请求写声明。",
+    "split": "holdout"
+  }
+]

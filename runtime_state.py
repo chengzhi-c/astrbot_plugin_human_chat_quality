@@ -33,7 +33,6 @@ from .signal_detectors import OPENER_DELIM, detect_cliches
 MAX_AVOID_OPENERS = MAX_AVOID_ITEMS
 MAX_OPENER_LEN = _CONST_MAX_OPENER_LEN
 MAX_OPEN_LEN = MAX_AVOID_ITEM_LEN  # 兼容旧名，新代码用 MAX_AVOID_ITEM_LEN
-DENSITY_BASE = 300
 
 
 def _now() -> float:
@@ -77,7 +76,7 @@ class RuntimeStateStore:
                 ignored["duplicate"] = ignored.get("duplicate", 0) + 1
                 continue
             cleaned.append(text)
-        self.custom_cliches: tuple[str, ...] = tuple(dict.fromkeys(cleaned))
+        self.custom_cliches: tuple[str, ...] = tuple(cleaned)
         self.custom_cliches_ignored_reasons: tuple[tuple[str, int], ...] = tuple(ignored.items())
         self.custom_cliches_ignored = sum(ignored.values())
         if logger is not None and self.custom_cliches_ignored:

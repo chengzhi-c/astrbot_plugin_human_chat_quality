@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 import hashlib
 import re
@@ -10,9 +11,12 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
+from .constants import (
+    MAX_AVOID_ITEM_LEN as MAX_OPEN_LEN,
+    MAX_AVOID_ITEMS as MAX_AVOID_OPENERS,
+)
 from .constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS  # noqa: F401 re-export
 from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
-from .runtime_state import MAX_AVOID_OPENERS, MAX_OPEN_LEN, SessionState
 
 
 # 所有注入 marker 的公共前缀
@@ -120,7 +124,7 @@ class ContextRewriteResult:
 def build_stable_rules() -> str:
     """稳定规则：natural-talk lite 原文 + 插件附加条款。
 
-    natural-talk 部分逐字引用官方 lite 模板（templates/system-prompt-lite.txt 344c，MIT）：
+    natural-talk 部分逐字引用官方 344 字符 lite 模板（templates/system-prompt-lite.txt，MIT）：
     正文为 v2.1.0+ lite 模板含"不适用范围"行；
     "插件附加"含安全条款、身份披露例外及上游 extensions.iron_rule/action_compact
     （连续动作一句、铁律删否定留肯定），与 natural-talk 原则无冲突。
@@ -398,9 +402,9 @@ def _merge_context_results(left: ContextRewriteResult, right: ContextRewriteResu
     )
 
 
-def build_runtime_hint(state: SessionState, max_chars: int) -> str:
+def build_runtime_hint(openers: Sequence[str], max_chars: int) -> str:
     # 超长自定义词不注入（record 入库侧已按 MAX_OPEN_LEN 过滤，此处兜底旧状态文件里残留的超长词）
-    openers = [item for item in state.avoid_openers[:MAX_AVOID_OPENERS] if item and len(item) <= MAX_OPEN_LEN]
+    openers = [item for item in openers[:MAX_AVOID_OPENERS] if item and len(item) <= MAX_OPEN_LEN]
     if not openers:
         return ""
 

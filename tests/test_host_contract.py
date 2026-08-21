@@ -176,10 +176,9 @@ class TestHostRegistration(unittest.TestCase):
             build_runtime_hint,
             rewrite_context_injections,
         )
-        from astrbot_plugin_human_chat_quality.runtime_state import SessionState
 
-        old = build_runtime_hint(SessionState(avoid_openers=["旧开头"]), MAX_RUNTIME_HINT_CHARS)
-        new = build_runtime_hint(SessionState(avoid_openers=["新开头"]), MAX_RUNTIME_HINT_CHARS)
+        old = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], MAX_RUNTIME_HINT_CHARS)
         req = ProviderRequest(prompt="hi")
         req.extra_user_content_parts = [TextPart(text=old)]
 

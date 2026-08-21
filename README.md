@@ -4,7 +4,7 @@
 
 它做两件事：
 
-1. **固定规则**：写给模型的通用约束，幂等写入 system prompt。只做减法，不碰人设的性格、称呼、情绪和口头禅。正文用 natural-talk lite 344c（MIT）+ 插件附加铁律（连续动作一句、不是/与其/很久…久到 删否定留肯定，角色引号内除外）；并要求保留事实、任务优先、不把约束写进回复。用户直接问身份、能力边界或知识截止时间时，如实短答。来源见 `THIRD_PARTY_NOTICES.md`，原文用 `/humanq rules` 查看。正式场景（论文/公文/营销文案）自动让位。
+1. **固定规则**：写给模型的通用约束，幂等写入 system prompt。只做减法，不碰人设的性格、称呼、情绪和口头禅。正文用 natural-talk lite 344 字符模板（MIT）+ 插件附加铁律（连续动作一句、不是/与其/很久…久到 删否定留肯定，角色引号内除外）；并要求保留事实、任务优先、不把约束写进回复。用户直接问身份、能力边界或知识截止时间时，如实短答。来源见 `THIRD_PARTY_NOTICES.md`，原文用 `/humanq rules` 查看。正式场景（论文/公文/营销文案）自动让位。
 2. **动态提醒**：记下最近回复开头和高置信度套话；下一轮用一条短提示要求换说法。正式写作场景不注入，情绪主题的普通讨论仍保持任务优先。
 
 ## 它会提醒模型避开这些
@@ -96,6 +96,7 @@
 python -S scripts/run_tests.py core
 python scripts/run_tests.py host
 python scripts/run_tests.py all
+python -S scripts/eval_detector.py --check
 python scripts/build_release.py
 ```
 

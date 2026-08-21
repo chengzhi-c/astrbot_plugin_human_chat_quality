@@ -3,15 +3,22 @@ from __future__ import annotations
 from collections import deque
 from dataclasses import dataclass, field
 import logging
+import re
+import time
 from typing import Any
 
-import re as _re_core
-
-from .constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
+from .constants import (
+    MAX_RUNTIME_HINT_CHARS,
+    MIN_RUNTIME_HINT_CHARS,
+    PENDING_HINT_MAX_PER_SESSION,
+    PENDING_HINT_TTL_SECONDS,
+)
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
 from .quality_rules import (
+    ContextRewriteResult,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
+    StableRewriteResult,
     append_temp_text_part,
     build_runtime_hint,
     runtime_hint_items,
@@ -99,10 +106,7 @@ class AppConfig:
 
     @classmethod
     def from_config(cls, config: Any) -> AppConfig:
-        raw = config if config is not None else {}
-
-        def get(key: str, default: Any) -> Any:
-            return raw.get(key, default)
+        get = (config if config is not None else {}).get
 
         return cls(
             enabled=_parse_bool(get("enabled", True), True),
@@ -170,9 +174,29 @@ def _is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
     text = _event_text(event)
     if not text:
         return False
-    action = _re_core.search(r"写|撰写|起草|拟定|润色|改写|生成|翻译|输出", text)
-    artifact = _re_core.search(r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|正式声明", text)
+    action = re.search(r"写|撰写|起草|拟定|润色|改(?:写|成)|生成|翻译|输出", text)
+    artifact = re.search(
+        r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|通知|研究计划|求职邮件",
+        text,
+    )
     return bool(action and artifact)
+
+
+def _drop_expired_hints(pending: deque[tuple[float, tuple[str, ...]]], now: float) -> None:
+    while pending and now - pending[0][0] > PENDING_HINT_TTL_SECONDS:
+        pending.popleft()
+
+
+def _contains_hint_item(text: str, items: tuple[str, ...]) -> bool:
+    lowered = text.casefold()
+    for item in items:
+        candidate = item.casefold()
+        if candidate.isascii():
+            if re.search(rf"\b{re.escape(candidate)}\b", lowered):
+                return True
+        elif candidate in lowered:
+            return True
+    return False
 
 
 class HumanChatQualityCore:
@@ -189,7 +213,7 @@ class HumanChatQualityCore:
         self.text_part_factory = text_part_factory
         self.injection_count = 0
         self.stats = QualityStats()
-        self._pending_hints: dict[str, deque[tuple[str, ...]]] = {}
+        self._pending_hints: dict[str, deque[tuple[float, tuple[str, ...]]]] = {}
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
@@ -199,28 +223,27 @@ class HumanChatQualityCore:
             and self._is_effectively_active(session_id, event)
         )
         injected_hint = ""
-        removed_stale = False
         avoid_openers: list[str] | None = None
 
         hint = ""
         if effective_active and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
-            hint = build_runtime_hint(state, max_chars=self.cfg.max_runtime_hint_chars)
+            hint = build_runtime_hint(state.avoid_openers, max_chars=self.cfg.max_runtime_hint_chars)
 
         context_result = rewrite_context_injections(req, hint or None)
-        removed_stale = context_result.stable_removed or context_result.runtime_removed
-        ambiguous_kept = context_result.runtime_ambiguous
-        if hint and not context_result.runtime_satisfied and not context_result.runtime_ambiguous:
-            if append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER):
-                injected_hint = hint
+        if (
+            hint
+            and not context_result.runtime_satisfied
+            and not context_result.runtime_ambiguous
+            and append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER)
+        ):
+            injected_hint = hint
 
         before = getattr(req, "system_prompt", "") or ""
         stable_result = rewrite_stable_rules(before, enabled=effective_active and self.cfg.inject_stable_rules)
         if stable_result.text != before:
             req.system_prompt = stable_result.text
-        removed_stale = removed_stale or stable_result.removed
-        ambiguous_kept = ambiguous_kept or stable_result.ambiguous
 
         # 统计收集
         if stable_result.injected:
@@ -231,44 +254,57 @@ class HumanChatQualityCore:
             self.injection_count += 1
             self.stats.total_injections += 1
         if session_id:
-            pending = self._pending_hints.setdefault(session_id, deque())
-            pending.append(runtime_hint_items(injected_hint))
+            pending = self._pending_hints.get(session_id)
+            if pending is None or pending.maxlen != PENDING_HINT_MAX_PER_SESSION:
+                pending = deque(pending or (), maxlen=PENDING_HINT_MAX_PER_SESSION)
+                self._pending_hints[session_id] = pending
+            now = time.monotonic()
+            _drop_expired_hints(pending, now)
+            pending.append((now, runtime_hint_items(injected_hint)))
         self.stats.legacy_blocks_removed += stable_result.removed + context_result.stable_removed
         self.stats.stale_hints_removed += context_result.runtime_removed
 
-        if (stable_result.injected or injected_hint or removed_stale or ambiguous_kept) and self.cfg.debug_log:
+        if self.cfg.debug_log and (
+            stable_result.injected
+            or injected_hint
+            or stable_result.removed
+            or stable_result.ambiguous
+            or context_result.stable_removed
+            or context_result.runtime_removed
+            or context_result.runtime_ambiguous
+        ):
             self._log_injection(
                 session_id or "<unknown>",
-                stable_result.injected,
+                stable_result,
+                context_result,
                 injected_hint,
-                removed_stale,
-                ambiguous_kept,
                 avoid_openers,
             )
 
     def _log_injection(
         self,
         session_id: str,
-        injected_rules: bool,
+        stable_result: StableRewriteResult,
+        context_result: ContextRewriteResult,
         injected_hint: str,
-        removed_stale: bool,
-        ambiguous_kept: bool,
         avoid_openers: list[str] | None,
     ) -> None:
         logger.debug("injection rewrite for %s", session_id)
-        if injected_rules:
+        if stable_result.injected:
             logger.debug("stable rules injected into system_prompt (marker=%s)", STABLE_RULE_MARKER)
         if injected_hint:
             logger.debug("runtime hint injected: %s; avoid_openers=%s", injected_hint, avoid_openers)
-        if removed_stale:
+        if stable_result.removed or context_result.stable_removed or context_result.runtime_removed:
             logger.debug("stale owned injection removed for %s", session_id)
-        if ambiguous_kept:
+        if stable_result.ambiguous or context_result.runtime_ambiguous:
             logger.debug("ambiguous owned marker kept for %s", session_id)
 
     async def on_llm_response(self, event: MessageEventProtocol, resp: LLMResponseProtocol) -> None:
         session_id = unified_origin(event)
         pending = self._pending_hints.get(session_id)
-        hinted_items = pending.popleft() if pending else ()
+        if pending:
+            _drop_expired_hints(pending, time.monotonic())
+        hinted_items = pending.popleft()[1] if pending else ()
         if pending is not None and not pending:
             self._pending_hints.pop(session_id, None)
         if not session_id or _is_formal_writing_request(event) or not self._is_effectively_active(session_id, event):
@@ -278,22 +314,8 @@ class HumanChatQualityCore:
             return
 
         # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略（英文用词边界避免子串误伤）
-        if hinted_items:
-            lowered = text.casefold()
-            hit = False
-            for item in hinted_items:
-                cand = item.casefold()
-                if not cand:
-                    continue
-                if cand.isascii():
-                    if _re_core.search(rf"\b{_re_core.escape(cand)}\b", lowered):
-                        hit = True
-                        break
-                elif cand in lowered:
-                    hit = True
-                    break
-            if hit:
-                self.stats.runtime_hint_missed += 1
+        if hinted_items and _contains_hint_item(text, hinted_items):
+            self.stats.runtime_hint_missed += 1
 
         # 记录响应前先检测信号（用于统计）
         cliches = detect_cliches(text, self.store.custom_cliches)
@@ -346,7 +368,13 @@ class HumanChatQualityCore:
         else:
             lines.insert(3, "- 运行时提示：启用")
         if self.store.custom_cliches_ignored:
-            lines.append(f"- 配置忽略：{self.store.custom_cliches_ignored} 项（空值、重复或超过长度限制）")
+            ignored = dict(self.store.custom_cliches_ignored_reasons)
+            details = "、".join(
+                f"{label} {ignored[reason]} 项"
+                for reason, label in (("empty", "空值"), ("duplicate", "重复"), ("too_long", "过长"))
+                if ignored.get(reason)
+            )
+            lines.append(f"- 配置忽略：{self.store.custom_cliches_ignored} 项（{details}）")
         if state.avoid_openers and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             lines.append("- 下一轮请求会带上动态提醒")
         lines.append(f"- 自启动以来累计注入：{self.injection_count} 次")

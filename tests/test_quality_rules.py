@@ -125,6 +125,18 @@ class TestRewriteInterfaces(unittest.TestCase):
         self.assertTrue(callable(getattr(quality_rules, "rewrite_stable_rules", None)))
         self.assertTrue(callable(getattr(quality_rules, "rewrite_context_injections", None)))
 
+    def test_runtime_factory_contract_does_not_require_removed_content_protocol(self):
+        from astrbot_plugin_human_chat_quality import protocols
+
+        self.assertTrue(hasattr(protocols, "TextPartFactoryProtocol"))
+        self.assertFalse(hasattr(protocols, "ContentPartProtocol"))
+
+    def test_quality_rules_does_not_depend_on_runtime_state(self):
+        self.assertFalse(hasattr(quality_rules, "SessionState"))
+
+    def test_runtime_hint_accepts_opener_sequence(self):
+        self.assertIn("好的", build_runtime_hint(["好的"], 157))
+
 
 class TestStableRewrite(unittest.TestCase):
     def test_real_legacy_variants_are_removed(self):
@@ -219,12 +231,8 @@ class TestStableRewrite(unittest.TestCase):
 
 class TestContextRewrite(unittest.TestCase):
     def test_history_runtime_is_removed_instead_of_replaced(self):
-        old = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
-        new = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old}]}]
 
@@ -235,9 +243,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_satisfied)
 
     def test_context_removal_counts_every_owned_block(self):
-        runtime = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [
             {
@@ -278,12 +284,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_removed)
 
     def test_history_removal_and_str_ambiguity_are_both_reported(self):
-        old = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
-        new = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [
             {"role": "user", "content": [{"type": "text", "text": old}]},
@@ -296,12 +298,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.runtime_ambiguous)
 
     def test_multiple_runtime_blocks_converge_without_reordering_other_parts(self):
-        old = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
-        new = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         image = {"type": "image", "url": "keep"}
         req = FakeReq()
         req.contexts = [
@@ -340,9 +338,7 @@ class TestContextRewrite(unittest.TestCase):
                 self.assertTrue(result.runtime_removed)
 
     def test_matching_runtime_block_is_removed_from_history(self):
-        target = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["好的"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        target = build_runtime_hint(["好的"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         part = {"type": "text", "text": target}
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [part]}]
@@ -361,12 +357,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.stable_removed)
 
     def test_extra_stale_owned_part_is_removed_without_dict(self):
-        old = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["旧开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
-        new = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["新开头"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.extra_user_content_parts = [FakePart(old)]
         result = rewrite_context_injections(req, new)
@@ -376,9 +368,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_satisfied)
 
     def test_extra_matching_owned_part_is_kept_as_same_object(self):
-        target = build_runtime_hint(
-            quality_rules.SessionState(avoid_openers=["好的"]), quality_rules.MAX_RUNTIME_HINT_CHARS
-        )
+        target = build_runtime_hint(["好的"], quality_rules.MAX_RUNTIME_HINT_CHARS)
         part = FakePart(target)
         req = FakeReq()
         req.extra_user_content_parts = [part]
@@ -429,7 +419,7 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
         self.assertIn(IDENTITY_DISCLOSURE_LINE, rules)
-        # 2.2.0 起铁律与动作一句入正文，锚点更新至 upstream 344c + extensions
+        # 2.2.0 起铁律与动作一句入正文，锚点更新至 upstream 344 字符模板 + extensions
         self.assertIn("连续动作尽量一句写完", rules)
         self.assertIn("铁律：先否定后肯定", rules)
         self.assertEqual(RULES_VERSION, 7)
@@ -481,23 +471,19 @@ class TestAppendTempPart(unittest.TestCase):
 
 class TestRuntimeHint(unittest.TestCase):
     def test_empty_when_no_openers(self):
-        from astrbot_plugin_human_chat_quality.runtime_state import SessionState
-
-        self.assertEqual(build_runtime_hint(SessionState(), 157), "")
+        self.assertEqual(build_runtime_hint([], 157), "")
 
     def test_hint_starts_with_marker_and_keeps_complete_items(self):
-        from astrbot_plugin_human_chat_quality.runtime_state import SessionState
-
-        hint = build_runtime_hint(SessionState(avoid_openers=["好的", "没问题"]), 157)
+        hint = build_runtime_hint(["好的", "没问题"], 157)
         self.assertTrue(hint.startswith(RUNTIME_HINT_MARKER))
         self.assertIn("好的", hint)
         self.assertIn("没问题", hint)
         items = ["甲" * 20, "乙" * 20, "丙" * 20, "丁" * 20, "戊" * 20]
-        full = build_runtime_hint(SessionState(avoid_openers=items), 157)
+        full = build_runtime_hint(items, 157)
         self.assertEqual(len(full), 157)
         self.assertTrue(all(item in full for item in items))
 
-        short = build_runtime_hint(SessionState(avoid_openers=items), 80)
+        short = build_runtime_hint(items, 80)
         self.assertLessEqual(len(short), 80)
         self.assertIn(items[0], short)
         self.assertNotIn(items[1], short)

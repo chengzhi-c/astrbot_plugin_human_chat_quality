@@ -5,28 +5,19 @@
 
 from __future__ import annotations
 
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, Protocol
 
 
-@runtime_checkable
 class TextPartProtocol(Protocol):
     """临时文本 part 契约（对应 astrbot.core.agent.message.TextPart）。"""
 
     text: str
 
 
-@runtime_checkable
 class TextPartFactoryProtocol(Protocol):
     """TextPart 工厂函数契约。"""
 
     def __call__(self, *, text: str) -> TextPartProtocol: ...
-
-
-class ContentPartProtocol(Protocol):
-    """历史消息 content part（dict 或 object）。"""
-
-    @property
-    def text(self) -> str | None: ...
 
 
 class ProviderRequestProtocol(Protocol):

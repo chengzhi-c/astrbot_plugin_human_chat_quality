@@ -28,7 +28,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
               constants.py → protocols.py（类型契约，零运行时依赖）
 ```
 
-**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors} → constants/protocols`，单向无环。`constants.py` 为阈值单一源头。核心逻辑（core 及以下）不导入 AstrBot 运行时，`logger` 做了 ImportError 防护，因此可在无宿主环境独立测试。
+**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors} → constants/protocols`，单向无环；`quality_rules` 不依赖状态存储。`constants.py` 为阈值单一源头。核心逻辑（core 及以下）不导入 AstrBot 运行时，`logger` 做了 ImportError 防护，因此可在无宿主环境独立测试。
 
 ## 2. 模块职责
 
@@ -42,7 +42,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 | `runtime_state.py` | 会话状态（重复开头、避用项）的读写、持久化（原子写、失败重试、损坏容错）、会话匹配 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
 | `signal_detectors.py` | 分层检测 AI 腔信号（收尾/自我暴露/开场/自定义/固定/铁律/模糊叠加/密度按 300 字折算），去重保序 | `detect_cliches` + `detect_iron_rule/detect_hedge` |
 | `constants.py` | 阈值单一源头（ budgets/MAX_AVOID_ITEM_LEN/阈值 rationale ） | 全部数值常量 |
-| `protocols.py` | 宿主对象契约（`ProviderRequest` / `LLMResponse` / `MessageEvent` 等），纯类型标注 | 6 个 Protocol |
+| `protocols.py` | 宿主对象契约（`ProviderRequest` / `LLMResponse` / `MessageEvent` / TextPart 工厂），纯类型标注 | 5 个 Protocol |
 
 ## 3. 数据流意图
 
@@ -121,14 +121,14 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v6 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。2.2.0 已新增 v6 签名 `(28, 2ff44...)`。
 
-### D8. hinted_sessions 不持久化
+### D8. 请求与响应的提示归因
 
-**背景**：`core.py` `self._hinted_sessions: set[str]` 是进程内集合。若进程在"注入提醒"后、"处理响应"前崩溃，该标志丢失，`runtime_hint_missed` 统计会漏计。
+**背景**：宿主没有稳定的 request id，同会话并发请求只能按到达顺序匹配响应；请求有响应无时，待匹配项也不能无限增长。
 
-**决策**：不实现持久化。`hinted_sessions` 为进程内集合，不持久化。崩溃导致的漏计仅影响 `runtime_hint_missed` 统计精度，不影响提醒注入功能。持久化的成本（schema 扩展 + 跨重启语义）高于收益（秒级崩溃窗口的统计精度）。
+**决策**：每会话用有界 FIFO 保存 `(monotonic 时间, 实际注入项)`，空请求保留空占位以维持对齐；超过 TTL 的项在请求/响应边界清理。队列不持久化，重启时的漏计只影响进程内统计，不影响提醒功能。
 
 ## 5. 测试与发布
 
 - 测试分两层：`core`（无宿主，`python -S scripts/run_tests.py core`）与 `host`（需 AstrBot，契约测试）。
-- 发布门禁 `python scripts/build_release.py`：全部测试 + compileall + ruff + 清单校验 + metadata/CHANGELOG 版本一致性 + zip 路径安全检查，任一失败不产出归档。
+- 发布门禁 `python scripts/build_release.py`：全部测试 + 冻结 detector dev/holdout 评测 + compileall + ruff + 清单校验 + metadata/CHANGELOG 版本一致性 + zip 路径安全检查，任一失败不产出归档。
 - CI（`.github/workflows/ci.yml`）三层：无宿主 core、最低宿主 4.23.3 全门禁、最新 4.x host。
