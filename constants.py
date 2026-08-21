@@ -9,8 +9,6 @@ from __future__ import annotations
 # 状态与提示预算
 MAX_AVOID_ITEMS: int = 5  # 避用清单上限（重复开头+套路词合计），上游 budgets 5 项封顶
 MAX_AVOID_ITEM_LEN: int = 20  # 单条避用词最大长度，超长截断成半截即失效，入库过滤口径
-# 兼容旧名：历史代码/测试引用 MAX_OPEN_LEN，保留别名
-MAX_OPEN_LEN: int = MAX_AVOID_ITEM_LEN
 MAX_OPENER_LEN: int = 8  # 开头截断长度（前缀 ≤8 与普通开头同口径）
 MIN_RUNTIME_HINT_CHARS: int = 80  # 运行时提示最小字符数（完整短语装入，不截半）
 MAX_RUNTIME_HINT_CHARS: int = 157  # 理论容量：53 前缀 + 5×20 + 4分隔 = 157

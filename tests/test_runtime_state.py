@@ -5,7 +5,6 @@
 
 import asyncio
 import json
-import math
 import os
 import time
 import threading
@@ -23,13 +22,13 @@ from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
     SessionState,
     _parse_group_id_from_origin,
-    detect_cliches,
     extract_opener,
     group_id_from_event,
     is_session_disabled,
     match_keys,
     repeated_items,
 )
+from astrbot_plugin_human_chat_quality.signal_detectors import detect_cliches
 
 
 class TestDetectClichesNaturalTalk(unittest.TestCase):
@@ -148,13 +147,6 @@ class TestDetectClichesLegacy(unittest.TestCase):
         """密度折算用归一化后字符数，原始空白不计入篇幅档位。"""
         text = "破" + " " * 300 + "折" + "—" * 5
         self.assertIn("破折号", detect_cliches(text))
-
-    def test_density_cap_matches_300_char_basis(self):
-        """300 字基准折算边界：300→cap1，301→cap2，600→cap2，601→cap3。"""
-        self.assertEqual(max(1, math.ceil(300 / 300)), 1)
-        self.assertEqual(max(1, math.ceil(301 / 300)), 2)
-        self.assertEqual(max(1, math.ceil(600 / 300)), 2)
-        self.assertEqual(max(1, math.ceil(601 / 300)), 3)
 
     def test_density_uses_shared_constant(self):
         with mock.patch.object(signal_detectors, "DENSITY_BASE", 600, create=True):

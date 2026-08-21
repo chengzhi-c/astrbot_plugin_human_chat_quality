@@ -167,5 +167,5 @@ class HumanChatQualityPlugin(Star):
             logger.warning("[HumanChatQuality] pending runtime state could not be persisted during terminate")
         logger.info(
             "[HumanChatQuality] terminated, total injections this run: "
-            f"{self.core.injection_count}; marker={STABLE_RULE_MARKER}"
+            f"{self.core.stats.total_injections}; marker={STABLE_RULE_MARKER}"
         )

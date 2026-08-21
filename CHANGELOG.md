@@ -2,18 +2,20 @@
 
 本插件版本变更记录。版本号遵循语义化版本。
 
-## [2.2.0] - 2026-08-16
-
-- 固定规则升级至 v7：同步上游 natural-talk `extensions.iron_rule / action_compact`（连续动作一句、铁律删否定留肯定），RULES_VERSION 6→7，旧 v6 块可平滑剥离。
-- 词表对齐上游 lexicon.json：AI暴露 3→8、末尾收尾 +2、路标词 6→10，检测新增 Tier3 铁律与模糊叠加，仍按 300 字折算。
-- `constants.py` 集中维护阈值（`MAX_AVOID_ITEM_LEN` 保留旧名兼容）；统计采用 delta 口径，动态提醒只装入完整短语。
-
-## [Unreleased]
+## [2.3.0] - 2026-08-21
 
 - 历史 runtime 提示只清理，不在历史中替换；当前轮提示固定放入真实 extra TextPart。
 - 普通响应更新状态后由 debounce 任务合并写盘，命令与退出仍执行 durable flush。
 - `/humanq status` 显示真实关闭原因、宿主动态提醒能力和无效自定义词数量。
 - 正式写作让位覆盖合同、会议纪要、通知、研究计划等明确产物；发布构建增加冻结 detector dev/holdout 回归门禁。
+- 已发布 v6 规则正文纳入剥离夹具，签名表与夹具哈希必须一致。
+- 阈值只保留 `constants.py` 正式名；注入计数只走 `QualityStats.total_injections`。
+
+## [2.2.0] - 2026-08-16
+
+- 固定规则升级至 v7：同步上游 natural-talk `extensions.iron_rule / action_compact`（连续动作一句、铁律删否定留肯定），RULES_VERSION 6→7，旧 v6 块可平滑剥离。
+- 词表对齐上游 lexicon.json：AI暴露 3→8、末尾收尾 +2、路标词 6→10，检测新增 Tier3 铁律与模糊叠加，仍按 300 字折算。
+- `constants.py` 集中维护阈值（`MAX_AVOID_ITEM_LEN` 保留旧名兼容）；统计采用 delta 口径，动态提醒只装入完整短语。
 
 ## [2.1.0] - 2026-08-15
 

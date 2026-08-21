@@ -1,7 +1,7 @@
 name: astrbot_plugin_human_chat_quality
 display_name: 回复去AI化质量层 - 让AI回复更自然
 desc: 在 LLM 请求阶段注入稳定规则与本轮运行时提示的轻量聊天质量层
-version: 2.2.0
+version: 2.3.0
 author: chengzhi-c
 license: GPL-3.0
 repo: "https://github.com/chengzhi-c/astrbot_plugin_human_chat_quality"

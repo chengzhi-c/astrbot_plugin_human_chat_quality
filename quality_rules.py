@@ -11,11 +11,7 @@ try:
 except ImportError:  # pragma: no cover
     logger = None  # type: ignore
 
-from .constants import (
-    MAX_AVOID_ITEM_LEN as MAX_OPEN_LEN,
-    MAX_AVOID_ITEMS as MAX_AVOID_OPENERS,
-)
-from .constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS  # noqa: F401 re-export
+from .constants import MAX_AVOID_ITEM_LEN, MAX_AVOID_ITEMS
 from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 
 
@@ -313,8 +309,8 @@ def _is_complete_runtime(text: str) -> bool:
     for prefix in (_RUNTIME_PREFIX, _LEGACY_RUNTIME_PREFIX):
         if text.startswith(prefix):
             items = text[len(prefix) :].split(_RUNTIME_ITEM_SEPARATOR)
-            return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
-                0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items
+            return 1 <= len(items) <= MAX_AVOID_ITEMS and all(
+                0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items
             )
     return False
 
@@ -329,8 +325,9 @@ def _is_legacy_truncated_runtime(text: str) -> bool:
         return False
     payload = prefix[len(_LEGACY_RUNTIME_PREFIX) :]
     items = payload.split(_RUNTIME_ITEM_SEPARATOR)
-    return 1 <= len(items) <= MAX_AVOID_OPENERS and all(
-        (0 < len(item) <= MAX_OPEN_LEN if index < len(items) - 1 else len(item) <= MAX_OPEN_LEN) and "\n" not in item
+    return 1 <= len(items) <= MAX_AVOID_ITEMS and all(
+        (0 < len(item) <= MAX_AVOID_ITEM_LEN if index < len(items) - 1 else len(item) <= MAX_AVOID_ITEM_LEN)
+        and "\n" not in item
         for index, item in enumerate(items)
     )
 
@@ -403,8 +400,8 @@ def _merge_context_results(left: ContextRewriteResult, right: ContextRewriteResu
 
 
 def build_runtime_hint(openers: Sequence[str], max_chars: int) -> str:
-    # 超长自定义词不注入（record 入库侧已按 MAX_OPEN_LEN 过滤，此处兜底旧状态文件里残留的超长词）
-    openers = [item for item in openers[:MAX_AVOID_OPENERS] if item and len(item) <= MAX_OPEN_LEN]
+    # 超长自定义词不注入（record 入库侧已按 MAX_AVOID_ITEM_LEN 过滤，此处兜底旧状态文件里残留的超长词）
+    openers = [item for item in openers[:MAX_AVOID_ITEMS] if item and len(item) <= MAX_AVOID_ITEM_LEN]
     if not openers:
         return ""
 
@@ -428,9 +425,9 @@ def runtime_hint_items(text: str) -> tuple[str, ...]:
         return ()
     payload = normalized[len(_RUNTIME_PREFIX) :]
     items = payload.split(_RUNTIME_ITEM_SEPARATOR)
-    if not 1 <= len(items) <= MAX_AVOID_OPENERS:
+    if not 1 <= len(items) <= MAX_AVOID_ITEMS:
         return ()
-    if not all(0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items):
+    if not all(0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items):
         return ()
     return tuple(items)
 

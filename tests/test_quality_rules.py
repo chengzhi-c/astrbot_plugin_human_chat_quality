@@ -6,11 +6,19 @@
 import unittest
 from pathlib import Path
 
-from tests._support import FakePart, FakeReq, V2_RULES_E4AA983, V5_RULES_B46BD0D, ensure_plugin_package
+from tests._support import (
+    FakePart,
+    FakeReq,
+    V2_RULES_E4AA983,
+    V5_RULES_B46BD0D,
+    V6_RULES_2FF4406,
+    ensure_plugin_package,
+)
 
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality import quality_rules
+from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.quality_rules import (
     LEGACY_STABLE_MARKERS,
     RULES_VERSION,
@@ -115,6 +123,7 @@ REAL_LEGACY_RULES = (
     V2_RULES_E4AA983,
     V4_RULES_C7787F6,
     V5_RULES_B46BD0D,
+    V6_RULES_2FF4406,
 )
 LITE_FIXTURE_PATH = Path(__file__).resolve().parent / "fixtures" / "system-prompt-lite.txt"
 IDENTITY_DISCLOSURE_LINE = "用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避"
@@ -231,8 +240,8 @@ class TestStableRewrite(unittest.TestCase):
 
 class TestContextRewrite(unittest.TestCase):
     def test_history_runtime_is_removed_instead_of_replaced(self):
-        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
-        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old}]}]
 
@@ -243,7 +252,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_satisfied)
 
     def test_context_removal_counts_every_owned_block(self):
-        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        runtime = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [
             {
@@ -284,8 +293,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_removed)
 
     def test_history_removal_and_str_ambiguity_are_both_reported(self):
-        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
-        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [
             {"role": "user", "content": [{"type": "text", "text": old}]},
@@ -298,8 +307,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.runtime_ambiguous)
 
     def test_multiple_runtime_blocks_converge_without_reordering_other_parts(self):
-        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
-        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], MAX_RUNTIME_HINT_CHARS)
         image = {"type": "image", "url": "keep"}
         req = FakeReq()
         req.contexts = [
@@ -338,7 +347,7 @@ class TestContextRewrite(unittest.TestCase):
                 self.assertTrue(result.runtime_removed)
 
     def test_matching_runtime_block_is_removed_from_history(self):
-        target = build_runtime_hint(["好的"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        target = build_runtime_hint(["好的"], MAX_RUNTIME_HINT_CHARS)
         part = {"type": "text", "text": target}
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [part]}]
@@ -357,8 +366,8 @@ class TestContextRewrite(unittest.TestCase):
         self.assertTrue(result.stable_removed)
 
     def test_extra_stale_owned_part_is_removed_without_dict(self):
-        old = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
-        new = build_runtime_hint(["新开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
+        new = build_runtime_hint(["新开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.extra_user_content_parts = [FakePart(old)]
         result = rewrite_context_injections(req, new)
@@ -368,7 +377,7 @@ class TestContextRewrite(unittest.TestCase):
         self.assertFalse(result.runtime_satisfied)
 
     def test_extra_matching_owned_part_is_kept_as_same_object(self):
-        target = build_runtime_hint(["好的"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        target = build_runtime_hint(["好的"], MAX_RUNTIME_HINT_CHARS)
         part = FakePart(target)
         req = FakeReq()
         req.extra_user_content_parts = [part]
@@ -512,6 +521,18 @@ class TestSignatureTableCompleteness(unittest.TestCase):
             with self.subTest(marker=marker_line):
                 actual = quality_rules._signature(block)
                 self.assertIn(actual, quality_rules._LEGACY_STABLE_SIGNATURES.get(marker_line, frozenset()))
+
+    def test_signed_legacy_markers_have_matching_fixtures(self):
+        fixture_markers = {block.splitlines()[0] for block in REAL_LEGACY_RULES}
+        for marker, signatures in quality_rules._LEGACY_STABLE_SIGNATURES.items():
+            if marker in self._UNSIGNED_MARKERS:
+                continue
+            with self.subTest(marker=marker):
+                self.assertIn(marker, fixture_markers)
+                fixture_hashes = {
+                    quality_rules._signature(block) for block in REAL_LEGACY_RULES if block.splitlines()[0] == marker
+                }
+                self.assertEqual(set(signatures), fixture_hashes)
 
 
 if __name__ == "__main__":

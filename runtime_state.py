@@ -20,19 +20,12 @@ from .constants import (
     DAY_SECONDS,
     MAX_AVOID_ITEM_LEN,
     MAX_AVOID_ITEMS,
-    MAX_OPENER_LEN as _CONST_MAX_OPENER_LEN,
+    MAX_OPENER_LEN,
     OPENER_REPEAT_THRESHOLD,
     STATE_SAVE_DEBOUNCE_SECONDS,
-    CONSECUTIVE_THRESHOLD,  # noqa: F401 re-export
 )
 from .protocols import MessageEventProtocol
-from .signal_detectors import OPENER_DELIM, detect_cliches
-
-
-# 阈值单源来自 constants.py，保留模块别名以兼容测试与外部导入
-MAX_AVOID_OPENERS = MAX_AVOID_ITEMS
-MAX_OPENER_LEN = _CONST_MAX_OPENER_LEN
-MAX_OPEN_LEN = MAX_AVOID_ITEM_LEN  # 兼容旧名，新代码用 MAX_AVOID_ITEM_LEN
+from .signal_detectors import OPENER_DELIM, detect_cliches as _detect_cliches
 
 
 def _now() -> float:
@@ -61,7 +54,7 @@ class RuntimeStateStore:
         # 窗口不得小于重复阈值，否则「≥N 次」永远达不到（静默死区）
         self.recent_reply_window = max(OPENER_REPEAT_THRESHOLD, int(recent_reply_window or 8))
         # 群主自定义词（任意位置精确命中即提示）；内置末尾模板另走 DEFAULT_ENDINGS。
-        # 超长条目（>MAX_OPEN_LEN）在构造期过滤并告警，避免每轮命中又被丢弃的静默无效配置。
+        # 超长条目（>MAX_AVOID_ITEM_LEN）在构造期过滤并告警，避免每轮命中又被丢弃的静默无效配置。
         cleaned: list[str] = []
         ignored: dict[str, int] = {}
         for item in custom_cliches or []:
@@ -69,7 +62,7 @@ class RuntimeStateStore:
             if not text:
                 ignored["empty"] = ignored.get("empty", 0) + 1
                 continue
-            if len(text) > MAX_OPEN_LEN:
+            if len(text) > MAX_AVOID_ITEM_LEN:
                 ignored["too_long"] = ignored.get("too_long", 0) + 1
                 continue
             if text in cleaned:
@@ -195,13 +188,13 @@ class RuntimeStateStore:
             if opener:
                 state.recent_openers = [opener, *state.recent_openers][: self.recent_reply_window]
             # 两路合并进动态提示清单：① 最近窗口里高频重复的开头；② 本轮命中的高置信度信号。
-            repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_OPENERS)
-            cliches = detected_cliches if detected_cliches is not None else detect_cliches(text, self.custom_cliches)
+            repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_ITEMS)
+            cliches = detected_cliches if detected_cliches is not None else _detect_cliches(text, self.custom_cliches)
             merged: list[str] = []
             for item in [*repeated, *cliches]:
-                if item and len(item) <= MAX_OPEN_LEN and item not in merged:
+                if item and len(item) <= MAX_AVOID_ITEM_LEN and item not in merged:
                     merged.append(item)
-            state.avoid_openers = merged[:MAX_AVOID_OPENERS]
+            state.avoid_openers = merged[:MAX_AVOID_ITEMS]
 
             self.sessions[session_id] = state
             self._generation += 1
@@ -433,7 +426,7 @@ def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionS
             raise TypeError(f"r must be a string, got {type(recent_str).__name__}")
         recent = [s for s in recent_str.split(",") if s] if recent_str else []
         return SessionState(
-            avoid_openers=_list_of_str(data.get("a", []), MAX_AVOID_OPENERS),
+            avoid_openers=_list_of_str(data.get("a", []), MAX_AVOID_ITEMS),
             recent_openers=[item[:MAX_OPENER_LEN] for item in recent[:recent_reply_window]],
             last_response_at=None,
             updated_at=float(data.get("t", 0)) if data.get("t") else None,
@@ -441,7 +434,7 @@ def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionS
 
     # 旧格式（向后兼容）
     return SessionState(
-        avoid_openers=_list_of_str(data.get("avoid_openers", []), MAX_AVOID_OPENERS),
+        avoid_openers=_list_of_str(data.get("avoid_openers", []), MAX_AVOID_ITEMS),
         recent_openers=[
             item[:MAX_OPENER_LEN] for item in _list_of_str(data.get("recent_openers", []), recent_reply_window)
         ],
@@ -460,7 +453,7 @@ def _state_to_dict(state: SessionState, recent_reply_window: int) -> dict[str, A
     """
     timestamp = state.updated_at if state.updated_at is not None else state.last_response_at
     return {
-        "a": state.avoid_openers[:MAX_AVOID_OPENERS],
+        "a": state.avoid_openers[:MAX_AVOID_ITEMS],
         "r": ",".join(state.recent_openers[:recent_reply_window]),
         "t": int(timestamp) if timestamp else 0,
     }

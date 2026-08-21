@@ -1,7 +1,7 @@
 # Human Chat Quality 架构文档
 
-**文档版本**: 2.2.0
-**更新日期**: 2026-08-16
+**文档版本**: 2.3.0
+**更新日期**: 2026-08-21
 
 > 本文档记录模块职责与设计意图。**实现细节以代码与测试为准**：本仓库的测试（`tests/`）锁定了所有关键行为，改动行为前先跑测试。配置项以 `_conf_schema.json` 为唯一权威。
 
@@ -105,7 +105,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 ### D6. 依赖面收敛（2.2.0 引入 constants.py 单源治理）
 
-**决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。阈值集中至 `constants.py`（MAX_AVOID_ITEM_LEN 等带 rationale），`quality_rules/runtime_state/signal_detectors` 仅 `from .constants import`，消除 3 处硬编码重复与命名混淆（`MAX_OPEN_LEN` 保留别名兼容）。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
+**决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。阈值集中至 `constants.py`（`MAX_AVOID_ITEM_LEN` / `MAX_AVOID_ITEMS` 等带 rationale），`quality_rules/runtime_state/signal_detectors` 仅 `from .constants import`，消除硬编码重复与命名混淆。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
 
 ### D9. 正式写作让位与状态反馈
 
@@ -119,7 +119,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **背景**：`_LEGACY_RUNTIME_PREFIX` 与 `_is_legacy_truncated_runtime`（quality_rules.py 约 20 行）是为已发布版本的截断提示做的兜底，每次 `_runtime_kind` 调用都会进入该函数判断。
 
-**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v6 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。2.2.0 已新增 v6 签名 `(28, 2ff44...)`。
+**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v6 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。已发布 v6 正文在夹具中，签名与夹具不一致即失败。
 
 ### D8. 请求与响应的提示归因
 

@@ -15,6 +15,7 @@ from tests._support import (
     FakeReq,
     V2_RULES_E4AA983,
     V5_RULES_B46BD0D,
+    V6_RULES_2FF4406,
     ensure_plugin_package,
     temporary_directory,
 )
@@ -25,6 +26,7 @@ from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCo
 from astrbot_plugin_human_chat_quality import core as core_module
 from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality import runtime_state as runtime_state_module
+from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.quality_rules import (
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
@@ -80,8 +82,8 @@ class TestConfigParse(unittest.TestCase):
     def test_schema_matches_config_contract(self):
         schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
         schema = json.loads(schema_path.read_text(encoding="utf-8"))
-        self.assertEqual(getattr(quality_rules, "MIN_RUNTIME_HINT_CHARS", None), EXPECTED_MIN_RUNTIME_HINT_CHARS)
-        self.assertEqual(getattr(quality_rules, "MAX_RUNTIME_HINT_CHARS", None), EXPECTED_MAX_RUNTIME_HINT_CHARS)
+        self.assertEqual(MIN_RUNTIME_HINT_CHARS, EXPECTED_MIN_RUNTIME_HINT_CHARS)
+        self.assertEqual(MAX_RUNTIME_HINT_CHARS, EXPECTED_MAX_RUNTIME_HINT_CHARS)
         config_fields = {field.name for field in fields(AppConfig)}
         self.assertEqual(set(schema), config_fields)
 
@@ -173,6 +175,15 @@ class TestCoreFlow(unittest.TestCase):
         self.assertEqual(req.system_prompt.count(STABLE_RULE_MARKER), 1)
         self.assertIn("用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避", req.system_prompt)
 
+    def test_published_v6_block_is_replaced_with_current_rules(self):
+        req = FakeReq()
+        req.system_prompt = f"原人设：你是XX\n\n{V6_RULES_2FF4406}"
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertNotIn("[Human Chat Quality Rules v6]", req.system_prompt)
+        self.assertEqual(req.system_prompt.count(STABLE_RULE_MARKER), 1)
+        self.assertTrue(req.system_prompt.startswith("原人设：你是XX"))
+        self.assertIn("连续动作尽量一句写完", req.system_prompt)
+
     def test_current_stable_rules_injected(self):
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": "在吗"}]}]
@@ -213,7 +224,7 @@ class TestCoreFlow(unittest.TestCase):
             req = FakeReq()
             asyncio.run(self.core.on_llm_request(self.ev, req))
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
-        old_hint = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old_hint = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.extra_user_content_parts = [FakePart(old_hint)]
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -231,7 +242,7 @@ class TestCoreFlow(unittest.TestCase):
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         req = FakeReq()
         old_hint = build_runtime_hint(
-            self.store.get(self.ev.unified_msg_origin).avoid_openers, quality_rules.MAX_RUNTIME_HINT_CHARS
+            self.store.get(self.ev.unified_msg_origin).avoid_openers, MAX_RUNTIME_HINT_CHARS
         ).replace("好的", "旧开头")
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -379,7 +390,7 @@ class TestCoreFlowExtra(unittest.TestCase):
     def _request_with_owned_blocks(self):
         req = FakeReq()
         req.system_prompt = f"原人设\n\n{build_stable_rules()}"
-        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        runtime = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": runtime}]}]
         return req
 
@@ -389,7 +400,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(core.on_llm_request(self.ev, req))
         self.assertEqual(req.system_prompt, "原人设")
         self.assertEqual(req.contexts[0]["content"], [])
-        self.assertEqual(core.injection_count, 0)
+        self.assertEqual(core.stats.total_injections, 0)
 
     def test_static_disabled_session_cleans_owned_history(self):
         core = HumanChatQualityCore(
@@ -413,7 +424,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(req.system_prompt, "原人设")
         self.assertEqual(req.contexts[0]["content"], [])
         self.assertEqual(self.store.sessions, {})
-        self.assertEqual(self.core.injection_count, 0)
+        self.assertEqual(self.core.stats.total_injections, 0)
 
     def test_runtime_config_off_removes_runtime_but_keeps_stable_rules(self):
         core = HumanChatQualityCore(
@@ -454,7 +465,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         for _ in range(3):
             asyncio.run(self.store.record_response(self.ev.unified_msg_origin, "好的，回答"))
         core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=None)
-        old_hint = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        old_hint = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq()
         req.contexts = [{"role": "user", "content": [{"type": "text", "text": old_hint}]}]
 
@@ -463,33 +474,33 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(req.contexts[0]["content"], [])
         self.assertEqual(req.extra_user_content_parts, [])
 
-    def test_injection_count_only_real_injections(self):
+    def test_total_injections_only_real_injections(self):
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))
-        self.assertEqual(self.core.injection_count, 1)
+        self.assertEqual(self.core.stats.total_injections, 1)
         # 幂等轮：同一 req 已含规则、无 hint → 不注入不计
         asyncio.run(self.core.on_llm_request(self.ev, req))
-        self.assertEqual(self.core.injection_count, 1)
+        self.assertEqual(self.core.stats.total_injections, 1)
         # 仅移除历史旧块 → 不计注入
         req2 = FakeReq()
         req2.system_prompt = req.system_prompt
         req2.contexts = [{"role": "user", "content": [{"type": "text", "text": RUNTIME_HINT_MARKER + "\n旧"}]}]
         asyncio.run(self.core.on_llm_request(self.ev, req2))
-        self.assertEqual(self.core.injection_count, 1)
+        self.assertEqual(self.core.stats.total_injections, 1)
 
     def test_response_signals_are_detected_once(self):
         core_detect = core_module.detect_cliches
-        store_detect = runtime_state_module.detect_cliches
+        store_detect = runtime_state_module._detect_cliches
         with (
             mock.patch.object(core_module, "detect_cliches", wraps=core_detect) as core_mock,
-            mock.patch.object(runtime_state_module, "detect_cliches", wraps=store_detect) as store_mock,
+            mock.patch.object(runtime_state_module, "_detect_cliches", wraps=store_detect) as store_mock,
         ):
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好问题，回答")))
 
         self.assertEqual(core_mock.call_count + store_mock.call_count, 1)
 
     def test_cleanup_stats_count_all_removed_blocks(self):
-        runtime = build_runtime_hint(["旧开头"], quality_rules.MAX_RUNTIME_HINT_CHARS)
+        runtime = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq(system_prompt=f"{build_stable_rules()}\n\n{build_stable_rules()}")
         req.contexts = [
             {
@@ -578,12 +589,14 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(self.core.stats.runtime_hint_missed, 1)
 
     def test_pending_hint_queue_is_bounded_per_session(self):
-        with mock.patch.object(core_module, "PENDING_HINT_MAX_PER_SESSION", 3, create=True):
-            for index in range(5):
-                self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[f"第{index}项"])
-                asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+        limit = core_module.PENDING_HINT_MAX_PER_SESSION
+        for index in range(limit + 3):
+            self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[f"第{index}项"])
+            asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
 
-        self.assertEqual(len(self.core._pending_hints[self.ev.unified_msg_origin]), 3)
+        pending = self.core._pending_hints[self.ev.unified_msg_origin]
+        self.assertEqual(pending.maxlen, limit)
+        self.assertEqual(len(pending), limit)
 
     def test_expired_pending_hint_does_not_count_as_missed(self):
         self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["旧项"])

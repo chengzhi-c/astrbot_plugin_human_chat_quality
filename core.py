@@ -211,7 +211,6 @@ class HumanChatQualityCore:
         self.cfg = config
         self.store = store
         self.text_part_factory = text_part_factory
-        self.injection_count = 0
         self.stats = QualityStats()
         self._pending_hints: dict[str, deque[tuple[float, tuple[str, ...]]]] = {}
 
@@ -251,7 +250,6 @@ class HumanChatQualityCore:
         if injected_hint:
             self.stats.runtime_hints_injected += 1
         if stable_result.injected or injected_hint:
-            self.injection_count += 1
             self.stats.total_injections += 1
         if session_id:
             pending = self._pending_hints.get(session_id)
@@ -331,7 +329,7 @@ class HumanChatQualityCore:
         state = self.store.get(session_id)
         if state.avoid_openers:
             new_items = set(state.avoid_openers) - before_avoid
-            self.stats.avoid_openers_seen += len(new_items) if new_items else 0
+            self.stats.avoid_openers_seen += len(new_items)
 
         if self.cfg.debug_log:
             logger.debug("response recorded for %s: %s", session_id, state.avoid_openers)
@@ -377,7 +375,7 @@ class HumanChatQualityCore:
             lines.append(f"- 配置忽略：{self.store.custom_cliches_ignored} 项（{details}）")
         if state.avoid_openers and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             lines.append("- 下一轮请求会带上动态提醒")
-        lines.append(f"- 自启动以来累计注入：{self.injection_count} 次")
+        lines.append(f"- 自启动以来累计注入：{self.stats.total_injections} 次")
         lines.append(f"- 状态持久化：{persistence}")
         return "\n".join(lines)
 

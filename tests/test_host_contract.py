@@ -143,7 +143,7 @@ class TestHostRegistration(unittest.TestCase):
     def test_terminate_flushes_pending_state(self):
         store = mock.Mock()
         store.terminate = mock.AsyncMock(return_value=True)
-        core = type("Core", (), {"injection_count": 0})()
+        core = type("Core", (), {"stats": type("Stats", (), {"total_injections": 0})()})()
         plugin = type("StubPlugin", (), {"store": store, "core": core})()
         asyncio.run(HumanChatQualityPlugin.terminate(plugin))
         store.terminate.assert_awaited_once()
@@ -169,8 +169,8 @@ class TestHostRegistration(unittest.TestCase):
     def test_stale_extra_text_part_is_rewritten_then_assembled(self):
         from astrbot.core.agent.message import TextPart
         from astrbot.core.provider.entities import ProviderRequest
+        from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS
         from astrbot_plugin_human_chat_quality.quality_rules import (
-            MAX_RUNTIME_HINT_CHARS,
             RUNTIME_HINT_MARKER,
             append_temp_text_part,
             build_runtime_hint,
@@ -199,7 +199,7 @@ class TestHostRegistration(unittest.TestCase):
     def test_terminate_logs_failed_final_flush(self):
         store = mock.Mock()
         store.terminate = mock.AsyncMock(return_value=False)
-        core = type("Core", (), {"injection_count": 0})()
+        core = type("Core", (), {"stats": type("Stats", (), {"total_injections": 0})()})()
         plugin = type("StubPlugin", (), {"store": store, "core": core})()
         with mock.patch("astrbot_plugin_human_chat_quality.main.logger.warning") as warning:
             asyncio.run(HumanChatQualityPlugin.terminate(plugin))

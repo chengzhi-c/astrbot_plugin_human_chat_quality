@@ -11,7 +11,12 @@ from typing import TextIO
 
 REPO = Path(__file__).resolve().parents[1]
 SUITES = {
-    "core": ("tests.test_core_flow", "tests.test_quality_rules", "tests.test_runtime_state"),
+    "core": (
+        "tests.test_core_flow",
+        "tests.test_quality_rules",
+        "tests.test_runtime_state",
+        "tests.test_detector_eval",
+    ),
     "host": ("tests.test_host_contract",),
 }
 
