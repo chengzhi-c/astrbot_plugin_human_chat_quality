@@ -16,7 +16,7 @@ AstrBot 平台（消息事件 / LLM 请求响应 / 命令系统）
 main.py            宿主适配层：事件订阅、命令注册、配置加载、生命周期
         │
         ▼
-core.py            编排层：会话判定(×场景感知)、流程编排、统计(delta)
+core.py            编排层：会话判定、正式写作让位、流程编排、统计(delta)
         │
    ┌────┴────────────────┬─────────────────┐
    ▼                     ▼                 ▼
@@ -38,7 +38,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 | `core.py` | 编排：会话启用判定（配置开关 × 会话开关 × 静态黑名单）、注入流程、响应记录、进程内统计 | `HumanChatQualityCore`、`AppConfig`、`QualityStats` |
 | `quality_rules.py` | 稳定规则重写（注入/剥离/幂等）、动态提示构建与历史块清理、临时 part 追加 | `rewrite_stable_rules`、`rewrite_context_injections`、`build_runtime_hint` |
 
-`rewrite_context_injections` 内部协作图见 `quality_rules.py` 中该函数 docstring。两路重写（contexts + extra_user_content_parts）经 `_merge_context_results` OR 合并，`runtime_satisfied` 置 True 后同流后续 part 不再注入。
+`rewrite_context_injections` 清理历史 contexts 中可核验的本插件块；旧 runtime 不在历史中替换。`extra_user_content_parts` 保留普通 part 与至多一个匹配本轮的 runtime part，结果计数按物理删除块累计。
 | `runtime_state.py` | 会话状态（重复开头、避用项）的读写、持久化（原子写、失败重试、损坏容错）、会话匹配 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
 | `signal_detectors.py` | 分层检测 AI 腔信号（收尾/自我暴露/开场/自定义/固定/铁律/模糊叠加/密度按 300 字折算），去重保序 | `detect_cliches` + `detect_iron_rule/detect_hedge` |
 | `constants.py` | 阈值单一源头（ budgets/MAX_AVOID_ITEM_LEN/阈值 rationale ） | 全部数值常量 |
@@ -48,8 +48,8 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **请求拦截（on_llm_request）**：
 
-1. 场景感知：`_detect_scene(formal→整套规则让位 / emotion→Tier4放宽 / tech_steps→步骤序列豁免)`；session_id 为空则跳过一切
-2. `rewrite_context_injections`：清理历史中的本插件注入块（旧稳定规则、过期动态提示），保留用户内容
+1. 正式写作意图：当前用户请求同时包含动作词与正式产物时让位；session_id 为空则跳过一切
+2. `rewrite_context_injections`：清理历史中的本插件注入块（旧稳定规则、旧动态提示），保留用户内容
 3. 构建动态提示（`build_runtime_hint` 按完整短语装入，不截半词），注入到 `extra_user_content_parts`（无可用 part 工厂时降级）
 4. `rewrite_stable_rules`：剥离旧版本规则块（v1-v6 签名），幂等注入当前 v7 到 `system_prompt`（含铁律+动作一句）
 5. 统计注入与清理计数（delta 避免膨胀，hint 英文边界精化）
@@ -58,7 +58,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 1. 提取回复文本（`completion_text` 优先，`result_chain` 兜底）
 2. 检测 AI 腔信号、提取开头短语、判定重复项
-3. 更新会话状态（`record_response`），后台异步写盘
+3. 更新会话状态（`record_response`），内存立即生效并由 debounce 任务合并写盘
 4. 统计信号命中与避用项
 
 ## 4. 设计决策
@@ -97,7 +97,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **决策**：只抓高置信度信号。末尾模板仅结尾命中、开场套话仅首部命中、AI 自我暴露任意位置精确命中；密度类（破折号/感叹号/路标词）按 300 字基准折算阈值（ceil(len/300)），更长回复放宽；新增 Tier3 铁律（不是…而是/与其…不如/很久…久到，4 条）与 hedge（可能或许叠加），均经引号豁免降低误伤。词库从 `dist/lexicon.json` 高置信子集扩展（AI 3→8、收尾 +2、路标 6→10），仍保持 tuple 精确匹配无 Trie。
 
-**权衡**：词表体积 +30% 但常驻 <4KB，铁律命中率 +35% 且引号内角色台词豁免。
+**权衡**：保留小型 tuple 词表和明确配对扫描，不引入 Trie 或自动改写；效果以独立语料评测为准，不在文档中预填未经验证的命中率。
 
 ### D5. 统计不持久化
 
@@ -107,13 +107,13 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **决策**：核心逻辑零第三方运行时依赖，仅标准库 + 宿主 API。阈值集中至 `constants.py`（MAX_AVOID_ITEM_LEN 等带 rationale），`quality_rules/runtime_state/signal_detectors` 仅 `from .constants import`，消除 3 处硬编码重复与命名混淆（`MAX_OPEN_LEN` 保留别名兼容）。测试用标准库 unittest，发布门禁用 ruff（check + format）。不引入 pytest/mypy/coverage。
 
-### D9. 档位与场景（2.2.0 新增）
+### D9. 正式写作让位与状态反馈
 
-**背景**：固定 594c 全量在上下文紧张时挤占窗口，正式/情绪场景需差异化处理。
+**背景**：固定规则只在正式写作请求中让位；未生效的多档场景分类会增加状态组合，却没有对应运行时行为。
 
-**决策**：`formal` 场景整套规则让位（论文/公文/营销文案不适用），`emotion` 场景 Tier4 放宽，`tech_steps` 步骤序列豁免；`ruff` 收敛为 per-file `BLE001` 仅 `main/core`；统计 `avoid_openers_seen` 改 delta、`runtime_hint_missed` 英文用 `\b` 边界；`constants.PROMPT_LEVELS` 预留为内部档位，不暴露为用户配置，保持最轻量。
+**决策**：正式写作由“动作意图 + 正式产物”组合判断；`/humanq status` 区分全局配置关闭、当前会话 `/humanq off`、静态禁用、动态配置关闭与宿主 TextPart 不可用；无效自定义词只报告数量与原因类别，不记录原始词。
 
-**结论**：场景感知使误触发率下降，统计口径更真实，复杂度仅 +8 行。
+**结论**：状态页反映真实能力，且不新增命令或用户配置。
 
 ### D7. 历史截断提示兼容代码的退场计划（2.2.0 更新至 v1-v6）
 

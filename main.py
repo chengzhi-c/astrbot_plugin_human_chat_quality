@@ -66,7 +66,8 @@ class HumanChatQualityPlugin(Star):
         self.core = HumanChatQualityCore(cfg, self.store, text_part_factory=_probe_text_part_cls())
         logger.info(
             f"[HumanChatQuality] plugin loaded, version={PLUGIN_VERSION}, "
-            f"sessions={len(self.store.sessions)}, custom_cliches={len(self.store.custom_cliches)}"
+            f"sessions={len(self.store.sessions)}, custom_cliches={len(self.store.custom_cliches)}, "
+            f"custom_cliches_ignored={self.store.custom_cliches_ignored}"
         )
 
     @filter.on_llm_request(priority=-100)

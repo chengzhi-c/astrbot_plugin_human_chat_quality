@@ -57,7 +57,7 @@ class TestConfigParse(unittest.TestCase):
         self.assertEqual(AppConfig.from_config({"recent_reply_window": 2}).recent_reply_window, 3)
         self.assertEqual(AppConfig.from_config({"recent_reply_window": 999}).recent_reply_window, 50)
         cfg = AppConfig.from_config({"custom_cliches": ["  词  ", ""]})
-        self.assertEqual(cfg.custom_cliches, ("词",))
+        self.assertEqual(cfg.custom_cliches, ("词", ""))
 
     def test_all_int_clamps(self):
         self.assertEqual(
@@ -281,6 +281,37 @@ class TestCoreFlow(unittest.TestCase):
         quiet = core_no_hint.status_text(self.ev.unified_msg_origin, self.ev)
         self.assertIn("下一轮避用：好的", quiet)
         self.assertNotIn("下一轮请求会带上动态提醒", quiet)
+
+    def test_status_distinguishes_global_static_and_session_disable(self):
+        global_off = HumanChatQualityCore(
+            AppConfig.from_config({"enabled": False}), self.store, text_part_factory=FakePart
+        ).status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("全局配置：关闭", global_off)
+
+        static_off = HumanChatQualityCore(
+            AppConfig.from_config({"disabled_sessions": ["111"]}), self.store, text_part_factory=FakePart
+        ).status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("配置静态禁用", static_off)
+
+        asyncio.run(self.core.set_session_enabled(self.ev.unified_msg_origin, False))
+        session_off = self.core.status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("/humanq off", session_off)
+
+    def test_status_reports_runtime_capability_and_invalid_config_summary(self):
+        store = RuntimeStateStore(self.dir + "-status.json", 14, 8, ["", "词", "词", "x" * 21])
+        core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=None)
+        text = core.status_text(self.ev.unified_msg_origin, self.ev)
+        self.assertIn("宿主临时文本部件不可用", text)
+        self.assertIn("配置忽略：3 项", text)
+        self.assertNotIn("x" * 21, text)
+
+
+class TestQualityStats(unittest.TestCase):
+    def test_top_cliches_sort_ties_stably(self):
+        from astrbot_plugin_human_chat_quality.core import QualityStats
+
+        stats = QualityStats(cliche_hits={"zeta": 2, "alpha": 2, "middle": 1})
+        self.assertEqual(stats.top_cliches(3), [("alpha", 2), ("zeta", 2), ("middle", 1)])
 
 
 class TestResponseTextExtraction(unittest.TestCase):

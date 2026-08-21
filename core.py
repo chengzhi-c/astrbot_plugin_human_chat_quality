@@ -48,7 +48,7 @@ class QualityStats:
 
     def top_cliches(self, limit: int = 5) -> list[tuple[str, int]]:
         """返回命中最多的信号（降序）。"""
-        return sorted(self.cliche_hits.items(), key=lambda x: x[1], reverse=True)[:limit]
+        return sorted(self.cliche_hits.items(), key=lambda x: (-x[1], x[0]))[:limit]
 
 
 def _parse_bool(value: Any, default: bool) -> bool:
@@ -72,6 +72,14 @@ def _parse_list(value: Any) -> list[str]:
         return [str(item).strip() for item in value if str(item).strip()]
     if isinstance(value, str):
         return [item.strip() for item in value.splitlines() if item.strip()]
+    return []
+
+
+def _parse_custom_cliches(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value]
+    if isinstance(value, str):
+        return [item.strip() for item in value.splitlines()]
     return []
 
 
@@ -109,7 +117,7 @@ class AppConfig:
             ),
             state_retention_days=_parse_int(get("state_retention_days", 14), 14, 1, 365),
             recent_reply_window=_parse_int(get("recent_reply_window", 8), 8, 3, 50),
-            custom_cliches=tuple(_parse_list(get("custom_cliches", []))),
+            custom_cliches=tuple(_parse_custom_cliches(get("custom_cliches", []))),
             disabled_sessions=frozenset(item.lower() for item in _parse_list(get("disabled_sessions", []))),
         )
 
@@ -314,18 +322,32 @@ class HumanChatQualityCore:
 
     def status_text(self, session_id: str, event: MessageEventProtocol | None = None) -> str:
         persistence = "待重试" if self.store.has_pending_save else "正常"
-        if not self._is_effectively_active(session_id, event):
-            return f"Human Chat Quality 状态：\n- 当前会话：关闭\n- 无运行时状态\n- 状态持久化：{persistence}"
+        reasons: list[str] = []
+        if not self.cfg.enabled:
+            reasons.append("- 全局配置：关闭")
+        if not self.store.is_enabled(session_id):
+            reasons.append("- 当前会话：已通过 /humanq off 关闭")
+        if is_session_disabled(self.cfg.disabled_sessions, session_id, event):
+            reasons.append("- 配置静态禁用：当前会话命中禁用列表")
+        if reasons:
+            return "\n".join(["Human Chat Quality 状态：", *reasons, "- 无运行时状态", f"- 状态持久化：{persistence}"])
         state = self.store.get(session_id)
         avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无（尚未形成重复或套话信号）"
         lines = [
             "Human Chat Quality 状态：",
             "- 当前会话：启用",
-            f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '关闭'}（system_prompt）",
-            f"- 运行时提示：{'启用' if self.cfg.inject_runtime_state else '关闭'}",
+            f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '配置关闭'}（system_prompt）",
             f"- 下一轮避用：{avoid}",
         ]
-        if state.avoid_openers and self.cfg.inject_runtime_state:
+        if not self.cfg.inject_runtime_state:
+            lines.insert(3, "- 运行时提示：配置关闭")
+        elif self.text_part_factory is None:
+            lines.insert(3, "- 运行时提示：已配置，但宿主临时文本部件不可用")
+        else:
+            lines.insert(3, "- 运行时提示：启用")
+        if self.store.custom_cliches_ignored:
+            lines.append(f"- 配置忽略：{self.store.custom_cliches_ignored} 项（空值、重复或超过长度限制）")
+        if state.avoid_openers and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             lines.append("- 下一轮请求会带上动态提醒")
         lines.append(f"- 自启动以来累计注入：{self.injection_count} 次")
         lines.append(f"- 状态持久化：{persistence}")

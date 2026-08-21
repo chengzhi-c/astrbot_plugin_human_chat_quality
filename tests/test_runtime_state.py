@@ -195,6 +195,11 @@ class TestStore(unittest.TestCase):
         s = RuntimeStateStore(self._path(), 14, 8, ["自定义词", "自定义词", "x" * 21])
         self.assertEqual(s.custom_cliches, ("自定义词",))
 
+    def test_custom_cliches_report_ignored_reasons_without_values(self):
+        s = RuntimeStateStore(self._path(), 14, 8, ["", "自定义词", "自定义词", "x" * 21])
+        self.assertEqual(s.custom_cliches_ignored, 3)
+        self.assertEqual(dict(s.custom_cliches_ignored_reasons), {"empty": 1, "duplicate": 1, "too_long": 1})
+
     def test_persistence_status_interface_exists(self):
         s = RuntimeStateStore(self._path(), 14, 8)
         self.assertTrue(callable(getattr(s, "flush", None)))

@@ -64,18 +64,24 @@ class RuntimeStateStore:
         # 群主自定义词（任意位置精确命中即提示）；内置末尾模板另走 DEFAULT_ENDINGS。
         # 超长条目（>MAX_OPEN_LEN）在构造期过滤并告警，避免每轮命中又被丢弃的静默无效配置。
         cleaned: list[str] = []
+        ignored: dict[str, int] = {}
         for item in custom_cliches or []:
             text = str(item).strip()
             if not text:
+                ignored["empty"] = ignored.get("empty", 0) + 1
                 continue
             if len(text) > MAX_OPEN_LEN:
-                if logger is not None:
-                    logger.warning(
-                        f"[HumanChatQuality] custom_cliche {text[:12]!r}... exceeds {MAX_OPEN_LEN} chars, ignored"
-                    )
+                ignored["too_long"] = ignored.get("too_long", 0) + 1
+                continue
+            if text in cleaned:
+                ignored["duplicate"] = ignored.get("duplicate", 0) + 1
                 continue
             cleaned.append(text)
         self.custom_cliches: tuple[str, ...] = tuple(dict.fromkeys(cleaned))
+        self.custom_cliches_ignored_reasons: tuple[tuple[str, int], ...] = tuple(ignored.items())
+        self.custom_cliches_ignored = sum(ignored.values())
+        if logger is not None and self.custom_cliches_ignored:
+            logger.warning(f"[HumanChatQuality] ignored {self.custom_cliches_ignored} invalid custom_cliche entries")
         self.sessions: dict[str, SessionState] = {}
         # 运行时命令（/humanq off）写入的禁用会话；与配置键 disabled_sessions（静态黑名单）区分，避免同名歧义
         self.runtime_disabled: set[str] = set()
