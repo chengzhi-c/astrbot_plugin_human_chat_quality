@@ -24,7 +24,6 @@ ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore, extract_response_text
 from astrbot_plugin_human_chat_quality import core as core_module
-from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality import runtime_state as runtime_state_module
 from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.quality_rules import (
