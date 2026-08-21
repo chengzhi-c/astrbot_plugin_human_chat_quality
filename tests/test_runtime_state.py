@@ -131,6 +131,17 @@ class TestDetectClichesLegacy(unittest.TestCase):
         self.assertIn("自定义词", hits)
         self.assertIn("路标词堆砌", hits)
 
+    def test_quoted_iron_rule_does_not_hide_later_unquoted_match(self):
+        text = "他说：\u201c这不是优化而是重构。\u201d但真正的问题是测试不足。"
+        self.assertIn("结构性表演", detect_cliches(text))
+
+    def test_iron_rule_examples_in_code_are_ignored(self):
+        text = "示例：`不是优化而是重构`。代码如下：\n```text\n真正的问题是这里\n```"
+        self.assertNotIn("结构性表演", detect_cliches(text))
+
+    def test_mismatched_quotes_do_not_create_an_exemption(self):
+        self.assertIn("结构性表演", detect_cliches('\u201c前文这不是优化而是重构"后文'))
+
     def test_density_uses_normalized_text_length(self):
         """密度折算用归一化后字符数，原始空白不计入篇幅档位。"""
         text = "破" + " " * 300 + "折" + "—" * 5

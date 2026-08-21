@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 import logging
 from typing import Any
@@ -13,6 +14,7 @@ from .quality_rules import (
     STABLE_RULE_MARKER,
     append_temp_text_part,
     build_runtime_hint,
+    runtime_hint_items,
     rewrite_context_injections,
     rewrite_stable_rules,
 )
@@ -142,9 +144,7 @@ def _extract_text_from_part(item: Any) -> str:
     return content if isinstance(content, str) else ""
 
 
-def _detect_scene(event: MessageEventProtocol | None) -> str:
-    """场景感知（复刻 natural-talk engine/detector._detect_scene 轻量版）。"""
-    text = ""
+def _event_text(event: MessageEventProtocol | None) -> str:
     if event is not None:
         for attr in ("get_message_str", "message_str", "message", "text"):
             try:
@@ -152,24 +152,19 @@ def _detect_scene(event: MessageEventProtocol | None) -> str:
                 if callable(v):
                     v = v()
                 if isinstance(v, str) and v.strip():
-                    text = v.strip()
-                    break
+                    return v.strip()
             except Exception:
                 continue
-        # 兜底：unified_origin 含群聊上下文但非用户正文，仅作 formal 宽松匹配
-        if not text:
-            try:
-                text = str(getattr(event, "unified_msg_origin", "") or "")
-            except Exception:
-                text = ""
-    t = text or ""
-    if _re_core.search(r"去世|难受|焦虑|抑郁|分手", t):
-        return "emotion"
-    if _re_core.search(r"论文|公文|演讲稿|营销文案|法律|声明", t):
-        return "formal"
-    if _re_core.search(r"怎么.*装|步骤|先.*再|压缩分区|备份", t):
-        return "tech_steps"
-    return "chat"
+    return ""
+
+
+def _is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
+    text = _event_text(event)
+    if not text:
+        return False
+    action = _re_core.search(r"写|撰写|起草|拟定|润色|改写|生成|翻译|输出", text)
+    artifact = _re_core.search(r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|正式声明", text)
+    return bool(action and artifact)
 
 
 class HumanChatQualityCore:
@@ -186,17 +181,15 @@ class HumanChatQualityCore:
         self.text_part_factory = text_part_factory
         self.injection_count = 0
         self.stats = QualityStats()
-        # 本轮请求是否注入过动态提醒（按会话，响应时消费；用于效果观测）
-        self._hinted_sessions: set[str] = set()
+        self._pending_hints: dict[str, deque[tuple[str, ...]]] = {}
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
-        scene = _detect_scene(event)
-        # formal 场景：规则让位，直接走清理分支（不注入新内容，仅剥离旧块）
-        if scene == "formal":
-            effective_active = False
-        else:
-            effective_active = bool(session_id) and self._is_effectively_active(session_id, event)
+        effective_active = (
+            bool(session_id)
+            and not _is_formal_writing_request(event)
+            and self._is_effectively_active(session_id, event)
+        )
         injected_hint = ""
         removed_stale = False
         avoid_openers: list[str] | None = None
@@ -231,8 +224,9 @@ class HumanChatQualityCore:
         if stable_result.injected or injected_hint:
             self.injection_count += 1
             self.stats.total_injections += 1
-        if injected_hint and session_id:
-            self._hinted_sessions.add(session_id)
+        if session_id:
+            pending = self._pending_hints.setdefault(session_id, deque())
+            pending.append(runtime_hint_items(injected_hint))
         if stable_result.removed:
             self.stats.legacy_blocks_removed += 1
         if context_result.runtime_removed:
@@ -269,21 +263,21 @@ class HumanChatQualityCore:
 
     async def on_llm_response(self, event: MessageEventProtocol, resp: LLMResponseProtocol) -> None:
         session_id = unified_origin(event)
-        # 立即消费提醒标志（无论会话是否仍启用），防止跨轮残留误计
-        hinted = session_id in self._hinted_sessions
-        self._hinted_sessions.discard(session_id)
-        if not session_id or not self._is_effectively_active(session_id, event):
+        pending = self._pending_hints.get(session_id)
+        hinted_items = pending.popleft() if pending else ()
+        if pending is not None and not pending:
+            self._pending_hints.pop(session_id, None)
+        if not session_id or _is_formal_writing_request(event) or not self._is_effectively_active(session_id, event):
             return
         text = extract_response_text(resp)
         if not text:
             return
 
         # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略（英文用词边界避免子串误伤）
-        if hinted:
+        if hinted_items:
             lowered = text.casefold()
-            avoid = self.store.get(session_id).avoid_openers
             hit = False
-            for item in avoid:
+            for item in hinted_items:
                 cand = item.casefold()
                 if not cand:
                     continue

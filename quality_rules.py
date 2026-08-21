@@ -448,6 +448,19 @@ def build_runtime_hint(state: SessionState, max_chars: int) -> str:
     return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(selected) if selected else ""
 
 
+def runtime_hint_items(text: str) -> tuple[str, ...]:
+    normalized = _normalize_newlines(text)
+    if not normalized.startswith(_RUNTIME_PREFIX):
+        return ()
+    payload = normalized[len(_RUNTIME_PREFIX) :]
+    items = payload.split(_RUNTIME_ITEM_SEPARATOR)
+    if not 1 <= len(items) <= MAX_AVOID_OPENERS:
+        return ()
+    if not all(0 < len(item) <= MAX_OPEN_LEN and "\n" not in item for item in items):
+        return ()
+    return tuple(items)
+
+
 def make_text_part(text: str, factory: TextPartFactoryProtocol | None = None) -> Any | None:
     """构造临时文本 part；factory 为 None 时返回 None（调用方自行降级）。
 

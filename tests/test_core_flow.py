@@ -32,8 +32,9 @@ from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore, S
 
 
 class FakeEvent:
-    def __init__(self, origin):
+    def __init__(self, origin, text=""):
         self.unified_msg_origin = origin
+        self.text = text
 
 
 class FakeLLMResp:
@@ -461,6 +462,51 @@ class TestCoreFlowExtra(unittest.TestCase):
         # 无提醒注入的响应（如另一会话）：不计数
         asyncio.run(self.core.on_llm_response(FakeEvent("aiocqhttp:GroupMessage:999"), FakeLLMResp("好的，重复")))
         self.assertEqual(self.core.stats.runtime_hint_missed, 0)
+
+    def test_formal_writing_with_emotion_topic_skips_request_and_response(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "写一篇关于抑郁的论文")
+        req = FakeReq()
+
+        asyncio.run(self.core.on_llm_request(event, req))
+        asyncio.run(self.core.on_llm_response(event, FakeLLMResp("好的，论文草稿")))
+
+        self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+        self.assertNotIn(event.unified_msg_origin, self.store.sessions)
+
+    def test_discussing_a_formal_topic_keeps_chat_quality_active(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "分析一下关于抑郁论文的观点")
+        req = FakeReq()
+
+        asyncio.run(self.core.on_llm_request(event, req))
+
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_runtime_hint_missed_only_checks_items_that_were_injected(self):
+        first = "第一项第一项第一项第一项第一项"
+        second = "第二项第二项第二项第二项第二项"
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[first, second])
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"max_runtime_hint_chars": 80}), self.store, text_part_factory=FakePart
+        )
+        req = FakeReq()
+
+        asyncio.run(core.on_llm_request(self.ev, req))
+        asyncio.run(core.on_llm_response(self.ev, FakeLLMResp(second)))
+
+        self.assertIn(first, req.extra_user_content_parts[0].text)
+        self.assertNotIn(second, req.extra_user_content_parts[0].text)
+        self.assertEqual(core.stats.runtime_hint_missed, 0)
+
+    def test_runtime_hint_tracking_is_fifo_per_session(self):
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["第一项"])
+        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["第二项"])
+        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("第二项")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("第二项")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
 
     def test_no_origin_skips_everything(self):
         ev = FakeEvent("")

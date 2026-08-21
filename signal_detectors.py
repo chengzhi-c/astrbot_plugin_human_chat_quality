@@ -87,11 +87,42 @@ _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
     re.compile(r"(?:通常来说|一般来说|通常情况下).{0,10}(?:可能|或许|大概|大致|也许)"),
 )
+_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
 
 
 def _normalize_text(text: str) -> str:
     """归一化文本：合并空白。"""
-    return re.sub(r"\s+", " ", (text or "")).strip()
+    return re.sub(r"\s+", " ", _mask_code(text or "")).strip()
+
+
+def _mask_code(text: str) -> str:
+    def mask(match: re.Match[str]) -> str:
+        return re.sub(r"[^\r\n]", " ", match.group(0))
+
+    return _INLINE_CODE_RE.sub(mask, _FENCED_CODE_RE.sub(mask, text))
+
+
+def _quoted_spans(text: str) -> list[tuple[int, int]]:
+    spans: list[tuple[int, int]] = []
+    open_at: dict[str, int | None] = {'"': None, "'": None, "“": None}
+    for index, char in enumerate(text):
+        if char == "“":
+            if open_at["“"] is None:
+                open_at["“"] = index
+        elif char == "”":
+            start = open_at["“"]
+            if start is not None:
+                spans.append((start, index + 1))
+                open_at["“"] = None
+        elif char in {'"', "'"} and (index == 0 or text[index - 1] != "\\"):
+            start = open_at[char]
+            if start is None:
+                open_at[char] = index
+            else:
+                spans.append((start, index + 1))
+                open_at[char] = None
+    return spans
 
 
 def detect_ending_cliches(text: str) -> list[str]:
@@ -140,22 +171,12 @@ def detect_density_signals(text: str) -> list[str]:
 
 
 def detect_iron_rule(text: str) -> list[str]:
-    """Tier3 铁律：先否定后肯定等结构性表演（引号内豁免由调用方弱判定）。"""
+    """Tier3 铁律：先否定后肯定等结构性表演，角色台词豁免。"""
+    quoted = _quoted_spans(text)
     for label, pat in _TIER3_PATTERNS:
-        m = pat.search(text)
-        if m:
-            hit = m.group(0)[:24]
-            # 轻量引号豁免：命中前后 30 字内成对引号则视为角色台词，不报
-            try:
-                idx = text.find(hit[:6])
-                if idx != -1:
-                    left = max(text.rfind(q, 0, idx) for q in ['"', "'", "“", "”"])
-                    right_candidates = [text.find(q, idx + 6) for q in ['"', "'", "“", "”"]]
-                    right = min((p for p in right_candidates if p != -1), default=-1)
-                    if left != -1 and right != -1 and left < idx < right:
-                        return []
-            except Exception:
-                pass
+        for match in pat.finditer(text):
+            if any(start <= match.start() and match.end() <= end for start, end in quoted):
+                continue
             return [label]
     return []
 
