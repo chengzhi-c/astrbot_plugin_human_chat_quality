@@ -34,7 +34,9 @@ def _load_plugin():
 
 
 _load_plugin()
-detect_cliches = importlib.import_module(f"{package_name}.signal_detectors").detect_cliches
+_signal_detectors = importlib.import_module(f"{package_name}.signal_detectors")
+detect_cliches = _signal_detectors.detect_cliches
+builtin_signal_names = _signal_detectors.builtin_signal_names
 _is_formal_writing_request = importlib.import_module(f"{package_name}.core")._is_formal_writing_request
 
 
@@ -81,8 +83,16 @@ def _metrics(rows: list[dict[str, object]]) -> dict[str, object]:
     }
 
 
-def has_errors(report: dict[str, object]) -> bool:
-    for split in report.values():
+def uncovered_signal_names(rows: list[dict[str, object]]) -> list[str]:
+    expected = {str(item) for row in rows for item in row["expected_signals"]}
+    return sorted(name for name in builtin_signal_names() if name not in expected)
+
+
+def has_errors(report: dict[str, object], uncovered: list[str] | None = None) -> bool:
+    if uncovered:
+        return True
+    for name in ("dev", "holdout"):
+        split = report[name]
         if split["formal_bypass"]["fp"] or split["formal_bypass"]["fn"]:
             return True
         if any(metrics["fp"] or metrics["fn"] for metrics in split["categories"].values()):
@@ -95,12 +105,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--check", action="store_true", help="return non-zero when any frozen case mismatches")
     args = parser.parse_args(argv)
     rows = json.loads((repo / "tests" / "fixtures" / "detector_eval.json").read_text(encoding="utf-8"))
+    uncovered = uncovered_signal_names(rows)
     report = {
         "dev": _metrics([row for row in rows if row["split"] == "dev"]),
         "holdout": _metrics([row for row in rows if row["split"] == "holdout"]),
+        "uncovered_signals": uncovered,
     }
     print(json.dumps(report, ensure_ascii=False, sort_keys=True))
-    return 1 if args.check and has_errors(report) else 0
+    return 1 if args.check and has_errors(report, uncovered) else 0
 
 
 if __name__ == "__main__":

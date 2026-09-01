@@ -5,7 +5,7 @@ This project includes portions of the Natural Talk system-prompt rules:
 - Source: https://github.com/chengzhi-c/natural-talk
 - Compared against: commit e137d229d3bcb6340d65d47dd07024c8fc630fc8, using SKILL.md, templates/system-prompt-lite.txt, and scripts/scan-mechanical.py
 - License: MIT
-- The lite prompt is included via build_stable_rules() with plugin extras (dialogue/sentence checks + action compact + iron rule + anti-checklist protections) — see quality_rules.py
+- The lite prompt is included via build_stable_rules() with plugin extras (facts/safety, task-first, do not echo constraints, iron rule) — see quality_rules.py
 - Selected high-confidence signals are adapted from upstream scan-mechanical.py / rules definitions (B4a, B10, D1, D4, C5, F7, identity/courtesy/signposts)
 
 MIT License

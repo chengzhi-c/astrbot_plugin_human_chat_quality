@@ -3,6 +3,7 @@ import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from scripts import eval_detector
 from tests._support import ensure_plugin_package
@@ -46,8 +47,10 @@ class TestDetectorEvaluation(unittest.TestCase):
             text=True,
         )
         report = json.loads(result.stdout)
-        self.assertEqual(set(report), {"dev", "holdout"})
-        for split in report.values():
+        self.assertEqual(set(report), {"dev", "holdout", "uncovered_signals"})
+        self.assertEqual(report["uncovered_signals"], [])
+        for name in ("dev", "holdout"):
+            split = report[name]
             self.assertTrue(split["categories"])
             self.assertEqual(set(split["formal_bypass"]), {"precision", "recall", "fp", "fn"})
             self.assertEqual((split["formal_bypass"]["fp"], split["formal_bypass"]["fn"]), (0, 0))
@@ -64,6 +67,25 @@ class TestDetectorEvaluation(unittest.TestCase):
             },
         }
         self.assertTrue(eval_detector.has_errors(report))
+
+    def test_check_mode_rejects_uncovered_builtin_names(self):
+        self.assertTrue(eval_detector.has_errors({"dev": {}, "holdout": {}}, ["作为AI"]))
+        self.assertFalse(
+            eval_detector.has_errors(
+                {
+                    "dev": {"categories": {"casual": {"fp": 0, "fn": 0}}, "formal_bypass": {"fp": 0, "fn": 0}},
+                    "holdout": {"categories": {"casual": {"fp": 0, "fn": 0}}, "formal_bypass": {"fp": 0, "fn": 0}},
+                }
+            )
+        )
+
+    def test_opening_negative_exemption_is_locked_by_reverse_failure(self):
+        from astrbot_plugin_human_chat_quality import signal_detectors as sd
+
+        text = "让我们先来点音乐吧，把气氛热一下。"
+        self.assertEqual(sd.detect_cliches(text), [])
+        with mock.patch.object(sd, "_OPENING_NEGATIVE_EXACT", frozenset()):
+            self.assertIn("让我们先来", sd.detect_cliches(text))
 
 
 if __name__ == "__main__":

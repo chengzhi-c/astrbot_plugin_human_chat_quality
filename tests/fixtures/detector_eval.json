@@ -1475,5 +1475,642 @@
     "formal_bypass": false,
     "rationale": "B4a提示语冒号命中。",
     "split": "holdout"
+  },
+  {
+    "id": "det-144",
+    "category": "tech",
+    "user": "这个方案行吗？",
+    "answer": "Great question, ship the small patch first.",
+    "expected_signals": [
+      "Great question"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：Great question",
+    "split": "dev"
+  },
+  {
+    "id": "det-145",
+    "category": "casual",
+    "user": "还要补充吗？",
+    "answer": "No other change is required. I hope this helps.",
+    "expected_signals": [
+      "I hope this helps"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：I hope this helps",
+    "split": "holdout"
+  },
+  {
+    "id": "det-146",
+    "category": "emotion",
+    "user": "下周答辩有点慌。",
+    "answer": "材料已经齐了，一起加油。",
+    "expected_signals": [
+      "一起加油"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：一起加油",
+    "split": "dev"
+  },
+  {
+    "id": "det-147",
+    "category": "tech",
+    "user": "接口怎么拆？",
+    "answer": "下面我将从鉴权、限流、落盘三块说。",
+    "expected_signals": [
+      "下面我将"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：下面我将",
+    "split": "holdout"
+  },
+  {
+    "id": "det-148",
+    "category": "casual",
+    "user": "项目卡住了。",
+    "answer": "先把这一期做完，不忘初心。",
+    "expected_signals": [
+      "不忘初心"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：不忘初心",
+    "split": "dev"
+  },
+  {
+    "id": "det-149",
+    "category": "emotion",
+    "user": "这段气氛怎么写？",
+    "answer": "门关上之后，世界仿佛安静。",
+    "expected_signals": [
+      "世界仿佛安静"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：世界仿佛安静",
+    "split": "holdout"
+  },
+  {
+    "id": "det-150",
+    "category": "identity",
+    "user": "你能保证吗？",
+    "answer": "作为AI语言模型不能做这种承诺。",
+    "expected_signals": [
+      "作为AI",
+      "作为AI语言模型"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：作为AI语言模型",
+    "split": "dev"
+  },
+  {
+    "id": "det-151",
+    "category": "identity",
+    "user": "帮我查天气。",
+    "answer": "作为一个AI助手我没有实时天气。",
+    "expected_signals": [
+      "作为一个AI助手"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：作为一个AI助手",
+    "split": "holdout"
+  },
+  {
+    "id": "det-152",
+    "category": "identity",
+    "user": "现在几点？",
+    "answer": "作为一个语言模型我看不到时钟。",
+    "expected_signals": [
+      "作为一个语言模型"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：作为一个语言模型",
+    "split": "dev"
+  },
+  {
+    "id": "det-153",
+    "category": "tech",
+    "user": "这段代码有问题吗？",
+    "answer": "你有很强的批判性思维，问题在边界条件。",
+    "expected_signals": [
+      "你有很强的批判性思维"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：你有很强的批判性思维",
+    "split": "holdout"
+  },
+  {
+    "id": "det-154",
+    "category": "tech",
+    "user": "就是缓存没失效。",
+    "answer": "你说得太对了，下次先查 TTL。",
+    "expected_signals": [
+      "你说得太对了"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：你说得太对了",
+    "split": "dev"
+  },
+  {
+    "id": "det-155",
+    "category": "casual",
+    "user": "这周能上线吗？",
+    "answer": "差最后一次回归，共同努力。",
+    "expected_signals": [
+      "共同努力"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：共同努力",
+    "split": "holdout"
+  },
+  {
+    "id": "det-156",
+    "category": "uncertainty",
+    "user": "选 A 还是 B？",
+    "answer": "两边都能用，关键在于平衡。",
+    "expected_signals": [
+      "关键在于平衡"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：关键在于平衡",
+    "split": "dev"
+  },
+  {
+    "id": "det-157",
+    "category": "uncertainty",
+    "user": "这个剂量合适吗？",
+    "answer": "没有统一答案，因人而异。",
+    "expected_signals": [
+      "因人而异"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：因人而异",
+    "split": "holdout"
+  },
+  {
+    "id": "det-158",
+    "category": "identity",
+    "user": "这个库还维护吗？",
+    "answer": "基于我所掌握的信息，上游去年还发过版。",
+    "expected_signals": [
+      "基于我所掌握的信息"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：基于我所掌握的信息",
+    "split": "dev"
+  },
+  {
+    "id": "det-159",
+    "category": "identity",
+    "user": "这个 API 稳吗？",
+    "answer": "基于我的训练数据，它经常改字段。",
+    "expected_signals": [
+      "基于我的训练数据"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：基于我的训练数据",
+    "split": "holdout"
+  },
+  {
+    "id": "det-160",
+    "category": "emotion",
+    "user": "高潮怎么写？",
+    "answer": "鼓点落下，声音填满空间。",
+    "expected_signals": [
+      "声音填满空间"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：声音填满空间",
+    "split": "dev"
+  },
+  {
+    "id": "det-161",
+    "category": "casual",
+    "user": "就这些。",
+    "answer": "先改这一处，如果还有其他问题。",
+    "expected_signals": [
+      "如果还有其他问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：如果还有其他问题",
+    "split": "holdout"
+  },
+  {
+    "id": "det-162",
+    "category": "casual",
+    "user": "先这样？",
+    "answer": "按这个补丁合，如果还有问题。",
+    "expected_signals": [
+      "如果还有问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：如果还有问题",
+    "split": "dev"
+  },
+  {
+    "id": "det-163",
+    "category": "casual",
+    "user": "谢谢。",
+    "answer": "补丁在上面，希望对你有所帮助。",
+    "expected_signals": [
+      "希望对你有所帮助"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：希望对你有所帮助",
+    "split": "holdout"
+  },
+  {
+    "id": "det-164",
+    "category": "casual",
+    "user": "请再确认一次。",
+    "answer": "流程已经对齐，希望对您有帮助。",
+    "expected_signals": [
+      "希望对您有帮助"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：希望对您有帮助",
+    "split": "dev"
+  },
+  {
+    "id": "det-165",
+    "category": "casual",
+    "user": "好的。",
+    "answer": "改完就可以发，希望能帮到你。",
+    "expected_signals": [
+      "希望能帮到你"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：希望能帮到你",
+    "split": "holdout"
+  },
+  {
+    "id": "det-166",
+    "category": "casual",
+    "user": "收到。",
+    "answer": "日志里看这一行，希望这能帮到你。",
+    "expected_signals": [
+      "希望这能帮到你"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：希望这能帮到你",
+    "split": "dev"
+  },
+  {
+    "id": "det-167",
+    "category": "tech",
+    "user": "为什么超时？",
+    "answer": "感谢你的提问，超时出在锁等待。",
+    "expected_signals": [
+      "感谢你的提问"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：感谢你的提问",
+    "split": "holdout"
+  },
+  {
+    "id": "det-168",
+    "category": "emotion",
+    "user": "今天好累。",
+    "answer": "我完全理解你的感受，今晚别再加班。",
+    "expected_signals": [
+      "我完全理解你的感受"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：我完全理解你的感受",
+    "split": "dev"
+  },
+  {
+    "id": "det-169",
+    "category": "steps",
+    "user": "部署顺序是什么？",
+    "answer": "接下来我将按备份、切换、核验来说。",
+    "expected_signals": [
+      "接下来我将"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：接下来我将",
+    "split": "holdout"
+  },
+  {
+    "id": "det-170",
+    "category": "emotion",
+    "user": "对峙怎么写？",
+    "answer": "两人对视时，时间仿佛静止。",
+    "expected_signals": [
+      "时间仿佛静止"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：时间仿佛静止",
+    "split": "dev"
+  },
+  {
+    "id": "det-171",
+    "category": "casual",
+    "user": "先这样吧。",
+    "answer": "按这个发版，有任何问题随时。",
+    "expected_signals": [
+      "有任何问题随时"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：有任何问题随时",
+    "split": "holdout"
+  },
+  {
+    "id": "det-172",
+    "category": "casual",
+    "user": "项目还做吗？",
+    "answer": "方向没变，未来可期。",
+    "expected_signals": [
+      "未来可期"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：未来可期",
+    "split": "dev"
+  },
+  {
+    "id": "det-173",
+    "category": "identity",
+    "user": "Python 3.14 出了吗？",
+    "answer": "根据我的训练还没到那个版本。",
+    "expected_signals": [
+      "根据我的训练"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：根据我的训练",
+    "split": "holdout"
+  },
+  {
+    "id": "det-174",
+    "category": "casual",
+    "user": "先到这。",
+    "answer": "接口文档在仓库里，欢迎继续交流。",
+    "expected_signals": [
+      "欢迎继续交流"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：欢迎继续交流",
+    "split": "dev"
+  },
+  {
+    "id": "det-175",
+    "category": "casual",
+    "user": "明白了。",
+    "answer": "有新日志再贴，欢迎随时。",
+    "expected_signals": [
+      "欢迎随时"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：欢迎随时",
+    "split": "holdout"
+  },
+  {
+    "id": "det-176",
+    "category": "uncertainty",
+    "user": "该不该上微服务？",
+    "answer": "两种都能跑，没有绝对的对错。",
+    "expected_signals": [
+      "没有绝对的对错"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：没有绝对的对错",
+    "split": "dev"
+  },
+  {
+    "id": "det-177",
+    "category": "steps",
+    "user": "测试全过了。",
+    "answer": "回归已经绿了，由此可见。",
+    "expected_signals": [
+      "由此可见"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：由此可见",
+    "split": "holdout"
+  },
+  {
+    "id": "det-178",
+    "category": "emotion",
+    "user": "角色反应怎么写？",
+    "answer": "他抬眼时，眼中闪过一丝犹豫。",
+    "expected_signals": [
+      "眼中闪过一丝"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：眼中闪过一丝",
+    "split": "dev"
+  },
+  {
+    "id": "det-179",
+    "category": "casual",
+    "user": "好难。",
+    "answer": "这关先过，砥砺前行。",
+    "expected_signals": [
+      "砥砺前行"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：砥砺前行",
+    "split": "holdout"
+  },
+  {
+    "id": "det-180",
+    "category": "tech",
+    "user": "这段标点正常吗？",
+    "answer": "a—b—c—d",
+    "expected_signals": [
+      "破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：破折号",
+    "split": "dev"
+  },
+  {
+    "id": "det-181",
+    "category": "emotion",
+    "user": "安静怎么写？",
+    "answer": "话停住后，空气仿佛凝固。",
+    "expected_signals": [
+      "空气仿佛凝固"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：空气仿佛凝固",
+    "split": "holdout"
+  },
+  {
+    "id": "det-182",
+    "category": "tech",
+    "user": "先讲背景？",
+    "answer": "让我们先来理解鉴权流程。",
+    "expected_signals": [
+      "让我们先来"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：让我们先来",
+    "split": "dev"
+  },
+  {
+    "id": "det-183",
+    "category": "tech",
+    "user": "这个报错怎么查？",
+    "answer": "让我来看堆栈第一帧。",
+    "expected_signals": [
+      "让我来"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：让我来",
+    "split": "holdout"
+  },
+  {
+    "id": "det-184",
+    "category": "identity",
+    "user": "最新政策是什么？",
+    "answer": "训练数据截至去年，之后的要以官网为准。",
+    "expected_signals": [
+      "训练数据截至"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：训练数据截至",
+    "split": "dev"
+  },
+  {
+    "id": "det-185",
+    "category": "tech",
+    "user": "本质是什么？",
+    "answer": "说穿了，就是锁没释放。",
+    "expected_signals": [
+      "说穿了"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：说穿了",
+    "split": "holdout"
+  },
+  {
+    "id": "det-186",
+    "category": "casual",
+    "user": "先这样。",
+    "answer": "补丁合上就能跑，随时联系我。",
+    "expected_signals": [
+      "随时联系我"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：随时联系我",
+    "split": "dev"
+  },
+  {
+    "id": "det-187",
+    "category": "casual",
+    "user": "好。",
+    "answer": "字段名以文档为准，随时问我。",
+    "expected_signals": [
+      "随时问我"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：随时问我",
+    "split": "holdout"
+  },
+  {
+    "id": "det-188",
+    "category": "tech",
+    "user": "以后会怎样？",
+    "answer": "随着AI不断进步，这套接口还会改。",
+    "expected_signals": [
+      "随着AI不断进步"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：随着AI不断进步",
+    "split": "dev"
+  },
+  {
+    "id": "det-189",
+    "category": "uncertainty",
+    "user": "选哪个库？",
+    "answer": "性能和许可都要看，需要综合考虑。",
+    "expected_signals": [
+      "需要综合考虑"
+    ],
+    "formal_bypass": false,
+    "rationale": "内置命中名覆盖：需要综合考虑",
+    "split": "holdout"
+  },
+  {
+    "id": "det-190",
+    "category": "casual",
+    "user": "先放点音乐。",
+    "answer": "让我们先来点音乐吧，把气氛热一下。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "D5 真动作豁免：让我们先来点。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-191",
+    "category": "casual",
+    "user": "写个通知给我朋友今晚聚餐",
+    "answer": "今晚七点老地方，带点饮料就行。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "闲聊通知不是正式写作。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-192",
+    "category": "formal",
+    "user": "帮我改这篇公文",
+    "answer": "现将有关事项通知如下。",
+    "expected_signals": [],
+    "formal_bypass": true,
+    "rationale": "改这篇+公文应让位。",
+    "split": "dev"
+  },
+  {
+    "id": "det-193",
+    "category": "steps",
+    "user": "部署分几步？",
+    "answer": "# 一、准备\n# 二、实施\n# 三、验收\n先按这个顺序做。",
+    "expected_signals": [
+      "编号小标题连发"
+    ],
+    "formal_bypass": false,
+    "rationale": "B6 编号小标题连发正例。",
+    "split": "dev"
+  },
+  {
+    "id": "det-194",
+    "category": "steps",
+    "user": "只要两步？",
+    "answer": "# 一、准备\n# 二、实施\n只有两步。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "B6 两级编号不报。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-195",
+    "category": "tech",
+    "user": "链接里有词吗？",
+    "answer": "见 https://example.com/作为AI 再看正文。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "URL 屏蔽，不把路径当自我暴露。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-196",
+    "category": "steps",
+    "user": "部署分哪几步？",
+    "answer": "# 一、准备\n先说明范围。\n# 二、实施\n再写步骤。\n# 三、验收\n最后核对。",
+    "expected_signals": [
+      "编号小标题连发"
+    ],
+    "formal_bypass": false,
+    "rationale": "B6 标题间夹正文仍报。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-197",
+    "category": "steps",
+    "user": "三个标题够吗？",
+    "answer": "# 准备\n# 实施\n# 验收\n没有编号。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "B6 无编号标题不报。",
+    "split": "holdout"
   }
 ]

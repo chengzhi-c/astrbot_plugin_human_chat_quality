@@ -75,14 +75,14 @@ class HumanChatQualityPlugin(Star):
         try:
             await self.core.on_llm_request(event, req)
         except Exception as e:
-            logger.error(f"[HumanChatQuality] on_llm_request failed: {e}")
+            logger.error(f"[HumanChatQuality] on_llm_request failed: {e}", exc_info=True)
 
     @filter.on_llm_response()
     async def on_llm_response(self, event: AstrMessageEvent, resp: LLMResponse) -> None:
         try:
             await self.core.on_llm_response(event, resp)
         except Exception as e:
-            logger.error(f"[HumanChatQuality] on_llm_response failed: {e}")
+            logger.error(f"[HumanChatQuality] on_llm_response failed: {e}", exc_info=True)
 
     @filter.command_group("humanq")
     def humanq(self):
@@ -124,7 +124,7 @@ class HumanChatQualityPlugin(Star):
         """清空当前会话的提醒记录（重复开头与避用词）"""
         saved = await self.core.reset_session(event.unified_msg_origin)
         if saved:
-            yield event.plain_result("Human Chat Quality 已清空当前会话的轻量状态。")
+            yield event.plain_result("Human Chat Quality 已清空当前会话的提醒记录；不会删除人设或历史里的旧规则字。")
         else:
             yield event.plain_result(
                 "Human Chat Quality 当前进程内已清空，但状态文件写入失败；已保留待重试状态，请再次执行命令或检查数据目录。"

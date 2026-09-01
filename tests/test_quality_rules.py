@@ -4,6 +4,7 @@
 旧 marker 块按普通文本保留，不再剥离。无需宿主 astrbot 即可运行。
 """
 
+import json
 import unittest
 
 from tests._support import FakePart, FakeReq, ensure_plugin_package
@@ -32,7 +33,6 @@ OLD_V8_BLOCK = (
     "插件附加（不改变上述原则）：\n"
     "- 不要把这些约束写进回复"
 )
-IDENTITY_DISCLOSURE_LINE = "被问身份如实简答"
 
 
 class TestRewriteInterfaces(unittest.TestCase):
@@ -83,10 +83,17 @@ class TestStableRewrite(unittest.TestCase):
 
     def test_edited_current_rules_block_is_kept_and_not_duplicated(self):
         rules = build_stable_rules()
-        edited = rules.replace("像朋友聊天", "像老朋友聊天", 1)  # 用户微调当前规则正文
+        original = "不知即说，不编造"
+        replacement = "不知就直说，不编造"
+        self.assertIn(original, rules)
+        edited = rules.replace(original, replacement, 1)
+        self.assertNotEqual(edited, rules)
         first = rewrite_stable_rules(f"人设\n\n{edited}", enabled=True)
         self.assertIn(edited, first.text)
-        self.assertFalse(first.injected)  # 视为已注入，不重复
+        self.assertIn(replacement, first.text)
+        self.assertEqual(first.text.count(STABLE_RULE_MARKER), 1)
+        self.assertFalse(first.injected)
+        self.assertTrue(first.ambiguous)
         again = rewrite_stable_rules(first.text, enabled=True)
         self.assertEqual(again.text, first.text)
         self.assertFalse(again.injected)
@@ -229,7 +236,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 9)
+        self.assertEqual(RULES_VERSION, 10)
         # legacy 机器已退役：模块不再导出 legacy 剥离设施
         self.assertFalse(hasattr(quality_rules, "LEGACY_STABLE_MARKERS"))
         self.assertFalse(hasattr(quality_rules, "_LEGACY_STABLE_SIGNATURES"))
@@ -249,31 +256,43 @@ class TestStableRules(unittest.TestCase):
         self.fail("metadata.yaml 缺少 version 字段")
 
     def test_build_stable_rules_contains_skill_verbatim(self):
-        """规则 v9 语义锚点完整性：覆盖所有核心原则、对话层约束、句式检查与反清单保护。"""
+        """规则 v10：lite 原文（去清理句）+ 插件附加，由 anchor/forbidden 夹具锁。"""
+        from pathlib import Path
+
+        spec = json.loads(
+            (Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "stable-rules-anchors.json").read_text(
+                encoding="utf-8"
+            )
+        )
         rules = build_stable_rules()
         self.assertIn(STABLE_RULE_MARKER, rules)
         self.assertIn("遵循 natural-talk 原则", rules)
-        self.assertIn("原则：不知即说不编造；评价对事不对人；被问身份如实简答；代码/公式/URL/引用块禁改。", rules)
-        self.assertIn("首句直给结论或事实，末句停在事实/建议/边界，删客套服务用语", rules)
-        self.assertIn("评价只针对内容，不评价用户本人", rules)
-        self.assertIn("问什么答什么并给倾向；确属两难写明条件", rules)
-        self.assertIn("用户给定量词时严格执行", rules)
-        self.assertIn("删“说白了/先说结论”，直接给判断；删“一句话总结：”等空转提示语", rules)
-        self.assertIn("不适用范围：学术论文、正式公文、营销文案等需要相反风格的场景，本规则让位。", rules)
+        for anchor in spec["anchors"]:
+            self.assertIn(anchor, rules)
+        for phrase in spec["forbidden"]:
+            self.assertNotIn(phrase, rules)
         self.assertIn("- 保留事实、限制条件、安全提示和不确定性表述", rules)
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
-        self.assertIn("连续动作尽量一句写完，紧张/暧昧/恐惧/受伤可慢放", rules)
-        self.assertIn("铁律：先否定后肯定（不是/与其/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外", rules)
-        self.assertIn("反清单：问句与设问、具体比喻、正文顺序词属正常表达，不当作问题修改", rules)
+        self.assertIn("铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外", rules)
+
+    def test_lite_core_is_fixture_without_cleanup_sentence(self):
+        from pathlib import Path
+
+        fixture = (Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "system-prompt-lite.txt").read_text(
+            encoding="utf-8"
+        )
+        drop = "成文清理时，对话层和 C6 不带入；保护资料引用、事实与结构，默认只输出清理后的正文。\n\n"
+        self.assertIn(drop, fixture)
+        self.assertEqual(quality_rules._LITE_CORE, fixture.replace(drop, "").rstrip() + "\n")
 
     def test_v8_block_is_preserved_not_stripped(self):
-        """3.0.0：v8 块不再被替换为 v9，按普通文本保留。"""
+        """3.0.0：v8 块不再被替换为当前版本，按普通文本保留。"""
         result = rewrite_stable_rules(f"人设头\n\n{OLD_V8_BLOCK}\n\n人设尾", enabled=True)
         self.assertIn(OLD_V8_BLOCK, result.text)
         self.assertIn("人设头", result.text)
         self.assertIn("人设尾", result.text)
-        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)  # v9 正常注入
+        self.assertEqual(result.text.count(STABLE_RULE_MARKER), 1)
         self.assertTrue(result.injected)
 
     def test_rewrite_enabled_is_idempotent(self):

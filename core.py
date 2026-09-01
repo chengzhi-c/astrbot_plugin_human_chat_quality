@@ -184,16 +184,41 @@ def _event_text(event: MessageEventProtocol | None) -> str:
     return ""
 
 
+_FORMAL_ACTIONS = re.compile(r"写|撰写|起草|拟定|润色|改写|改成|改这篇|修改|生成|翻译|输出")
+_FORMAL_ARTIFACTS = re.compile(
+    r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|正式通知|变更通知|服务通知|研究计划|求职邮件"
+)
+_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写")
+_CREATIVE_ACTIONS = re.compile(r"写|创作|续写|扮演|roleplay", re.IGNORECASE)
+_CREATIVE_GENRES = re.compile(r"小说|故事|同人|角色卡|剧本|角色扮演|roleplay", re.IGNORECASE)
+
+
 def _is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
     text = _event_text(event)
     if not text:
         return False
-    action = re.search(r"写|撰写|起草|拟定|润色|改(?:写|成)|生成|翻译|输出", text)
-    artifact = re.search(
-        r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|通知|研究计划|求职邮件",
-        text,
-    )
-    return bool(action and artifact)
+    if _NOTICE_DRAFT.search(text) and "通知" in text:
+        return True
+    return bool(_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text))
+
+
+def _is_creative_writing_request(event: MessageEventProtocol | None) -> bool:
+    text = _event_text(event)
+    if not text:
+        return False
+    return bool(_CREATIVE_ACTIONS.search(text) and _CREATIVE_GENRES.search(text))
+
+
+def _should_yield(event: MessageEventProtocol | None) -> bool:
+    return _is_formal_writing_request(event) or _is_creative_writing_request(event)
+
+
+def _yield_status_reason(event: MessageEventProtocol | None) -> str | None:
+    if _is_formal_writing_request(event):
+        return "- 正式写作场景让位（不注入对话层约束）"
+    if _is_creative_writing_request(event):
+        return "- 创作场景让位（不注入对话层约束）"
+    return None
 
 
 def _drop_expired_hints(pending: deque[tuple[float, tuple[str, ...]]], now: float) -> None:
@@ -231,9 +256,7 @@ class HumanChatQualityCore:
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
         effective_active = (
-            bool(session_id)
-            and not _is_formal_writing_request(event)
-            and self._is_effectively_active(session_id, event)
+            bool(session_id) and not _should_yield(event) and self._is_effectively_active(session_id, event)
         )
         injected_hint = ""
         avoid_openers: list[str] | None = None
@@ -316,7 +339,7 @@ class HumanChatQualityCore:
         hinted_items = pending.popleft()[1] if pending else ()
         if pending is not None and not pending:
             self._pending_hints.pop(session_id, None)
-        if not session_id or _is_formal_writing_request(event) or not self._is_effectively_active(session_id, event):
+        if not session_id or _should_yield(event) or not self._is_effectively_active(session_id, event):
             return
         text = extract_response_text(resp)
         if not text:
@@ -360,6 +383,9 @@ class HumanChatQualityCore:
             reasons.append("- 当前会话：已通过 /humanq off 关闭")
         if is_session_disabled(self.cfg.disabled_sessions, session_id, event):
             reasons.append("- 配置静态禁用：当前会话命中禁用列表")
+        yield_reason = _yield_status_reason(event)
+        if yield_reason:
+            reasons.append(yield_reason)
         if reasons:
             return "\n".join(["Human Chat Quality 状态：", *reasons, "- 无运行时状态", f"- 状态持久化：{persistence}"])
         state = self.store.get(session_id)

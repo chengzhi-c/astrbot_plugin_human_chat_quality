@@ -158,6 +158,24 @@ class TestDetectClichesLegacy(unittest.TestCase):
         text = "示例：`不是优化而是重构`。代码如下：\n```text\n真正的问题是这里\n```"
         self.assertNotIn("结构性表演", detect_cliches(text))
 
+    def test_tilde_fence_and_url_are_masked(self):
+        self.assertEqual(detect_cliches("见 https://example.com/作为AI 再看正文。"), [])
+        self.assertNotIn("作为AI", detect_cliches("代码：\n~~~\n作为AI不能这样\n~~~\n以上。"))
+
+    def test_numbered_headings_need_three_same_level(self):
+        three = "# 一、准备\n# 二、实施\n# 三、验收\n"
+        self.assertIn("编号小标题连发", detect_cliches(three))
+        self.assertEqual(detect_cliches("# 一、准备\n# 二、实施\n"), [])
+        interrupted = "# 一、准备\n# 普通标题\n# 二、实施\n# 三、验收\n"
+        self.assertNotIn("编号小标题连发", detect_cliches(interrupted))
+        with_body = "# 一、准备\n先说明范围。\n# 二、实施\n再写步骤。\n# 三、验收\n"
+        self.assertIn("编号小标题连发", detect_cliches(with_body))
+        self.assertEqual(detect_cliches("# 准备\n# 实施\n# 验收\n"), [])
+        self.assertIn(
+            "编号小标题连发",
+            detect_cliches("**一、准备**\n**二、实施**\n**三、验收**\n"),
+        )
+
     def test_mismatched_quotes_do_not_create_an_exemption(self):
         self.assertIn("结构性表演", detect_cliches('\u201c前文这不是优化而是重构"后文'))
 

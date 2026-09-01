@@ -28,6 +28,8 @@ class TestStrictRunner(unittest.TestCase):
     def test_named_suites_are_supported(self):
         self.assertGreater(run_tests.load_suite("core").countTestCases(), 0)
         self.assertGreater(run_tests.load_suite("host").countTestCases(), 0)
+        self.assertNotIn("tests.test_tooling", run_tests.CORE_MODULES)
+        self.assertIn("tests.test_tooling", run_tests.SUITES["core"])
 
 
 class TestReleaseBuild(unittest.TestCase):
@@ -150,8 +152,16 @@ class TestReleaseBuild(unittest.TestCase):
 
     def test_core_suite_runs_from_arbitrary_download_directory(self):
         repo, _ = self._copy_repo("renamed-download")
+        # 不跑 test_tooling，避免本用例再套一层 core。
         result = subprocess.run(
-            [sys.executable, "-S", "scripts/run_tests.py", "core"],
+            [
+                sys.executable,
+                "-S",
+                "-c",
+                "import sys, unittest; sys.path.insert(0, '.'); "
+                "from scripts.run_tests import CORE_MODULES, run_suite; "
+                "raise SystemExit(run_suite(unittest.defaultTestLoader.loadTestsFromNames(CORE_MODULES), sys.stderr))",
+            ],
             cwd=repo,
             capture_output=True,
             text=True,

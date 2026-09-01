@@ -232,6 +232,51 @@ class TestCoreFlowExtra(unittest.TestCase):
 
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
+    def test_casual_notice_to_a_friend_stays_active(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "写个通知给我朋友今晚聚餐")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_revise_official_document_yields(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "帮我改这篇公文")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        asyncio.run(self.core.on_llm_response(event, FakeLLMResp("好的，公文草稿")))
+        self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+        self.assertNotIn(event.unified_msg_origin, self.store.sessions)
+        self.assertIn("正式写作场景让位", self.core.status_text(event.unified_msg_origin, event))
+
+    def test_roleplay_request_yields_without_injecting_fiction_rules(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "写一段角色扮演")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        asyncio.run(self.core.on_llm_response(event, FakeLLMResp("好的，我来扮演")))
+        self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+        self.assertNotIn("fiction", req.system_prompt.lower())
+        self.assertNotIn(event.unified_msg_origin, self.store.sessions)
+        self.assertIn("创作场景让位", self.core.status_text(event.unified_msg_origin, event))
+
+    def test_mentioning_a_novel_without_writing_intent_stays_active(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "今天看了本小说")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_runtime_hint_prefers_reliability_signals_when_budget_is_tight(self):
+        appearance = "第一项第一项第一项第一项第一项"
+        harmful = "第二项第二项第二项第二项第二项"
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[appearance, harmful])
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"max_runtime_hint_chars": 80}), self.store, text_part_factory=FakePart
+        )
+        req = FakeReq()
+        with mock.patch.object(core_module, "signal_priority", side_effect=lambda name: 1 if name == harmful else 2):
+            asyncio.run(core.on_llm_request(self.ev, req))
+        hint = req.extra_user_content_parts[0].text
+        self.assertIn(harmful, hint)
+        self.assertNotIn(appearance, hint)
+
     def test_runtime_hint_missed_only_checks_items_that_were_injected(self):
         first = "第一项第一项第一项第一项第一项"
         second = "第二项第二项第二项第二项第二项"

@@ -141,20 +141,27 @@ _ATMOSPHERE_CLICHES: tuple[str, ...] = (
     "时间仿佛静止",
     "世界仿佛安静",
 )
-_FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
+_FENCED_CODE_RE = re.compile(r"(```|~~~).*?\1", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
+_URL_RE = re.compile(r"https?://\S+|www\.\S+", re.IGNORECASE)
+_HEADING_MD = re.compile(r"^(#{1,6})\s+(.+)$")
+_HEADING_BOLD = re.compile(r"^\*\*(.+)\*\*\s*$")
+_NUM_PREFIX = re.compile(r"^(?:[一二三四五六七八九十]+、|第[一二三四五六七八九十0-9]+[、，,\s])")
+
+
+def _blank(match: re.Match[str]) -> str:
+    return re.sub(r"[^\r\n]", " ", match.group(0))
 
 
 def _normalize_text(text: str) -> str:
-    """归一化文本：合并空白。"""
+    """归一化文本：先屏蔽代码与 URL，再合并空白。"""
     return re.sub(r"\s+", " ", _mask_code(text or "")).strip()
 
 
 def _mask_code(text: str) -> str:
-    def mask(match: re.Match[str]) -> str:
-        return re.sub(r"[^\r\n]", " ", match.group(0))
-
-    return _INLINE_CODE_RE.sub(mask, _FENCED_CODE_RE.sub(mask, text))
+    masked = _FENCED_CODE_RE.sub(_blank, text)
+    masked = _INLINE_CODE_RE.sub(_blank, masked)
+    return _URL_RE.sub(_blank, masked)
 
 
 def _quoted_spans(text: str) -> list[tuple[int, int]]:
@@ -243,12 +250,60 @@ def detect_iron_rule(text: str) -> list[str]:
     return []
 
 
+def detect_numbered_headings(text: str) -> list[str]:
+    """B6：同级连续编号小标题 ≥3 才报；普通标题打断序列。"""
+    heading_stream: list[tuple[int, bool]] = []
+    for raw in _mask_code(text or "").splitlines():
+        stripped = raw.strip()
+        md = _HEADING_MD.match(stripped)
+        if md:
+            heading_stream.append((len(md.group(1)), bool(_NUM_PREFIX.match(md.group(2).strip()))))
+            continue
+        bold = _HEADING_BOLD.match(stripped)
+        if bold:
+            heading_stream.append((0, bool(_NUM_PREFIX.match(bold.group(1).strip()))))
+    run = 0
+    run_level: int | None = None
+    for level, numbered in heading_stream:
+        if numbered:
+            if run and level != run_level:
+                run = 0
+            run += 1
+            run_level = level
+            if run >= 3:
+                return ["编号小标题连发"]
+        else:
+            run = 0
+            run_level = None
+    return []
+
+
 def detect_hedge(text: str) -> list[str]:
     """模糊叠加：可能或许等紧邻模糊词。"""
     for pat in _HEDGE_PATTERNS:
         if pat.search(text):
             return ["模糊叠加"]
     return []
+
+
+def builtin_signal_names() -> frozenset[str]:
+    """detect_cliches 可能吐出的内置命中名（词表面 + 聚合标签）。"""
+    return frozenset(
+        (
+            *DEFAULT_AI_CLICHES,
+            *OPENING_CLICHES,
+            *DEFAULT_SYMPATHY_CLICHES,
+            *DEFAULT_ENDINGS,
+            *_ATMOSPHERE_CLICHES,
+            "然而连发",
+            "结构性表演",
+            "模糊叠加",
+            "破折号",
+            "感叹号",
+            "路标词堆砌",
+            "编号小标题连发",
+        )
+    )
 
 
 def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
@@ -276,6 +331,7 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_hedge(normalized),
         detect_atmosphere_cliches(normalized),
         detect_density_signals(normalized),
+        detect_numbered_headings(text),
     ):
         for signal in signals:
             if signal not in seen:
