@@ -112,8 +112,8 @@ def main() -> int:
     _run_gate([sys.executable, "scripts/run_tests.py", "all"], repo)
     _run_gate([sys.executable, "-S", "scripts/eval_detector.py", "--check"], repo)
     _run_gate(_compile_command(), repo)
-    _run_gate(["ruff", "check", "."], repo)
-    _run_gate(["ruff", "format", "--check", "."], repo)
+    _run_gate([sys.executable, "-m", "ruff", "check", "."], repo)
+    _run_gate([sys.executable, "-m", "ruff", "format", "--check", "."], repo)
     archive = build_archive(repo, repo.parent)
     print(f"[build_release] OK: {archive}")
     return 0

@@ -10,11 +10,13 @@ import re
 
 from .constants import CONSECUTIVE_THRESHOLD, DENSITY_BASE
 
-
 # natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报（对齐 upstream dist/lexicon tier1_identity 高置信子集）
 DEFAULT_AI_CLICHES: tuple[str, ...] = (
     "作为AI",
     "作为人工智能",
+    "作为一个语言模型",
+    "作为一个AI助手",
+    "作为AI语言模型",
     "根据我的训练",
     "基于我的训练数据",
     "训练数据截至",
@@ -23,15 +25,47 @@ DEFAULT_AI_CLICHES: tuple[str, ...] = (
     "截至我的知识更新",
 )
 
-# natural-talk Tier 1/2：谄媚/预告式开场，仅回复首部（首个标点前）命中
+# natural-talk Tier 1/2：谄媚/预告/起手式开场，仅回复首部（首个标点前）命中
 OPENING_CLICHES: tuple[str, ...] = (
     "好问题",
     "让我来",
     "感谢你的提问",
     "Great question",
+    # D1 谄媚越界
+    "你问到了核心",
+    "你有很强的批判性思维",
+    # C5 宏观开场
+    "在当今快速发展的时代",
+    "随着AI不断进步",
+    # B10 起手式
+    "说白了",
+    "说穿了",
+    "先说结论",
+    # D5 元话语空预告（仅首部；"让我们先来理解背景"式空预告命中，"让我们先来点音乐吧"类
+    # 实际动作不报——由后面的负例清单精确豁免）
+    "让我们先来",
+    "下面我将",
+    "接下来我将",
 )
 
-# 默认检测只保留高置信度末尾模板（upstream courtesy 高置信收尾 + 打气）
+# D5 负例：这些首部开头是真实动作/指令，不是空预告，命中 OPENING_CLICHES 后在此豁免
+_OPENING_NEGATIVE_EXACT: frozenset[str] = frozenset(
+    (
+        "让我们先来点",
+        "让我们先来听",
+        "让我们先来看",
+        "让我们先来试",
+    )
+)
+
+# D1 谄媚越界（整句级高置信触发，任意位置命中；上游"主语替换检验法"无法用词表实现，
+# 只收整句级高置信触发词，词太长故单独列表）
+DEFAULT_SYMPATHY_CLICHES: tuple[str, ...] = (
+    "我完全理解你的感受",
+    "你说得太对了",
+)
+
+# 默认检测只保留高置信度末尾模板（upstream courtesy 高置信收尾 + 打气 + 万能收尾）
 DEFAULT_ENDINGS: tuple[str, ...] = (
     # 客服收尾
     "希望能帮到你",
@@ -52,6 +86,13 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
     "共同努力",
     "砥砺前行",
     "不忘初心",
+    # D4 万能收尾
+    "关键在于找到平衡",
+    "关键在于平衡",
+    "要结合实际情况",
+    "需要综合考虑",
+    "因人而异",
+    "没有绝对的对错",
     # 收尾腔总结
     "综上所述",
     "由此可见",
@@ -77,16 +118,28 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     ),
 )
 
-# Tier3 铁律：结构性表演（精简 4 条高置信，去回溯风险：句内 [^。\n] 限长）
+# Tier3 铁律：结构性表演（精简高置信，去回溯风险：句内 [^。\n] 限长）
 _TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)"),
     re.compile(r"与其[^。\n]{0,16}不如"),
-    re.compile(r"很久[^。\n]{0,6}久到"),
+    re.compile(r"与其说[^。\n]{0,16}不如说"),
+    re.compile(r"看似[^。\n]{0,12}实则"),
+    re.compile(r"很久[^。\n]{0,6}久到|安静[^。\n]{0,4}静[到得]|沉默[^。\n]{0,4}沉默到"),
     re.compile(r"真正的问题是"),
+    re.compile(r"(?:一句话总结|核心是|关键在于|原因如下|本质上)\s*[:：]"),
 )
 _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
     re.compile(r"(?:通常来说|一般来说|通常情况下).{0,10}(?:可能|或许|大概|大致|也许)"),
+)
+# C6 空泛气氛总结：上游限定"具体描写后"的语境条件无法用词表表达，但这些短语本身极低频，
+# 任意位置精确命中误报率可接受（进冻结评测集验证）
+_ATMOSPHERE_CLICHES: tuple[str, ...] = (
+    "声音填满空间",
+    "空气仿佛凝固",
+    "眼中闪过一丝",
+    "时间仿佛静止",
+    "世界仿佛安静",
 )
 _FENCED_CODE_RE = re.compile(r"```.*?```", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
@@ -142,14 +195,26 @@ def detect_ai_self_exposure(text: str) -> list[str]:
 
 
 def detect_opening_cliches(text: str) -> list[str]:
-    """检测开场套话（仅首部命中）。"""
+    """检测开场套话（仅首部命中；D5 真实动作指令豁免）。"""
     first_clause = OPENER_DELIM.split(text, maxsplit=1)[0].casefold()
+    if any(first_clause.startswith(neg) for neg in _OPENING_NEGATIVE_EXACT):
+        return []
     return [phrase for phrase in OPENING_CLICHES if first_clause.startswith(phrase.casefold())]
 
 
 def detect_custom_cliches(text: str, custom_cliches: tuple[str, ...]) -> list[str]:
     """检测自定义避用词（任意位置精确命中）。"""
     return [phrase for phrase in custom_cliches if phrase and phrase in text]
+
+
+def detect_sympathy_cliches(text: str) -> list[str]:
+    """D1 谄媚越界整句触发（任意位置精确命中）。"""
+    return [phrase for phrase in DEFAULT_SYMPATHY_CLICHES if phrase in text]
+
+
+def detect_atmosphere_cliches(text: str) -> list[str]:
+    """C6 空泛气氛总结（任意位置精确命中，短语本身极低频）。"""
+    return [phrase for phrase in _ATMOSPHERE_CLICHES if phrase in text]
 
 
 def detect_fixed_pattern_signals(text: str) -> list[str]:
@@ -189,8 +254,9 @@ def detect_hedge(text: str) -> list[str]:
 def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]:
     """检测高置信度 AI 腔信号（去重、保序，分层对齐 upstream Tier1-6 精简）。
 
-    内置末尾模板仅结尾命中；AI 自我暴露任意位置；开场仅首部；custom_cliches 任意位置。
-    新增：Tier3 铁律（不是…而是等 4 条）与模糊叠加；密度按 300 字基准折算。
+    内置末尾模板仅结尾命中；AI 自我暴露与谄媚整句任意位置；开场仅首部；custom_cliches 任意位置。
+    Tier3 铁律（不是…而是/与其说…不如说/看似…实则等）与模糊叠加；密度按 300 字基准折算；
+    C6 空泛气氛总结短语任意位置。
     """
     normalized = _normalize_text(text)
     if not normalized:
@@ -203,10 +269,12 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_ending_cliches(normalized),
         detect_ai_self_exposure(normalized),
         detect_opening_cliches(normalized),
+        detect_sympathy_cliches(normalized),
         detect_custom_cliches(normalized, custom_cliches),
         detect_fixed_pattern_signals(normalized),
         detect_iron_rule(normalized),
         detect_hedge(normalized),
+        detect_atmosphere_cliches(normalized),
         detect_density_signals(normalized),
     ):
         for signal in signals:
@@ -215,3 +283,13 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
                 seen.add(signal)
 
     return hits
+
+
+# 危害档位：1 = 损害回答可靠性（上游 D1 谄媚/D3 免责自我暴露），2 = 仅影响观感。
+# avoid_openers 里混有词面（"作为AI"）与信号标签（"结构性表演"），两类都按此表排序。
+_PRIORITY_1_SIGNALS: frozenset[str] = frozenset((*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES))
+
+
+def signal_priority(name: str) -> int:
+    """返回信号危害档位：1 = 可靠性损害，2 = 观感（默认）。"""
+    return 1 if name in _PRIORITY_1_SIGNALS else 2

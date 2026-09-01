@@ -54,7 +54,7 @@ def _metrics(rows: list[dict[str, object]]) -> dict[str, object]:
     buckets: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
     for row in rows:
         category = str(row["category"])
-        expected = set(str(item) for item in row["expected_signals"])
+        expected = {str(item) for item in row["expected_signals"]}
         actual = set(detect_cliches(str(row["answer"])))
         bucket = buckets[category]
         for signal in expected & actual:

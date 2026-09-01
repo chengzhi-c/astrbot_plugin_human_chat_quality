@@ -7,9 +7,8 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from scripts import run_tests
+from scripts import build_release, run_tests
 from scripts.run_tests import run_suite
-from scripts import build_release
 from tests._support import temporary_directory
 
 
@@ -156,6 +155,7 @@ class TestReleaseBuild(unittest.TestCase):
             cwd=repo,
             capture_output=True,
             text=True,
+            check=False,
         )
         self.assertEqual(result.returncode, 0, result.stderr)
 

@@ -25,7 +25,7 @@ from .constants import (
     STATE_SAVE_DEBOUNCE_SECONDS,
 )
 from .protocols import MessageEventProtocol
-from .signal_detectors import OPENER_DELIM, detect_cliches as _detect_cliches
+from .signal_detectors import OPENER_DELIM
 
 
 def _now() -> float:
@@ -174,7 +174,7 @@ class RuntimeStateStore:
         self,
         session_id: str,
         response_text: str,
-        detected_cliches: Sequence[str] | None = None,
+        detected_cliches: Sequence[str] = (),
     ) -> bool:
         text = re.sub(r"\s+", " ", (response_text or "")).strip()
         if not text:
@@ -188,10 +188,10 @@ class RuntimeStateStore:
             if opener:
                 state.recent_openers = [opener, *state.recent_openers][: self.recent_reply_window]
             # 两路合并进动态提示清单：① 最近窗口里高频重复的开头；② 本轮命中的高置信度信号。
+            # 检测只发生一次（调用方负责），store 只做合并，保证信号不被重复计入。
             repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_ITEMS)
-            cliches = detected_cliches if detected_cliches is not None else _detect_cliches(text, self.custom_cliches)
             merged: list[str] = []
-            for item in [*repeated, *cliches]:
+            for item in [*repeated, *detected_cliches]:
                 if item and len(item) <= MAX_AVOID_ITEM_LEN and item not in merged:
                     merged.append(item)
             state.avoid_openers = merged[:MAX_AVOID_ITEMS]

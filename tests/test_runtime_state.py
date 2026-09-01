@@ -6,8 +6,8 @@
 import asyncio
 import json
 import os
-import time
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -78,6 +78,24 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
 
     def test_road_signs_single_use_clear(self):
         self.assertEqual(detect_cliches("事实上这是个好办法"), [])
+
+    def test_starter_and_opening_signals_first_clause_only(self):
+        self.assertIn("说白了", detect_cliches("说白了，这个方案成本太高"))
+        self.assertIn("先说结论", detect_cliches("先说结论，测试全部通过"))
+        self.assertIn("你问到了核心", detect_cliches("你问到了核心，问题在这里"))
+        self.assertIn("在当今快速发展的时代", detect_cliches("在当今快速发展的时代，技术日新月异"))
+        # 句中不报
+        self.assertNotIn("说白了", detect_cliches("他把事情说白了而已"))
+        self.assertNotIn("先说结论", detect_cliches("我们不能先说结论再找论据"))
+
+    def test_forced_balance_endings_tail_only(self):
+        self.assertIn("关键在于找到平衡", detect_cliches("具体如何选择，关键在于找到平衡。"))
+        self.assertIn("要结合实际情况", detect_cliches("具体方案要结合实际情况。"))
+        self.assertEqual(detect_cliches("要结合实际情况进行综合分析，然后再下定论。"), [])
+
+    def test_colon_prompt_abuse(self):
+        self.assertIn("结构性表演", detect_cliches("一句话总结：这个方案不可行。"))
+        self.assertIn("结构性表演", detect_cliches("核心是：提高代码质量。"))
 
 
 class TestDetectClichesLegacy(unittest.TestCase):
@@ -210,8 +228,10 @@ class TestStore(unittest.TestCase):
     def test_record_and_roundtrip(self):
         async def run():
             s = RuntimeStateStore(self._path(), 14, 8, ("自定义词",))
-            await s.record_response("g1", "好的，回答一")
-            await s.record_response("g1", "好的，回答二（自定义词）")
+            await s.record_response("g1", "好的，回答一", ())
+            await s.record_response(
+                "g1", "好的，回答二（自定义词）", detect_cliches("好的，回答二（自定义词）", ("自定义词",))
+            )
             st = s.get("g1")
             # 信号只带进下一轮提示（avoid_openers 每轮重算，README 契约）
             self.assertIn("自定义词", st.avoid_openers)
@@ -221,7 +241,7 @@ class TestStore(unittest.TestCase):
             s2 = RuntimeStateStore(self._path(), 14, 8)
             self.assertIn("自定义词", s2.get("g1").avoid_openers)
             # 重复开头达阈值进入清单
-            await s.record_response("g1", "好的，回答三")
+            await s.record_response("g1", "好的，回答三", ())
             self.assertIn("好的", s.get("g1").avoid_openers)
 
         import asyncio
@@ -266,7 +286,7 @@ class TestStore(unittest.TestCase):
         self.assertEqual(len(list(Path(self.dir).glob("compact-invalid.corrupt.*.json"))), 1)
 
         async def persist_new_session():
-            self.assertTrue(await s.record_response("new", "可以，继续处理。"))
+            self.assertTrue(await s.record_response("new", "可以，继续处理。", ()))
             self.assertTrue(await s.flush())
 
         asyncio.run(persist_new_session())
@@ -310,7 +330,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
         async def run():
             s = RuntimeStateStore(os.path.join(self.dir, "w3.json"), 14, 3, ())
             for _ in range(3):
-                await s.record_response("g", "好的，回答")
+                await s.record_response("g", "好的，回答", ())
             self.assertIn("好的", s.get("g").avoid_openers)
 
         asyncio.run(run())
@@ -319,7 +339,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
         async def run():
             s = RuntimeStateStore(os.path.join(self.dir, "w8.json"), 14, 8, ())
             for _ in range(2):
-                await s.record_response("g", "好的，回答")
+                await s.record_response("g", "好的，回答", ())
             self.assertEqual(s.get("g").avoid_openers, [])
 
         asyncio.run(run())
@@ -329,7 +349,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
             s = RuntimeStateStore(os.path.join(self.dir, "ord.json"), 14, 8, ())
             # 两种开头交替出现；avoid_openers 按窗口扫描序（最近→最旧）取先达 3 次者
             for opener in ["好的", "可以", "好的", "可以", "好的", "可以"]:
-                await s.record_response("g", opener + "，回答")
+                await s.record_response("g", opener + "，回答", ())
             self.assertEqual(s.get("g").avoid_openers, ["可以", "好的"])
 
         asyncio.run(run())
@@ -345,8 +365,8 @@ class TestReset(unittest.TestCase):
         async def run():
             p = os.path.join(self.dir, "rst.json")
             s = RuntimeStateStore(p, 14, 8, ())
-            await s.record_response("g1", "好的，回答")
-            await s.record_response("g2", "可以，回答")
+            await s.record_response("g1", "好的，回答", ())
+            await s.record_response("g2", "可以，回答", ())
             await s.reset("g1")
             self.assertNotIn("g1", s.sessions)
             self.assertIn("g2", s.sessions)
@@ -366,7 +386,7 @@ class TestPruneExpired(unittest.TestCase):
     def test_expired_removed(self):
         async def run():
             s = RuntimeStateStore(os.path.join(self.dir, "pr.json"), 7, 8, ())
-            await s.record_response("old", "好的，回答")
+            await s.record_response("old", "好的，回答", ())
             with mock.patch(
                 "astrbot_plugin_human_chat_quality.runtime_state._now",
                 return_value=time.time() + 8 * 86400,
@@ -379,7 +399,7 @@ class TestPruneExpired(unittest.TestCase):
     def test_fresh_within_retention_kept(self):
         async def run():
             s = RuntimeStateStore(os.path.join(self.dir, "pr2.json"), 7, 8, ())
-            await s.record_response("fresh", "好的，回答")
+            await s.record_response("fresh", "好的，回答", ())
             s._prune_expired()
             self.assertIn("fresh", s.sessions)
 
@@ -476,7 +496,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=OSError("disk full")),
             ):
-                self.assertTrue(await s.record_response("g", "好的，回答"))
+                self.assertTrue(await s.record_response("g", "好的，回答", ()))
                 save_task = getattr(s, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -486,7 +506,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=real_write),
             ):
-                self.assertTrue(await s.record_response("g", "可以，继续"))
+                self.assertTrue(await s.record_response("g", "可以，继续", ()))
                 save_task = getattr(s, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -524,7 +544,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
         async def run():
             path = os.path.join(self.dir, "reset-retry.json")
             s = RuntimeStateStore(path, 14, 8, ())
-            self.assertTrue(await s.record_response("g", "好的，回答"))
+            self.assertTrue(await s.record_response("g", "好的，回答", ()))
             real_write = s._write_snapshot_sync
             attempts = 0
 
@@ -565,7 +585,7 @@ class TestConcurrentPersistence(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=slow_write),
             ):
-                record_task = asyncio.create_task(s.record_response("g", "好的，回答"))
+                record_task = asyncio.create_task(s.record_response("g", "好的，回答", ()))
                 self.assertTrue(await asyncio.to_thread(started.wait, 5))
                 try:
                     self.assertTrue(record_task.done())
@@ -603,13 +623,13 @@ class TestConcurrentPersistence(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=controlled_write),
             ):
-                first_record = asyncio.create_task(s.record_response("g", "好的，回答一"))
+                first_record = asyncio.create_task(s.record_response("g", "好的，回答一", ()))
                 self.assertTrue(await asyncio.to_thread(first_started.wait, 5))
                 try:
                     self.assertTrue(first_record.done())
                     save_task = getattr(s, "_save_task", None)
                     self.assertIsNotNone(save_task)
-                    self.assertTrue(await s.record_response("g", "可以，回答二"))
+                    self.assertTrue(await s.record_response("g", "可以，回答二", ()))
                 finally:
                     release_first.set()
                     await first_record
@@ -639,7 +659,7 @@ class TestConcurrentPersistence(unittest.TestCase):
                 mock.patch.object(store, "_write_snapshot_sync", side_effect=count_write),
             ):
                 for index in range(100):
-                    self.assertTrue(await store.record_response("g", f"第{index}次回答"))
+                    self.assertTrue(await store.record_response("g", f"第{index}次回答", ()))
                 save_task = getattr(store, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -656,7 +676,7 @@ class TestConcurrentPersistence(unittest.TestCase):
             path = os.path.join(self.dir, "terminate.json")
             store = RuntimeStateStore(path, 14, 8, ())
             with mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 3600, create=True):
-                self.assertTrue(await store.record_response("g", "好的，回答"))
+                self.assertTrue(await store.record_response("g", "好的，回答", ()))
                 self.assertTrue(store.has_pending_save)
                 self.assertTrue(await store.terminate())
 
@@ -710,7 +730,7 @@ class TestThreadedSave(unittest.TestCase):
                 "astrbot_plugin_human_chat_quality.runtime_state.asyncio.to_thread",
                 new=mock.AsyncMock(wraps=real),
             ) as m:
-                await s.record_response("g", "好的，回答")
+                await s.record_response("g", "好的，回答", ())
                 await s.flush()
             m.assert_awaited_once()
             # bound method 每次访问是新对象，用相等断言（同函数同实例即相等）

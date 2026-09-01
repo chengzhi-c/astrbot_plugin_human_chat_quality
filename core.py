@@ -1,10 +1,10 @@
 from __future__ import annotations
 
-from collections import deque
-from dataclasses import dataclass, field
 import logging
 import re
 import time
+from collections import deque
+from dataclasses import dataclass, field
 from typing import Any
 
 from .constants import (
@@ -15,18 +15,18 @@ from .constants import (
 )
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
 from .quality_rules import (
-    ContextRewriteResult,
     RUNTIME_HINT_MARKER,
     STABLE_RULE_MARKER,
+    ContextRewriteResult,
     StableRewriteResult,
     append_temp_text_part,
     build_runtime_hint,
-    runtime_hint_items,
     rewrite_context_injections,
     rewrite_stable_rules,
+    runtime_hint_items,
 )
 from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
-from .signal_detectors import detect_cliches
+from .signal_detectors import detect_cliches, signal_priority
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +52,20 @@ class QualityStats:
     def record_cliche_hit(self, cliche: str) -> None:
         """记录信号命中。"""
         self.cliche_hits[cliche] = self.cliche_hits.get(cliche, 0) + 1
+
+    def record_request(self, stable_injected: bool, hint_injected: bool) -> None:
+        """记录一次请求的注入结果。"""
+        if stable_injected:
+            self.stable_rules_injected += 1
+        if hint_injected:
+            self.runtime_hints_injected += 1
+        if stable_injected or hint_injected:
+            self.total_injections += 1
+
+    def record_cleanup(self, stable_removed: int, runtime_removed: int) -> None:
+        """记录一次请求清理掉的旧块数量。"""
+        self.legacy_blocks_removed += stable_removed
+        self.stale_hints_removed += runtime_removed
 
     def top_cliches(self, limit: int = 5) -> list[tuple[str, int]]:
         """返回命中最多的信号（降序）。"""
@@ -228,7 +242,9 @@ class HumanChatQualityCore:
         if effective_active and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
-            hint = build_runtime_hint(state.avoid_openers, max_chars=self.cfg.max_runtime_hint_chars)
+            # 危害排序：可靠性损害信号（档位 1）优先装入提示，其余按原顺序
+            avoid_sorted = sorted(enumerate(avoid_openers), key=lambda p: (signal_priority(p[1]), p[0]))
+            hint = build_runtime_hint([item for _, item in avoid_sorted], max_chars=self.cfg.max_runtime_hint_chars)
 
         context_result = rewrite_context_injections(req, hint or None)
         if (
@@ -245,12 +261,8 @@ class HumanChatQualityCore:
             req.system_prompt = stable_result.text
 
         # 统计收集
-        if stable_result.injected:
-            self.stats.stable_rules_injected += 1
-        if injected_hint:
-            self.stats.runtime_hints_injected += 1
         if stable_result.injected or injected_hint:
-            self.stats.total_injections += 1
+            self.stats.record_request(stable_result.injected, bool(injected_hint))
         if session_id:
             pending = self._pending_hints.get(session_id)
             if pending is None or pending.maxlen != PENDING_HINT_MAX_PER_SESSION:
@@ -259,8 +271,7 @@ class HumanChatQualityCore:
             now = time.monotonic()
             _drop_expired_hints(pending, now)
             pending.append((now, runtime_hint_items(injected_hint)))
-        self.stats.legacy_blocks_removed += stable_result.removed + context_result.stable_removed
-        self.stats.stale_hints_removed += context_result.runtime_removed
+        self.stats.record_cleanup(stable_result.removed + context_result.stable_removed, context_result.runtime_removed)
 
         if self.cfg.debug_log and (
             stable_result.injected

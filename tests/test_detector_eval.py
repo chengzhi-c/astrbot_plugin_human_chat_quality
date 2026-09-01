@@ -4,8 +4,8 @@ import sys
 import unittest
 from pathlib import Path
 
-from tests._support import ensure_plugin_package
 from scripts import eval_detector
+from tests._support import ensure_plugin_package
 
 ensure_plugin_package()
 

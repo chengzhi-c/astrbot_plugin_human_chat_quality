@@ -14,7 +14,6 @@ from .core import AppConfig, HumanChatQualityCore
 from .quality_rules import STABLE_RULE_MARKER, build_stable_rules
 from .runtime_state import RuntimeStateStore
 
-
 PLUGIN_ID = "astrbot_plugin_human_chat_quality"
 
 
@@ -88,7 +87,6 @@ class HumanChatQualityPlugin(Star):
     @filter.command_group("humanq")
     def humanq(self):
         """指令组 humanq：质量层会话控制。全部子命令仅管理员可用，作用范围均为当前会话。"""
-        pass
 
     @permission_type(PermissionType.ADMIN)
     @humanq.command("status")

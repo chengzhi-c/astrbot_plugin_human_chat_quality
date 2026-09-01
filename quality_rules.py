@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-from collections.abc import Sequence
-from dataclasses import dataclass
 import hashlib
 import re
+from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import Any
 
 try:
@@ -14,88 +14,42 @@ except ImportError:  # pragma: no cover
 from .constants import MAX_AVOID_ITEM_LEN, MAX_AVOID_ITEMS
 from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 
-
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
-# 规则版本：升级 natural-talk 时 +1；旧版本随 LEGACY 推导保留，保证旧块可剥离
-RULES_VERSION = 7
+# 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v7 剥离签名表已退役：
+# 旧块不再被识别或剥离（14 天状态保留期 + /humanq reset 是迁移路径）。
+RULES_VERSION = 9
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
-# 历史版本注入过的规则标记（含无版本号形态，显式保留）；
-# 用于剥离 system_prompt/历史中残留的旧规则块（startswith 判定不会误伤当前 marker 自身）
-LEGACY_STABLE_MARKERS: tuple[str, ...] = (f"{INJECTED_MARKER_PREFIX} Rules]",) + tuple(
-    f"{INJECTED_MARKER_PREFIX} Rules v{i}]" for i in range(1, RULES_VERSION)
-)
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
 _RUNTIME_PREFIX = f"{RUNTIME_HINT_MARKER}\n{_RUNTIME_INSTRUCTION}\n"
-_LEGACY_RUNTIME_PREFIX = (
-    f"{RUNTIME_HINT_MARKER}\n"
-    "仅用于本轮回复的轻量状态：这些开头或说法最近已出现过，本轮换个自然说法，别再用，也别提到这条提示。\n"
-)
 _RUNTIME_ITEM_SEPARATOR = "、"
-
-# 已发布上游提交中的完整规则签名。正文留在测试夹具，运行时只保留 marker、行数和 hash。
-# 注：v3 曾尝试发布，完整正文未形成可核验物，无签名；未知 v3 块按 ambiguous 保留。v4/v5 为已发布块，必须可剥离。
-_LEGACY_STABLE_SIGNATURES: dict[str, frozenset[tuple[int, str]]] = {
-    f"{INJECTED_MARKER_PREFIX} Rules v1]": frozenset(
-        {
-            (7, "a418be2384020a69e089f10ccf92a595121cc912f7a4d6ac134c3870ce33af44"),
-            (11, "cf703f9e2436a2e2f676c386f3e2673a6ac9c61e769268f411e96fcb16166aa2"),
-        }
-    ),
-    f"{INJECTED_MARKER_PREFIX} Rules v2]": frozenset(
-        {
-            (39, "9f27e5df3f368f9cdc8ff0c2cd6bfc075365af0024dfe67c8ed3a21374d2fa82"),
-            (7, "c33073fcaaca430cba3ab648f7a8df8bdf1c85b6c1d7c71025ce53896771e731"),
-        }
-    ),
-    f"{INJECTED_MARKER_PREFIX} Rules v4]": frozenset(
-        {
-            (25, "c7787f6c38c128dab5b3781365516257af5a35f915766851b870828cd97e3f8f"),
-        }
-    ),
-    f"{INJECTED_MARKER_PREFIX} Rules v5]": frozenset(
-        {
-            (27, "b46bd0d73bd9962979dd3f944cbdc8c6032ae113770df435221c20434f6214fc"),
-        }
-    ),
-    f"{INJECTED_MARKER_PREFIX} Rules v6]": frozenset(
-        {
-            (28, "2ff440645532f44c9e081e2848761e0382176c0c8f9d04140fd2637a51ba52a8"),
-        }
-    ),
-}
 _LITE_CORE = (
-    "核心：\n"
-    "- 直接回答，零开场零收尾，最多留一句有效过渡\n"
-    "- 不知道就说不知道，不编造\n"
-    "- 像朋友聊天，不像客服或老师\n"
+    "原则：不知即说不编造；评价对事不对人；被问身份如实简答；代码/公式/URL/引用块禁改。\n"
     "\n"
-    "禁止：\n"
-    '- "作为AI" / "希望帮助你" / "好问题"（全文最多 1 次）\n'
-    '- "让我来" / "首先其次最后" / "综上所述"（全文最多 1 次）\n'
-    '- "值得注意" / "事实上" 等路标词（全文不超过 2 次）\n'
-    "- 评判对方 / 替对方做心理判断\n"
-    "- 破折号（全文不超过 2 次）\n"
+    "回复约束（对话层）：\n"
+    "- 首句直给结论或事实，末句停在事实/建议/边界，删客套服务用语（好问题/希望帮到你/随时告诉我）\n"
+    "- 评价只针对内容，不评价用户本人；安慰场景优先\n"
+    "- 问什么答什么并给倾向；确属两难写明条件，不以“关键在于平衡/看情况”收尾\n"
+    "- 用户给定量词时严格执行（如“3条”=恰好3项，只计编号项），不借机扩成教程\n"
     "\n"
-    "要求：\n"
-    "- 句子长短交替，不匀速\n"
-    '- 能用"是/有"就不绕\n'
-    "- 主动语态，真实主语\n"
-    "- 具体表达，删除空泛词\n"
+    "句式检查：\n"
+    "- 删“说白了/先说结论”，直接给判断；删“一句话总结：”等空转提示语\n"
+    "- 叙述中解释/列举/补充式破折号改常规标点或完整句，台词中断除外，全文不超过 2 次\n"
+    "- 句子长短交替，主动语态，真实主语\n"
     "\n"
-    "不适用范围：学术润色、正式公文、营销文案等需要相反风格的场景，本规则让位。"
+    "不适用范围：学术论文、正式公文、营销文案等需要相反风格的场景，本规则让位。"
 )
 _PLUGIN_EXTRAS = (
     "插件附加（不改变上述原则）：\n"
     "- 保留事实、限制条件、安全提示和不确定性表述\n"
     "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
     "- 不要把这些约束写进回复\n"
-    "- 用户直接问及身份、能力边界或知识截止时间时，如实简短作答，不回避\n"
-    "- 连续动作尽量一句写完，紧张/暧昧/恐惧/受伤可慢放（例：伸手按下按钮）\n"
-    "- 铁律：先否定后肯定（不是/与其/很久…久到）删否定留肯定，直接说Y；角色引号内除外（例：不是优化而是重构→重构）"
+    "- 连续动作尽量一句写完，紧张/暧昧/恐惧/受伤可慢放\n"
+    "- 铁律：先否定后肯定（不是/与其/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外\n"
+    "- 反清单：问句与设问、具体比喻、正文顺序词属正常表达，不当作问题修改"
 )
-_STABLE_MARKERS = frozenset((*LEGACY_STABLE_MARKERS, STABLE_RULE_MARKER))
+_STABLE_MARKERS = frozenset((STABLE_RULE_MARKER,))
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 _LEADING_SEPARATOR_RE = re.compile(r"^(?:(?:\r\n|\r|\n)){2}")
 _TRAILING_SEPARATOR_RE = re.compile(r"(?:(?:\r\n|\r|\n)){2}$")
@@ -118,21 +72,13 @@ class ContextRewriteResult:
 
 
 def build_stable_rules() -> str:
-    """稳定规则：natural-talk lite 原文 + 插件附加条款。
+    """稳定规则：natural-talk lite 规范 + 插件附加条款。
 
-    natural-talk 部分逐字引用官方 344 字符 lite 模板（templates/system-prompt-lite.txt，MIT）：
-    正文为 v2.1.0+ lite 模板含"不适用范围"行；
-    "插件附加"含安全条款、身份披露例外及上游 extensions.iron_rule/action_compact
-    （连续动作一句、铁律删否定留肯定），与 natural-talk 原则无冲突。
+    natural-talk 部分引用官方分层规则规范（templates/system-prompt-lite.txt，MIT）：
+    含核心原则、对话层回复自查、句式检查与不适用范围；
+    "插件附加"含安全条款、任务优先、动作一句、铁律删否定留肯定与反清单保护，与 natural-talk 原则无冲突。
     """
-    return (
-        f"{STABLE_RULE_MARKER}\n"
-        "遵循 natural-talk 原则（natural-talk v2.1.0+，MIT）：\n"
-        "\n"
-        f"{_LITE_CORE}\n"
-        "\n"
-        f"{_PLUGIN_EXTRAS}"
-    )
+    return f"{STABLE_RULE_MARKER}\n遵循 natural-talk 原则（natural-talk MIT）：\n\n{_LITE_CORE}\n\n{_PLUGIN_EXTRAS}"
 
 
 def _signature(text: str) -> tuple[int, str]:
@@ -141,7 +87,6 @@ def _signature(text: str) -> tuple[int, str]:
 
 
 _STABLE_SIGNATURES = {
-    **_LEGACY_STABLE_SIGNATURES,
     STABLE_RULE_MARKER: frozenset({_signature(build_stable_rules())}),
 }
 
@@ -214,12 +159,10 @@ def _normalize_newlines(text: str) -> str:
 
 
 def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool, bool]:
-    """返回 (签名匹配的可剥离块, 当前版本块是否已存在, 是否含无法核验的历史块)。
+    """返回 (签名匹配的可剥离块, 当前版本块是否已存在, 是否含编辑过的当前块)。
 
-    - 当前版本 marker：无论签名是否匹配都视为已注入（被用户编辑过的当前规则块保留，不重复注入）；
-      签名匹配的块仍进 matches，由调用方决定保留首个还是剥离（关闭时清理）。
-    - 历史版本 marker：仅签名匹配的块可安全剥离（签名同时提供块边界，旧块内部含空行分段）；
-      无法核验的块（v3 事故块、被编辑的旧块）边界未知，只能保留，不参与注入判定。
+    当前版本 marker：无论签名是否匹配都视为已注入（被用户编辑过的当前规则块保留，不重复注入）；
+    签名匹配的块仍进 matches，由调用方决定保留首个还是剥离（关闭时清理）。
     """
     lines = text.splitlines(keepends=True)
     starts: list[int] = []
@@ -248,7 +191,7 @@ def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool, bo
                 matches.append((starts[index], end, marker))
                 matched = True
                 break
-        if not matched and marker != STABLE_RULE_MARKER:
+        if not matched:
             ambiguous = True
     return matches, current_present, ambiguous
 
@@ -300,35 +243,17 @@ def _runtime_kind(text: str) -> str:
     lines = normalized.splitlines()
     if not lines or lines[0] != RUNTIME_HINT_MARKER:
         return "ordinary"
-    if _is_complete_runtime(normalized) or _is_legacy_truncated_runtime(normalized):
+    if _is_complete_runtime(normalized):
         return "owned"
     return "ambiguous"
 
 
 def _is_complete_runtime(text: str) -> bool:
-    for prefix in (_RUNTIME_PREFIX, _LEGACY_RUNTIME_PREFIX):
-        if text.startswith(prefix):
-            items = text[len(prefix) :].split(_RUNTIME_ITEM_SEPARATOR)
-            return 1 <= len(items) <= MAX_AVOID_ITEMS and all(
-                0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items
-            )
-    return False
-
-
-def _is_legacy_truncated_runtime(text: str) -> bool:
-    if not 80 <= len(text) <= 182 or not text.endswith("..."):
+    if not text.startswith(_RUNTIME_PREFIX):
         return False
-    prefix = text[:-3]
-    if _LEGACY_RUNTIME_PREFIX.startswith(prefix):
-        return True
-    if not prefix.startswith(_LEGACY_RUNTIME_PREFIX):
-        return False
-    payload = prefix[len(_LEGACY_RUNTIME_PREFIX) :]
-    items = payload.split(_RUNTIME_ITEM_SEPARATOR)
+    items = text[len(_RUNTIME_PREFIX) :].split(_RUNTIME_ITEM_SEPARATOR)
     return 1 <= len(items) <= MAX_AVOID_ITEMS and all(
-        (0 < len(item) <= MAX_AVOID_ITEM_LEN if index < len(items) - 1 else len(item) <= MAX_AVOID_ITEM_LEN)
-        and "\n" not in item
-        for index, item in enumerate(items)
+        0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items
     )
 
 

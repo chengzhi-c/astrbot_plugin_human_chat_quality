@@ -1,7 +1,7 @@
 # Human Chat Quality 架构文档
 
-**文档版本**: 2.3.0
-**更新日期**: 2026-08-21
+**文档版本**: 3.0.0
+**更新日期**: 2026-09-01
 
 > 本文档记录模块职责与设计意图。**实现细节以代码与测试为准**：本仓库的测试（`tests/`）锁定了所有关键行为，改动行为前先跑测试。配置项以 `_conf_schema.json` 为唯一权威。
 
@@ -40,7 +40,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 `rewrite_context_injections` 清理历史 contexts 中可核验的本插件块；旧 runtime 不在历史中替换。`extra_user_content_parts` 保留普通 part 与至多一个匹配本轮的 runtime part，结果计数按物理删除块累计。
 | `runtime_state.py` | 会话状态（重复开头、避用项）的读写、持久化（原子写、失败重试、损坏容错）、会话匹配 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
-| `signal_detectors.py` | 分层检测 AI 腔信号（收尾/自我暴露/开场/自定义/固定/铁律/模糊叠加/密度按 300 字折算），去重保序 | `detect_cliches` + `detect_iron_rule/detect_hedge` |
+| `signal_detectors.py` | 分层检测 AI 腔信号（收尾/自我暴露/谄媚整句/开场/自定义/固定/铁律/模糊叠加/气氛总结/密度按 300 字折算），去重保序；危害档位 `signal_priority` | `detect_cliches` + `detect_iron_rule/detect_hedge` + `signal_priority` |
 | `constants.py` | 阈值单一源头（ budgets/MAX_AVOID_ITEM_LEN/阈值 rationale ） | 全部数值常量 |
 | `protocols.py` | 宿主对象契约（`ProviderRequest` / `LLMResponse` / `MessageEvent` / TextPart 工厂），纯类型标注 | 5 个 Protocol |
 
@@ -49,9 +49,9 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 **请求拦截（on_llm_request）**：
 
 1. 正式写作意图：当前用户请求同时包含动作词与正式产物时让位；session_id 为空则跳过一切
-2. `rewrite_context_injections`：清理历史中的本插件注入块（旧稳定规则、旧动态提示），保留用户内容
-3. 构建动态提示（`build_runtime_hint` 按完整短语装入，不截半词），注入到 `extra_user_content_parts`（无可用 part 工厂时降级）
-4. `rewrite_stable_rules`：剥离旧版本规则块（v1-v6 签名），幂等注入当前 v7 到 `system_prompt`（含铁律+动作一句）
+2. `rewrite_context_injections`：清理历史中的本插件注入块（当前稳定规则、当前动态提示），保留用户内容
+3. 构建动态提示（`build_runtime_hint` 按完整短语装入，不截半词；avoid_openers 先按危害档位排序——谄媚/免责信号优先装入，见 D10），注入到 `extra_user_content_parts`（无可用 part 工厂时降级）
+4. `rewrite_stable_rules`：剥离签名匹配的当前版本块（关闭时清理），幂等注入当前 v9 到 `system_prompt`（含分层约束+铁律+动作一句）；3.0.0 起旧版本块（v1–v8）不再被识别或剥离
 5. 统计注入与清理计数（delta 避免膨胀，hint 英文边界精化）
 
 **响应处理（on_llm_response）**：
@@ -115,11 +115,27 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 **结论**：状态页反映真实能力，且不新增命令或用户配置。
 
-### D7. 历史截断提示兼容代码的退场计划（2.2.0 更新至 v1-v6）
+### D7. Legacy 剥离签名表退役（3.0.0 完成）
 
-**背景**：`_LEGACY_RUNTIME_PREFIX` 与 `_is_legacy_truncated_runtime`（quality_rules.py 约 20 行）是为已发布版本的截断提示做的兜底，每次 `_runtime_kind` 调用都会进入该函数判断。
+**背景**：v1–v8 旧规则块剥离签名表（`LEGACY_STABLE_MARKERS` 推导 + `_LEGACY_STABLE_SIGNATURES` 行数+sha256 表）与旧版截断提示兼容代码（`_LEGACY_RUNTIME_PREFIX` + `_is_legacy_truncated_runtime`，约 90 行 + 约 200 行测试夹具）是为 2.0 之前版本的升级路径服务的。
 
-**决策**：保留至 v3.0，届时随 `LEGACY_STABLE_MARKERS` 中 v1–v6 的退场一并移除。移除时机由 `tests/test_quality_rules.py` 的夹具数量监控（`REAL_LEGACY_RULES` 条目减少即标志旧版用户已迁移）。已发布 v6 正文在夹具中，签名与夹具不一致即失败。
+**决策**：3.0.0 起整个 legacy 机器退役。旧块（v1–v8 规则块、截断 runtime 提示）不再被识别或剥离——按普通文本保留，不阻断注入。迁移路径：14 天状态保留期自然过期，或 `/humanq reset` 立即清理。当前版本块的"marker 在但签名不匹配 = 用户编辑过，保留不重复注入"三态语义保留（这是 2.1.0 修复的核心行为）。
+
+**结论**：退役终态。考古见 git tag v2.4.0。
+
+### D10. 检测危害排序的动态提示（3.0.0）
+
+**背景**：`max_runtime_hint_chars`（80–157）装不下全部避用项时，按 avoid_openers 的"先达阈值序"截尾——危害最高的信号可能被裁掉。上游 natural-talk 按"危害排序：D1 损害回答可靠性，其余仅影响观感"。
+
+**决策**：`signal_detectors.signal_priority(name)` 返回危害档位（1 = D1 谄媚/D3 免责自我暴露，2 = 观感，默认 2）。排序在 `core.on_llm_request` 构建 hint 前完成，按 `(档位, 原序)` 稳定排序。`build_runtime_hint` 保持纯函数，不知道优先级；quality_rules 不依赖 signal_detectors（排序在 core 完成，core 已有该依赖，避免新增依赖边）。
+
+**权衡**：排序只影响装入顺序，状态文件与 detect_cliches 返回类型不变。
+
+### D11. 检测覆盖对齐上游（3.0.0）
+
+**决策**：词表扩充对齐上游 natural-talk 高置信规则：D1 谄媚整句（"我完全理解你的感受"）、D3 免责变体（"作为一个语言模型"）、D4 收尾扩充（"需要综合考虑"/"因人而异"）、D5 元话语空预告（"让我们先来"等，仅首部）、B1 翻案变体（与其说…不如说/看似…实则）、B4 关键在于冒号、C6 空泛气氛总结（低频短语任意位置）。语义型规则（B2/B3/B7/B8 等）**不词表化**——需要邻段/结构语境，词表化必然误报。
+
+**权衡**：每个新词进冻结评测集（0 FP 门槛不放宽）；"让我们先来"类首部触发靠精确负例清单（"让我们先来点音乐吧"是用户指令）守门。
 
 ### D8. 请求与响应的提示归因
 

@@ -1379,5 +1379,101 @@
     "formal_bypass": false,
     "rationale": "讨论道歉声明风险，不是请求写声明。",
     "split": "holdout"
+  },
+  {
+    "id": "det-136",
+    "category": "casual",
+    "user": "你怎么看这个方案？",
+    "answer": "说白了，这个方案预算严重超标。",
+    "expected_signals": [
+      "说白了"
+    ],
+    "formal_bypass": false,
+    "rationale": "句首起手式B10命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-137",
+    "category": "casual",
+    "user": "这两个框架怎么选？",
+    "answer": "A生态好但较重，B轻量但插件少，关键在于找到平衡。",
+    "expected_signals": [
+      "关键在于找到平衡"
+    ],
+    "formal_bypass": false,
+    "rationale": "D4万能收尾命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-138",
+    "category": "casual",
+    "user": "总结一下今天的会议内容。",
+    "answer": "一句话总结：下周一开始灰度发布。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B4a冒号提示语命中结构性表演。",
+    "split": "dev"
+  },
+  {
+    "id": "det-139",
+    "category": "casual",
+    "user": "AI会取代程序员吗？",
+    "answer": "在当今快速发展的时代，工具能提效但核心逻辑依然靠人。",
+    "expected_signals": [
+      "在当今快速发展的时代"
+    ],
+    "formal_bypass": false,
+    "rationale": "C5宏观开场命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-140",
+    "category": "tech",
+    "user": "这次改动影响大吗？",
+    "answer": "先说结论，只涉及展示层，底层接口不受影响。",
+    "expected_signals": [
+      "先说结论"
+    ],
+    "formal_bypass": false,
+    "rationale": "句首起手式B10命中。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-141",
+    "category": "tech",
+    "user": "应该直接上线还是先测试？",
+    "answer": "先在预发跑一轮冒烟测试，具体方案要结合实际情况。",
+    "expected_signals": [
+      "要结合实际情况"
+    ],
+    "formal_bypass": false,
+    "rationale": "D4万能收尾命中。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-142",
+    "category": "tech",
+    "user": "你觉得这个架构有什么问题？",
+    "answer": "你问到了核心，主要是消息队列单点瓶颈。",
+    "expected_signals": [
+      "你问到了核心"
+    ],
+    "formal_bypass": false,
+    "rationale": "D1谄媚越界命中。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-143",
+    "category": "tech",
+    "user": "如何看待新版本更新？",
+    "answer": "核心是：提升了高并发下的响应速度。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B4a提示语冒号命中。",
+    "split": "holdout"
   }
 ]
