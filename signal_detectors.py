@@ -230,7 +230,7 @@ def detect_opening_cliches(text: str) -> list[str]:
 
 def detect_custom_cliches(text: str, custom_cliches: tuple[str, ...]) -> list[str]:
     """检测自定义避用词（任意位置精确命中）。"""
-    return _find_contained_phrases(text, custom_cliches)
+    return _find_contained_phrases(text, custom_cliches, casefold=True)
 
 
 def detect_sympathy_cliches(text: str) -> list[str]:

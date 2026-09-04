@@ -280,7 +280,14 @@ class RuntimeStateStore:
         temp_path = self.state_path.with_name(f"{self.state_path.name}.tmp")
         try:
             temp_path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-            os.replace(temp_path, self.state_path)
+            for attempt in range(3):
+                try:
+                    os.replace(temp_path, self.state_path)
+                    break
+                except PermissionError:
+                    if attempt == 2:
+                        raise
+                    time.sleep(0.01)
         except Exception:
             try:
                 temp_path.unlink()
@@ -308,11 +315,11 @@ class RuntimeStateStore:
         except Exception:
             return
         # 只保留最近 5 份损坏备份，防止磁盘被时间戳文件堆满
-        # 按 mtime 排序（文件名串序在 time_ns 变长整数时与时间序不一致，可能删错）
+        # 按 (mtime, name) 双键排序，杜绝同秒低精度文件系统上的排序抖动
         try:
             backups = sorted(
                 self.state_path.parent.glob(f"{self.state_path.stem}.corrupt.*{self.state_path.suffix}"),
-                key=lambda p: p.stat().st_mtime,
+                key=lambda p: (p.stat().st_mtime, p.name),
             )
             for old in backups[:-5]:
                 old.unlink()

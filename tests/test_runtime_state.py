@@ -533,6 +533,25 @@ class TestSaveFailureIsolation(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_write_snapshot_windows_transient_retry(self):
+        calls = 0
+        orig_replace = os.replace
+
+        def mock_replace(src, dst):
+            nonlocal calls
+            calls += 1
+            if calls < 3:
+                raise PermissionError(13, "Access is denied (mock transient lock)")
+            return orig_replace(src, dst)
+
+        with mock.patch("os.replace", side_effect=mock_replace):
+            path = os.path.join(self.dir, "retry_state.json")
+            store = RuntimeStateStore(path, 14, 8, ())
+            payload = {"sessions": {}, "disabled_sessions": []}
+            store._write_snapshot_sync(payload)
+            self.assertEqual(calls, 3)
+            self.assertTrue(os.path.exists(path))
+
     def test_same_set_enabled_retries_after_failure(self):
         async def run():
             path = os.path.join(self.dir, "toggle.json")

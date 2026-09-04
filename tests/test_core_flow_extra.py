@@ -263,6 +263,20 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_request(event, req))
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
+    def test_technical_system_design_does_not_yield(self):
+        prompts = [
+            "帮我写一个合同管理系统的表结构",
+            "写一个论文查重算法的Python实现",
+            "写一段公文流转系统的审批流代码",
+            "写个合同系统的数据库设计",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                event = FakeEvent(self.ev.unified_msg_origin, prompt)
+                req = FakeReq()
+                asyncio.run(self.core.on_llm_request(event, req))
+                self.assertIn(STABLE_RULE_MARKER, req.system_prompt, f"技术问答被误让位: {prompt}")
+
     def test_runtime_hint_prefers_reliability_signals_when_budget_is_tight(self):
         appearance = "第一项第一项第一项第一项第一项"
         harmful = "第二项第二项第二项第二项第二项"

@@ -52,6 +52,15 @@ class TestRewriteInterfaces(unittest.TestCase):
     def test_runtime_hint_accepts_opener_sequence(self):
         self.assertIn("好的", build_runtime_hint(["好的"], 157))
 
+    def test_custom_cliches_case_insensitive_detection(self):
+        from astrbot_plugin_human_chat_quality.signal_detectors import detect_custom_cliches
+
+        custom = ("great question", "as an ai")
+        text = "Great question! As an AI, I think so."
+        hits = detect_custom_cliches(text, custom)
+        self.assertIn("great question", hits)
+        self.assertIn("as an ai", hits)
+
 
 class TestStableRewrite(unittest.TestCase):
     def test_legacy_block_is_preserved_as_ordinary_text(self):
