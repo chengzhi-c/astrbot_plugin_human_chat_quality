@@ -176,9 +176,10 @@ class RuntimeStateStore:
         response_text: str,
         detected_cliches: Sequence[str] = (),
     ) -> bool:
+        """接纳一次回复：True 仅表示已接纳/无事可做，不代表落盘（以 has_pending_save/flush 为准）。"""
         text = re.sub(r"\s+", " ", (response_text or "")).strip()
         if not text:
-            return not self.has_pending_save
+            return True
 
         async with self._state_lock:
             state = self.sessions.get(session_id, SessionState())
