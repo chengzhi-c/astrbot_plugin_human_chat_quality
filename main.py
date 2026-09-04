@@ -31,7 +31,7 @@ def _version_from_lines(lines: list[str]) -> str:
 def _read_metadata_version() -> str:
     try:
         return _version_from_lines(Path(__file__).with_name("metadata.yaml").read_text(encoding="utf-8").splitlines())
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return "0.0.0"
 
 

@@ -20,6 +20,13 @@ class TestVersionParse(unittest.TestCase):
         self.assertEqual(_version_from_lines(["name: x"]), "0.0.0")
         self.assertEqual(_version_from_lines(["version:"]), "0.0.0")
 
+    def test_undecodable_metadata_falls_back_to_default_version(self):
+        from astrbot_plugin_human_chat_quality.main import _read_metadata_version
+
+        error = UnicodeDecodeError("utf-8", b"\xff", 0, 1, "invalid start byte")
+        with mock.patch("pathlib.Path.read_text", side_effect=error):
+            self.assertEqual(_read_metadata_version(), "0.0.0")
+
     def test_plugin_id_matches_metadata_name(self):
         """PLUGIN_ID（数据目录依据）与 metadata.name（发布包名）必须一致。"""
         from astrbot_plugin_human_chat_quality.main import PLUGIN_ID
