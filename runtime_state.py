@@ -383,7 +383,22 @@ def _parse_group_id_from_origin(origin: str) -> str:
 
 
 # opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）
-_OPENER_PREFIXES: tuple[str, ...] = ("我会", "好的", "可以", "没问题", "没事", "别急", "明白", "行吧", "好嘞")
+_OPENER_PREFIXES: tuple[str, ...] = (
+    "我会",
+    "好的",
+    "可以",
+    "没问题",
+    "没事",
+    "别急",
+    "明白",
+    "行吧",
+    "好嘞",
+    "确实",
+    "当然",
+    "对的",
+    "没错",
+    "哈哈",
+)
 
 
 def extract_opener(text: str) -> str:

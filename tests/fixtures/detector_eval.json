@@ -2112,5 +2112,119 @@
     "formal_bypass": false,
     "rationale": "B6 无编号标题不报。",
     "split": "holdout"
+  },
+  {
+    "id": "det-198",
+    "category": "tech",
+    "user": "Docker 为什么会启动失败？",
+    "answer": "关于你提到的Docker启动失败问题，通常是因为端口被占用或daemon.json格式错误。",
+    "expected_signals": [
+      "关于你提到的"
+    ],
+    "formal_bypass": false,
+    "rationale": "C3 复述题目开场正例，首部命中",
+    "split": "dev"
+  },
+  {
+    "id": "det-199",
+    "category": "casual",
+    "user": "多喝热水真的有用吗？",
+    "answer": "有研究表明，适温温水能缓解咽部不适。",
+    "expected_signals": [
+      "有研究表明"
+    ],
+    "formal_bypass": false,
+    "rationale": "D6 模糊假归因正例",
+    "split": "dev"
+  },
+  {
+    "id": "det-200",
+    "category": "tech",
+    "user": "关于网络延迟该怎么优化？",
+    "answer": "先检查交换机端口丢包率，再确认 DNS 解析耗时。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "C3 负例：用户问句含关于，但模型回复未复述题目，直接给排查步骤",
+    "split": "dev"
+  },
+  {
+    "id": "det-201",
+    "category": "tech",
+    "user": "微服务和单体怎么选？",
+    "answer": "建议如下：\n1. 团队规模小于五人优先单体。\n2. 业务拆分清晰再考虑微服务。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B4 汇报冒号提示语正例（建议如下：）",
+    "split": "dev"
+  },
+  {
+    "id": "det-202",
+    "category": "tech",
+    "user": "这个数据库迁移方案稳妥吗？",
+    "answer": "关于您提到的数据库方案，建议先在只读从库回放 binlog 验证。",
+    "expected_signals": [
+      "关于您提到的"
+    ],
+    "formal_bypass": false,
+    "rationale": "C3 复述题目开场正例（关于您提到的），首部命中",
+    "split": "holdout"
+  },
+  {
+    "id": "det-203",
+    "category": "tech",
+    "user": "React 和 Vue 哪个更好维护？",
+    "answer": "业内普遍认为，大型团队协作中 TypeScript 支持度更关键。",
+    "expected_signals": [
+      "业内普遍认为"
+    ],
+    "formal_bypass": false,
+    "rationale": "D6 模糊假归因正例（业内普遍认为）",
+    "split": "holdout"
+  },
+  {
+    "id": "det-204",
+    "category": "tech",
+    "user": "关于那个配置，有没有具体的建议？",
+    "answer": "在生产环境部署时，关于跨域配置的部分需要格外谨慎。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "C3 负例：句中出现关于，非首部复述套话，不报",
+    "split": "holdout"
+  },
+  {
+    "id": "det-205",
+    "category": "steps",
+    "user": "怎么升级 Python 版本？",
+    "answer": "总结如下：\n1. 先备份现有环境配置。\n2. 下载新版本包并替换软链接。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B4 汇报冒号提示语正例（总结如下：）",
+    "split": "holdout"
+  },
+  {
+    "id": "det-206",
+    "category": "tech",
+    "user": "为什么请求变慢了？",
+    "answer": "排查后发现——由于连接池耗尽——请求全被阻塞——导致超时。",
+    "expected_signals": [
+      "破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "多次使用破折号制造刻意停顿，触发破折号密度报警",
+    "split": "dev"
+  },
+  {
+    "id": "det-207",
+    "category": "tech",
+    "user": "这个接口耗时大概多少？",
+    "answer": "一般在 50–100 毫秒之间，波动不大。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "数值区间单连接号（–），不触发破折号报警",
+    "split": "holdout"
   }
 ]

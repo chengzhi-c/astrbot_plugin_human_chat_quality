@@ -31,6 +31,9 @@ OPENING_CLICHES: tuple[str, ...] = (
     "让我来",
     "感谢你的提问",
     "Great question",
+    # C3 复述题目开场
+    "关于你提到的",
+    "关于您提到的",
     # D1 谄媚越界
     "你问到了核心",
     "你有很强的批判性思维",
@@ -46,6 +49,12 @@ OPENING_CLICHES: tuple[str, ...] = (
     "让我们先来",
     "下面我将",
     "接下来我将",
+)
+
+# D6 模糊假归因（高置信度无出处假背书，任意位置精确命中）
+DEFAULT_VAGUE_ATTRIBUTIONS: tuple[str, ...] = (
+    "有研究表明",
+    "业内普遍认为",
 )
 
 # D5 负例：这些首部开头是真实动作/指令，不是空预告，命中 OPENING_CLICHES 后在此豁免
@@ -126,7 +135,8 @@ _TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"看似[^。\n]{0,12}实则"),
     re.compile(r"很久[^。\n]{0,6}久到|安静[^。\n]{0,4}静[到得]|沉默[^。\n]{0,4}沉默到"),
     re.compile(r"真正的问题是"),
-    re.compile(r"(?:一句话总结|核心是|关键在于|原因如下|本质上)\s*[:：]"),
+    re.compile(r"(?:一句话总结|核心是|关键在于|原因如下|本质上|总结如下|具体分析如下|建议如下|分析如下)\s*[:：]"),
+    re.compile(r"[—–]{1,2}(?:那就是|那是|原来|其实|也就是|这就是|正因如此|真正的原因)"),
 )
 _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
@@ -219,6 +229,11 @@ def detect_sympathy_cliches(text: str) -> list[str]:
     return [phrase for phrase in DEFAULT_SYMPATHY_CLICHES if phrase in text]
 
 
+def detect_vague_attributions(text: str) -> list[str]:
+    """D6 模糊假归因（任意位置精确命中）。"""
+    return [phrase for phrase in DEFAULT_VAGUE_ATTRIBUTIONS if phrase in text]
+
+
 def detect_atmosphere_cliches(text: str) -> list[str]:
     """C6 空泛气氛总结（任意位置精确命中，短语本身极低频）。"""
     return [phrase for phrase in _ATMOSPHERE_CLICHES if phrase in text]
@@ -294,6 +309,7 @@ def builtin_signal_names() -> frozenset[str]:
             *OPENING_CLICHES,
             *DEFAULT_SYMPATHY_CLICHES,
             *DEFAULT_ENDINGS,
+            *DEFAULT_VAGUE_ATTRIBUTIONS,
             *_ATMOSPHERE_CLICHES,
             "然而连发",
             "结构性表演",
@@ -325,6 +341,7 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_ai_self_exposure(normalized),
         detect_opening_cliches(normalized),
         detect_sympathy_cliches(normalized),
+        detect_vague_attributions(normalized),
         detect_custom_cliches(normalized, custom_cliches),
         detect_fixed_pattern_signals(normalized),
         detect_iron_rule(normalized),

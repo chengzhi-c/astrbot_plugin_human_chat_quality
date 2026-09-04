@@ -236,7 +236,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 10)
+        self.assertEqual(RULES_VERSION, 11)
         # legacy 机器已退役：模块不再导出 legacy 剥离设施
         self.assertFalse(hasattr(quality_rules, "LEGACY_STABLE_MARKERS"))
         self.assertFalse(hasattr(quality_rules, "_LEGACY_STABLE_SIGNATURES"))
@@ -256,7 +256,7 @@ class TestStableRules(unittest.TestCase):
         self.fail("metadata.yaml 缺少 version 字段")
 
     def test_build_stable_rules_contains_skill_verbatim(self):
-        """规则 v10：lite 原文（去清理句）+ 插件附加，由 anchor/forbidden 夹具锁。"""
+        """规则 v11：lite 原文 + 插件附加，由 anchor/forbidden 夹具锁。"""
         from pathlib import Path
 
         spec = json.loads(
@@ -275,16 +275,15 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
         self.assertIn("铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外", rules)
+        self.assertIn("铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓", rules)
 
-    def test_lite_core_is_fixture_without_cleanup_sentence(self):
+    def test_lite_core_matches_fixture(self):
         from pathlib import Path
 
         fixture = (Path(__file__).resolve().parents[1] / "tests" / "fixtures" / "system-prompt-lite.txt").read_text(
             encoding="utf-8"
         )
-        drop = "成文清理时，对话层和 C6 不带入；保护资料引用、事实与结构，默认只输出清理后的正文。\n\n"
-        self.assertIn(drop, fixture)
-        self.assertEqual(quality_rules._LITE_CORE, fixture.replace(drop, "").rstrip() + "\n")
+        self.assertEqual(quality_rules._LITE_CORE, fixture)
 
     def test_v8_block_is_preserved_not_stripped(self):
         """3.0.0：v8 块不再被替换为当前版本，按普通文本保留。"""

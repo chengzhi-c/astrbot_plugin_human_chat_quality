@@ -158,9 +158,11 @@ class TestReleaseBuild(unittest.TestCase):
                 sys.executable,
                 "-S",
                 "-c",
-                "import sys, unittest; sys.path.insert(0, '.'); "
-                "from scripts.run_tests import CORE_MODULES, run_suite; "
-                "raise SystemExit(run_suite(unittest.defaultTestLoader.loadTestsFromNames(CORE_MODULES), sys.stderr))",
+                (
+                    "import sys, unittest; sys.path.insert(0, '.'); "
+                    "from scripts.run_tests import CORE_MODULES, run_suite; "
+                    "raise SystemExit(run_suite(unittest.defaultTestLoader.loadTestsFromNames(CORE_MODULES), sys.stderr))"
+                ),
             ],
             cwd=repo,
             capture_output=True,
