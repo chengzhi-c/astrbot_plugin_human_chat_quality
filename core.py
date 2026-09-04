@@ -262,7 +262,9 @@ class HumanChatQualityCore:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
             # 危害排序：可靠性损害信号（档位 1）优先装入提示，其余按原顺序
-            avoid_sorted = [item for _, item in sorted(enumerate(avoid_openers), key=lambda p: (signal_priority(p[1]), p[0]))]
+            avoid_sorted = [
+                item for _, item in sorted(enumerate(avoid_openers), key=lambda p: (signal_priority(p[1]), p[0]))
+            ]
             selected_names = tuple(select_runtime_hint_names(avoid_sorted, self.cfg.max_runtime_hint_chars))
             hint = render_runtime_hint(selected_names)
 
@@ -418,9 +420,7 @@ class HumanChatQualityCore:
         lines.append(f"- 状态持久化：{persistence}")
         return "\n".join(lines)
 
-    def _yield_reason(
-        self, session_id: str, event: MessageEventProtocol | None, *, update: bool = False
-    ) -> str | None:
+    def _yield_reason(self, session_id: str, event: MessageEventProtocol | None, *, update: bool = False) -> str | None:
         kind = _yield_kind(event)
         now = time.monotonic()
         if kind:
