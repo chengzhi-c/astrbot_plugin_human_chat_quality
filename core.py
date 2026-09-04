@@ -194,9 +194,7 @@ def _is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
         return True
     if not (_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text)):
         return False
-    if _TECH_SYSTEM_SUFFIXES.search(text):
-        return False
-    return True
+    return not bool(_TECH_SYSTEM_SUFFIXES.search(text))
 
 
 def _is_creative_writing_request(event: MessageEventProtocol | None) -> bool:
