@@ -1,7 +1,8 @@
 # 仓库目录名带 -main 后缀（发布包名不含），N999 是环境产物而非代码问题。
 # BLE001/S110：质量层为增强功能，刻意用宽异常兜底不阻断消息主链，属有意设计。
 # 测试在导入宿主 API 前通过 tests._support.ensure_plugin_package 注册规范包名，
-# 导入顺序仍由该引导决定，因此 E402 在 tests/ 内是固有形态。
+# 导入顺序仍由该引导决定，因此 E402 在 tests/ 内是固有形态；
+# scripts/eval_detector.py 同构（先插 sys.path 再导入），同理豁免。
 line-length = 120
 
 [lint]
@@ -13,3 +14,4 @@ ignore = ["S110", "S112", "N999"]
 "quality_rules.py" = ["BLE001"]
 "runtime_state.py" = ["BLE001"]
 "tests/*" = ["E402", "B023", "ASYNC230"]
+"scripts/*" = ["E402"]

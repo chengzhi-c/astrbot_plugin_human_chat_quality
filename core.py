@@ -152,6 +152,7 @@ class AppConfig:
 
 
 def extract_response_text(resp: LLMResponseProtocol) -> str:
+    """宿主响应对象形状随版本变化，逐属性探测是有意的。"""
     completion = getattr(resp, "completion_text", None)
     if isinstance(completion, str) and completion.strip():
         return completion.strip()

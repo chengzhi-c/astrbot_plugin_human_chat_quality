@@ -445,7 +445,7 @@ class TestPruneExpired(unittest.TestCase):
 
         asyncio.run(run())
 
-    def test_legacy_session_without_timestamps_uses_stale_file_mtime(self):
+    def test_session_without_timestamps_uses_stale_file_mtime(self):
         path = os.path.join(self.dir, "legacy-stale.json")
         with open(path, "w", encoding="utf-8") as file:
             json.dump({"sessions": {"old": {"a": ["好的"], "r": "好的"}}}, file)
@@ -458,7 +458,7 @@ class TestPruneExpired(unittest.TestCase):
 
         self.assertNotIn("old", store.sessions)
 
-    def test_legacy_session_without_timestamps_persists_fresh_file_mtime(self):
+    def test_session_without_timestamps_persists_fresh_file_mtime(self):
         async def run():
             path = os.path.join(self.dir, "legacy-fresh.json")
             with open(path, "w", encoding="utf-8") as file:
