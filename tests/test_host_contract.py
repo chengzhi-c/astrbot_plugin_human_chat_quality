@@ -146,6 +146,26 @@ class TestHostRegistration(unittest.TestCase):
 
                 self.assertIn(expected, asyncio.run(collect())[0])
 
+    def test_stats_command_renders_key_rows(self):
+        from astrbot_plugin_human_chat_quality.core import QualityStats
+
+        class Event:
+            @staticmethod
+            def plain_result(text):
+                return text
+
+        stats = QualityStats()
+        stats.record_request(True, True)
+        stats.record_cliche_hit("好的")
+        plugin = type("StubPlugin", (), {"core": type("Core", (), {"stats": stats})()})()
+
+        async def collect():
+            return [item async for item in HumanChatQualityPlugin.humanq_stats(plugin, Event())]
+
+        text = asyncio.run(collect())[0]
+        for row in ("累计注入：1 次", "固定规则：1 次", "动态提醒：1 次", "好的"):
+            self.assertIn(row, text)
+
     def test_terminate_flushes_pending_state(self):
         store = mock.Mock()
         store.terminate = mock.AsyncMock(return_value=True)
