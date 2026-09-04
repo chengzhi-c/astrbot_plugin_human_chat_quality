@@ -290,10 +290,18 @@ class TestStore(unittest.TestCase):
     def test_entry_level_tolerant(self):
         p = self._path("s2.json")
         with open(p, "w", encoding="utf-8") as f:
-            json.dump({"sessions": {"good": {"avoid_openers": ["a"]}, "bad": "notdict"}}, f)
+            json.dump({"sessions": {"good": {"a": ["a"], "r": "a"}, "bad": "notdict"}}, f)
         s = RuntimeStateStore(p, 14, 8)
         self.assertIn("good", s.sessions)
         self.assertNotIn("bad", s.sessions)
+
+    def test_retired_v1_entry_is_skipped_with_backup(self):
+        p = self._path("legacy-v1.json")
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({"sessions": {"old": {"avoid_openers": ["好的"], "recent_openers": ["好的"]}}}, f)
+        s = RuntimeStateStore(p, 14, 8)
+        self.assertNotIn("old", s.sessions)
+        self.assertEqual(len(list(Path(self.dir).glob("legacy-v1.corrupt.*.json"))), 1)
 
     def test_compact_invalid_entries_do_not_reset_valid_sessions(self):
         p = self._path("compact-invalid.json")
@@ -440,7 +448,7 @@ class TestPruneExpired(unittest.TestCase):
     def test_legacy_session_without_timestamps_uses_stale_file_mtime(self):
         path = os.path.join(self.dir, "legacy-stale.json")
         with open(path, "w", encoding="utf-8") as file:
-            json.dump({"sessions": {"old": {"avoid_openers": ["好的"]}}}, file)
+            json.dump({"sessions": {"old": {"a": ["好的"], "r": "好的"}}}, file)
         now = 2_000_000.0
         old_mtime = now - 8 * 86400
         os.utime(path, (old_mtime, old_mtime))
@@ -454,7 +462,7 @@ class TestPruneExpired(unittest.TestCase):
         async def run():
             path = os.path.join(self.dir, "legacy-fresh.json")
             with open(path, "w", encoding="utf-8") as file:
-                json.dump({"sessions": {"fresh": {"avoid_openers": ["好的"]}}}, file)
+                json.dump({"sessions": {"fresh": {"a": ["好的"], "r": "好的"}}}, file)
             now = 2_000_000.0
             fresh_mtime = now - 86400
             os.utime(path, (fresh_mtime, fresh_mtime))

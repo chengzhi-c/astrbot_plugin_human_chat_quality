@@ -422,10 +422,9 @@ def repeated_items(items: list[str], limit: int, threshold: int = OPENER_REPEAT_
 
 
 def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionState:
-    """从字典加载状态（兼容新旧格式）。
+    """从字典加载状态（仅新格式 v2 紧凑键；pre-2.0 旧键拒收，走备份+跳过）。
 
     新格式（v2，紧凑）：{"a": [...], "r": "x,y,z", "t": 123456}
-    旧格式（v1）：{"avoid_openers": [...], "recent_openers": [...], "updated_at": 123.456, ...}
     """
     # 新格式（紧凑）
     if "a" in data:
@@ -440,15 +439,10 @@ def _state_from_dict(data: dict[str, Any], recent_reply_window: int) -> SessionS
             updated_at=float(data.get("t", 0)) if data.get("t") else None,
         )
 
-    # 旧格式（向后兼容）
-    return SessionState(
-        avoid_openers=_list_of_str(data.get("avoid_openers", []), MAX_AVOID_ITEMS),
-        recent_openers=[
-            item[:MAX_OPENER_LEN] for item in _list_of_str(data.get("recent_openers", []), recent_reply_window)
-        ],
-        last_response_at=_optional_float(data.get("last_response_at")),
-        updated_at=_optional_float(data.get("updated_at")),
-    )
+    # pre-2.0 旧键不再兼容：拒收以复用备份+跳过容错（升级后首次落盘即整体迁移，此分支只剩残留文件兜底）
+    if "avoid_openers" in data or "recent_openers" in data:
+        raise TypeError("retired pre-2.0 state entry")
+    return SessionState()
 
 
 def _state_to_dict(state: SessionState, recent_reply_window: int) -> dict[str, Any]:
@@ -471,12 +465,3 @@ def _list_of_str(value: Any, limit: int) -> list[str]:
     if not isinstance(value, list):
         return []
     return [str(item) for item in value if str(item).strip()][:limit]
-
-
-def _optional_float(value: Any) -> float | None:
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
