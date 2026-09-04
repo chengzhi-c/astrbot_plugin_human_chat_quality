@@ -363,6 +363,7 @@ def render_runtime_hint(names: Sequence[str]) -> str:
 
 
 def build_runtime_hint(openers: Sequence[str], max_chars: int) -> str:
+    """测试便利封装（select+render）；生产路径见 HumanChatQualityCore.on_llm_request（中间需取 selected_names 入 pending 队列做请求-响应关联）。"""
     return render_runtime_hint(select_runtime_hint_names(openers, max_chars))
 
 
