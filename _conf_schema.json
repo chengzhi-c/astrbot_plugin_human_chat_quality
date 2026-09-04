@@ -3,27 +3,27 @@
     "description": "启用质量层",
     "type": "bool",
     "default": true,
-    "hint": "关闭后插件仍加载，但不会注入隐藏规则或记录运行时状态。"
+    "hint": "总开关。关闭后不注入规则，不记录运行时状态。"
   },
   "inject_stable_rules": {
     "description": "注入稳定质量规则",
     "type": "bool",
     "default": true,
-    "hint": "注入去模板腔、人性化回复约束，幂等写入 system_prompt（marker 防重复）。与其它改写 system 的插件冲突时可关闭。",
+    "hint": "向 system_prompt 写入基础对话规范，通过 marker 机制避免重复注入。",
     "condition": {"enabled": true}
   },
   "inject_runtime_state": {
     "description": "注入本轮运行时状态",
     "type": "bool",
     "default": true,
-    "hint": "把近期重复开头清单作为本轮临时提示注入。关闭后仍记录轻量状态，重新开启时可继续使用。",
+    "hint": "将近期检测到的重复开头与避用词作为单轮提示注入请求。",
     "condition": {"enabled": true}
   },
   "max_runtime_hint_chars": {
     "description": "运行时提示最大字符数",
     "type": "int",
     "default": 157,
-    "hint": "限制每轮动态提示长度，按完整短语装入，不会截断半个短语。取值范围 80–157（理论容量上限）。",
+    "hint": "单轮动态提示最大字符数，按完整短语装配。取值范围 80–157。",
     "condition": {"enabled": true, "inject_runtime_state": true},
     "slider": {"min": 80, "max": 157, "step": 1}
   },
@@ -31,7 +31,7 @@
     "description": "重复开头检测范围",
     "type": "int",
     "default": 8,
-    "hint": "统计最近 N 条回复的开头，同一开头出现 3 次及以上，下一轮就提醒模型换种说法。关闭动态提示后仍继续记录。",
+    "hint": "统计最近 N 条回复的开头，同一开头出现 3 次及以上时加入下一轮避用列表。取值范围 3–50。",
     "condition": {"enabled": true},
     "slider": {"min": 3, "max": 50, "step": 1}
   },
@@ -39,28 +39,28 @@
     "description": "自定义避用词（可选）",
     "type": "list",
     "default": [],
-    "hint": "每行一个短语，命中即加入动态提醒。关闭动态提示后仍继续记录；单条超过 20 字不生效。",
+    "hint": "自定义避用词列表，每行一个短语，命中后加入下一轮动态提醒。单条长度上限 20 字符。",
     "condition": {"enabled": true}
   },
   "state_retention_days": {
     "description": "状态保留天数",
     "type": "int",
     "default": 14,
-    "hint": "轻量状态超过该天数未更新会被清理。取值范围 1–365。",
+    "hint": "会话状态保留周期，超过该天数未更新自动清理。取值范围 1–365。",
     "condition": {"enabled": true}
   },
   "disabled_sessions": {
     "description": "禁用会话列表",
     "type": "list",
     "default": [],
-    "hint": "每行一个 QQ 群号或完整 unified_msg_origin。群聊可直接填群号，如 123456；也支持 group:123456、GroupMessage:123456、aiocqhttp:GroupMessage:123456。命令 /humanq off 会写入运行时状态，不会改此配置。",
+    "hint": "静态禁用会话列表，每行一个群号（如 123456）或完整来源标识。运行时临时调整请使用 /humanq off 命令。",
     "condition": {"enabled": true}
   },
   "debug_log": {
     "description": "调试日志",
     "type": "bool",
     "default": false,
-    "hint": "开启后每次注入会输出 debug 日志。",
+    "hint": "开启后输出调试级别日志。",
     "condition": {"enabled": true}
   }
 }
