@@ -8,8 +8,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from .constants import (
+    DEFAULT_RECENT_REPLY_WINDOW,
+    DEFAULT_STATE_RETENTION_DAYS,
+    MAX_RECENT_REPLY_WINDOW,
     MAX_RUNTIME_HINT_CHARS,
+    MAX_STATE_RETENTION_DAYS,
+    MIN_RECENT_REPLY_WINDOW,
     MIN_RUNTIME_HINT_CHARS,
+    MIN_STATE_RETENTION_DAYS,
     PENDING_HINT_MAX_PER_SESSION,
     PENDING_HINT_TTL_SECONDS,
     PENDING_SESSION_CAP,
@@ -108,8 +114,8 @@ class AppConfig:
     inject_runtime_state: bool = True
     debug_log: bool = False
     max_runtime_hint_chars: int = MAX_RUNTIME_HINT_CHARS
-    state_retention_days: int = 14
-    recent_reply_window: int = 8
+    state_retention_days: int = DEFAULT_STATE_RETENTION_DAYS
+    recent_reply_window: int = DEFAULT_RECENT_REPLY_WINDOW
     custom_cliches: tuple[str, ...] = ()
     disabled_sessions: frozenset[str] = frozenset()
 
@@ -128,8 +134,18 @@ class AppConfig:
                 MIN_RUNTIME_HINT_CHARS,
                 MAX_RUNTIME_HINT_CHARS,
             ),
-            state_retention_days=_parse_int(get("state_retention_days", 14), 14, 1, 365),
-            recent_reply_window=_parse_int(get("recent_reply_window", 8), 8, 3, 50),
+            state_retention_days=_parse_int(
+                get("state_retention_days", DEFAULT_STATE_RETENTION_DAYS),
+                DEFAULT_STATE_RETENTION_DAYS,
+                MIN_STATE_RETENTION_DAYS,
+                MAX_STATE_RETENTION_DAYS,
+            ),
+            recent_reply_window=_parse_int(
+                get("recent_reply_window", DEFAULT_RECENT_REPLY_WINDOW),
+                DEFAULT_RECENT_REPLY_WINDOW,
+                MIN_RECENT_REPLY_WINDOW,
+                MAX_RECENT_REPLY_WINDOW,
+            ),
             custom_cliches=tuple(_parse_list(get("custom_cliches", []))),
             disabled_sessions=frozenset(item.lower() for item in _parse_list(get("disabled_sessions", []))),
         )

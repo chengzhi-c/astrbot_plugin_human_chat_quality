@@ -12,6 +12,13 @@ import re
 MAX_AVOID_ITEMS: int = 5  # 避用清单上限（重复开头+套路词合计），上游 budgets 5 项封顶
 MAX_AVOID_ITEM_LEN: int = 20  # 单条避用词最大长度，超长截断成半截即失效，入库过滤口径
 MAX_OPENER_LEN: int = 8  # 开头截断长度（前缀 ≤8 与普通开头同口径）
+# 配置默认值与边界（_conf_schema.json 内镜像一份，JSON 无法引用 Python 常量，以 tests/test_config.py 锚定一致）
+DEFAULT_STATE_RETENTION_DAYS: int = 14
+MIN_STATE_RETENTION_DAYS: int = 1
+MAX_STATE_RETENTION_DAYS: int = 365
+DEFAULT_RECENT_REPLY_WINDOW: int = 8
+MIN_RECENT_REPLY_WINDOW: int = 3
+MAX_RECENT_REPLY_WINDOW: int = 50
 MIN_RUNTIME_HINT_CHARS: int = 80  # 运行时提示最小字符数（完整短语装入，不截半）
 MAX_RUNTIME_HINT_CHARS: int = 157  # 理论容量：53 前缀 + 5×20 + 4分隔 = 157
 

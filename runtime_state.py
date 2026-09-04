@@ -18,9 +18,12 @@ except ImportError:  # pragma: no cover
 
 from .constants import (
     DAY_SECONDS,
+    DEFAULT_RECENT_REPLY_WINDOW,
+    DEFAULT_STATE_RETENTION_DAYS,
     MAX_AVOID_ITEM_LEN,
     MAX_AVOID_ITEMS,
     MAX_OPENER_LEN,
+    MIN_STATE_RETENTION_DAYS,
     OPENER_DELIM,
     OPENER_PREFIXES,
     OPENER_REPEAT_THRESHOLD,
@@ -51,9 +54,9 @@ class RuntimeStateStore:
         custom_cliches: Sequence[str] | None = None,
     ) -> None:
         self.state_path = Path(state_path)
-        self.retention_days = max(1, int(retention_days or 14))
+        self.retention_days = max(MIN_STATE_RETENTION_DAYS, int(retention_days or DEFAULT_STATE_RETENTION_DAYS))
         # 窗口不得小于重复阈值，否则「≥N 次」永远达不到（静默死区）
-        self.recent_reply_window = max(OPENER_REPEAT_THRESHOLD, int(recent_reply_window or 8))
+        self.recent_reply_window = max(OPENER_REPEAT_THRESHOLD, int(recent_reply_window or DEFAULT_RECENT_REPLY_WINDOW))
         # 群主自定义词（任意位置精确命中即提示）；内置末尾模板另走 DEFAULT_ENDINGS。
         # 超长条目（>MAX_AVOID_ITEM_LEN）在构造期过滤并告警，避免每轮命中又被丢弃的静默无效配置。
         cleaned: list[str] = []
