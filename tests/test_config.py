@@ -13,8 +13,8 @@ ensure_plugin_package()
 from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.core import AppConfig
 
-EXPECTED_MIN_RUNTIME_HINT_CHARS = 80
-EXPECTED_MAX_RUNTIME_HINT_CHARS = 157
+EXPECTED_MIN_RUNTIME_HINT_CHARS = MIN_RUNTIME_HINT_CHARS
+EXPECTED_MAX_RUNTIME_HINT_CHARS = MAX_RUNTIME_HINT_CHARS
 
 
 class TestConfigParse(unittest.TestCase):

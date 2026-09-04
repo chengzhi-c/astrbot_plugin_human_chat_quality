@@ -82,7 +82,7 @@ class ContextRewriteResult:
 
 
 def build_stable_rules() -> str:
-    """稳定规则：natural-talk lite 原文（去掉清理模式句）+ 插件附加条款。"""
+    """稳定规则：natural-talk 轻量注入版（规范源：SKILL.md 日常对话与问答核心准绳）+ 插件附加条款。"""
     return f"{STABLE_RULE_MARKER}\n遵循 natural-talk 原则（natural-talk MIT）：\n\n{_LITE_CORE}\n\n{_PLUGIN_EXTRAS}"
 
 

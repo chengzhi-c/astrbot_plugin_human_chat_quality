@@ -61,6 +61,26 @@ class TestRewriteInterfaces(unittest.TestCase):
         self.assertIn("great question", hits)
         self.assertIn("as an ai", hits)
 
+    def test_all_aggregate_signals_have_polite_hint_translations(self):
+        from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
+        from astrbot_plugin_human_chat_quality.signal_detectors import builtin_signal_names
+
+        aggregate_signals = {
+            "然而连发",
+            "结构性表演",
+            "模糊叠加",
+            "破折号",
+            "感叹号",
+            "路标词堆砌",
+            "编号小标题连发",
+        }
+        self.assertTrue(aggregate_signals.issubset(builtin_signal_names()))
+        self.assertEqual(
+            aggregate_signals,
+            set(_SIGNAL_HINT_MAP.keys()),
+            "所有聚合检测信号必须在 quality_rules._SIGNAL_HINT_MAP 中配置模型端转义语！",
+        )
+
 
 class TestStableRewrite(unittest.TestCase):
     def test_legacy_block_is_preserved_as_ordinary_text(self):
