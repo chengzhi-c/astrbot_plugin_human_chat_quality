@@ -60,7 +60,6 @@ _PLUGIN_EXTRAS = (
     "- 铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面\n"
     "- 铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓"
 )
-_STABLE_MARKERS = frozenset((STABLE_RULE_MARKER,))
 _HISTORY_RULES_MARKER_RE = re.compile(r"^[ \t]*\[Human Chat Quality Rules v\d+\][ \t]*$")
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 _LEADING_SEPARATOR_RE = re.compile(r"^(?:(?:\r\n|\r|\n)){2}")
@@ -93,9 +92,7 @@ def _signature(text: str) -> tuple[int, str]:
     return len(normalized.splitlines()), hashlib.sha256(normalized.encode()).hexdigest()
 
 
-_STABLE_SIGNATURES = {
-    STABLE_RULE_MARKER: frozenset({_signature(build_stable_rules())}),
-}
+_STABLE_SIG_LINES, _STABLE_SIG_HASH = _signature(build_stable_rules())
 
 
 def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableRewriteResult:
@@ -105,7 +102,7 @@ def rewrite_stable_rules(system_prompt: str | None, *, enabled: bool) -> StableR
     removals: list[tuple[int, int]] = []
 
     for start, end, marker in matches:
-        if marker == STABLE_RULE_MARKER and enabled and not current_kept:
+        if enabled and not current_kept:
             current_kept = True
             continue
         removals.append(_expand_stable_removal(text, start, end))
@@ -182,23 +179,18 @@ def _find_stable_blocks(text: str) -> tuple[list[tuple[int, int, str]], bool, bo
     current_present = False
     ambiguous = False
     for index, line in enumerate(lines):
-        marker = line.rstrip("\r\n")
-        if marker not in _STABLE_MARKERS:
+        if line.rstrip("\r\n") != STABLE_RULE_MARKER:
             continue
-        if marker == STABLE_RULE_MARKER:
-            current_present = True
-        matched = False
-        for line_count, expected_hash in _STABLE_SIGNATURES.get(marker, ()):
-            last = index + line_count - 1
-            if last >= len(lines):
-                continue
-            end = starts[last] + len(lines[last].rstrip("\r\n"))
-            candidate = _normalize_newlines(text[starts[index] : end])
-            if hashlib.sha256(candidate.encode()).hexdigest() == expected_hash:
-                matches.append((starts[index], end, marker))
-                matched = True
-                break
-        if not matched:
+        current_present = True
+        last = index + _STABLE_SIG_LINES - 1
+        if last >= len(lines):
+            ambiguous = True
+            continue
+        end = starts[last] + len(lines[last].rstrip("\r\n"))
+        candidate = _normalize_newlines(text[starts[index] : end])
+        if hashlib.sha256(candidate.encode()).hexdigest() == _STABLE_SIG_HASH:
+            matches.append((starts[index], end, STABLE_RULE_MARKER))
+        else:
             ambiguous = True
     return matches, current_present, ambiguous
 
@@ -237,12 +229,9 @@ def _text_value(part: Any) -> str | None:
 def _is_known_stable_text(text: str) -> bool:
     normalized = _normalize_newlines(text)
     lines = normalized.splitlines()
-    if not lines:
+    if not lines or lines[0] != STABLE_RULE_MARKER:
         return False
-    for line_count, expected_hash in _STABLE_SIGNATURES.get(lines[0], ()):
-        if len(lines) == line_count and hashlib.sha256(normalized.encode()).hexdigest() == expected_hash:
-            return True
-    return False
+    return len(lines) == _STABLE_SIG_LINES and hashlib.sha256(normalized.encode()).hexdigest() == _STABLE_SIG_HASH
 
 
 def _is_history_rules_block(text: str) -> bool:
