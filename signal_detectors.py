@@ -9,7 +9,7 @@ import math
 import re
 from collections.abc import Sequence
 
-from .constants import CONSECUTIVE_THRESHOLD, DENSITY_BASE
+from .constants import CONSECUTIVE_THRESHOLD, DENSITY_BASE, OPENER_DELIM
 
 # natural-talk Tier 1：AI 自我暴露短语，任意位置精确命中即报（对齐 upstream dist/lexicon tier1_identity 高置信子集）
 DEFAULT_AI_CLICHES: tuple[str, ...] = (
@@ -114,9 +114,6 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
 
 # 末尾匹配前剔除的收尾标点/语气符
 _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
-
-# 切分正则（供 detect_opening_cliches 与 runtime_state.extract_opener 共用）
-OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
 # 密度项与 natural-talk 计数口径一致（连续化 scale=max(1,len/300)）
 _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (

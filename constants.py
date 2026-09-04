@@ -6,6 +6,8 @@ Changing a threshold here propagates to config, detection, and hint building.
 
 from __future__ import annotations
 
+import re
+
 # 状态与提示预算
 MAX_AVOID_ITEMS: int = 5  # 避用清单上限（重复开头+套路词合计），上游 budgets 5 项封顶
 MAX_AVOID_ITEM_LEN: int = 20  # 单条避用词最大长度，超长截断成半截即失效，入库过滤口径
@@ -22,5 +24,28 @@ STATE_SAVE_DEBOUNCE_SECONDS: float = 0.2  # 普通回复合并写盘；命令与
 PENDING_HINT_MAX_PER_SESSION: int = 32  # 无宿主 request id 时 FIFO 对齐的每会话上限
 PENDING_HINT_TTL_SECONDS: float = 300.0  # 超时响应不再归因到旧请求提示
 YIELD_STICKY_TTL_SECONDS: float = 300.0  # 正式写作/创作让位的进程内续写窗口
+STICKY_FOLLOWUP_MAX_LEN: int = 20  # 粘性续写口令最大长度（core._is_sticky_followup）
+PENDING_SESSION_CAP: int = 256  # 进程内 pending 队列会话数上限（core._evict_pending_if_needed）
+
+# 切分正则（供 signal_detectors.detect_opening_cliches 与 runtime_state.extract_opener 共用）
+OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
+
+# opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）
+OPENER_PREFIXES: tuple[str, ...] = (
+    "我会",
+    "好的",
+    "可以",
+    "没问题",
+    "没事",
+    "别急",
+    "明白",
+    "行吧",
+    "好嘞",
+    "确实",
+    "当然",
+    "对的",
+    "没错",
+    "哈哈",
+)
 
 # 预算档位对应 upstream budgets，暂不暴露为用户配置，保持最轻量（需档位时再引入）

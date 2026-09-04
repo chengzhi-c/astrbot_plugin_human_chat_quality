@@ -12,6 +12,7 @@ from .constants import (
     MIN_RUNTIME_HINT_CHARS,
     PENDING_HINT_MAX_PER_SESSION,
     PENDING_HINT_TTL_SECONDS,
+    STICKY_FOLLOWUP_MAX_LEN,
     YIELD_STICKY_TTL_SECONDS,
 )
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
@@ -210,7 +211,7 @@ _STICKY_WRITE = re.compile(r"^(?:继续|接着|再).*(?:写|改|润色|拟)")
 
 def _is_sticky_followup(text: str) -> bool:
     stripped = text.strip()
-    if not stripped or len(stripped) > 20:
+    if not stripped or len(stripped) > STICKY_FOLLOWUP_MAX_LEN:
         return False
     return bool(_STICKY_EXACT.fullmatch(stripped) or _STICKY_WRITE.search(stripped))
 

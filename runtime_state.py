@@ -21,11 +21,12 @@ from .constants import (
     MAX_AVOID_ITEM_LEN,
     MAX_AVOID_ITEMS,
     MAX_OPENER_LEN,
+    OPENER_DELIM,
+    OPENER_PREFIXES,
     OPENER_REPEAT_THRESHOLD,
     STATE_SAVE_DEBOUNCE_SECONDS,
 )
 from .protocols import MessageEventProtocol
-from .signal_detectors import OPENER_DELIM
 
 
 def _now() -> float:
@@ -390,30 +391,11 @@ def _parse_group_id_from_origin(origin: str) -> str:
     return ""
 
 
-# opener 前缀（命中即返回，长度均 ≤MAX_OPENER_LEN）
-_OPENER_PREFIXES: tuple[str, ...] = (
-    "我会",
-    "好的",
-    "可以",
-    "没问题",
-    "没事",
-    "别急",
-    "明白",
-    "行吧",
-    "好嘞",
-    "确实",
-    "当然",
-    "对的",
-    "没错",
-    "哈哈",
-)
-
-
 def extract_opener(text: str) -> str:
     text = text.strip()
     if not text:
         return ""
-    for prefix in _OPENER_PREFIXES:
+    for prefix in OPENER_PREFIXES:
         if text.startswith(prefix):
             return prefix
     first = OPENER_DELIM.split(text, maxsplit=1)[0].strip()
