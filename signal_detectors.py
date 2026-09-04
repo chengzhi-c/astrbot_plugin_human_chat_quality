@@ -334,6 +334,7 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_hedge(normalized),
         detect_atmosphere_cliches(normalized),
         detect_density_signals(normalized),
+        # 标题检测依赖分行，不能吃合并换行后的 normalized（函数内自做 _mask_code）
         detect_numbered_headings(text),
     ):
         for signal in signals:
