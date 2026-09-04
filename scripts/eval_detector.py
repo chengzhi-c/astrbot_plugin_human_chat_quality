@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-import importlib.util
 import json
 import sys
 from collections import defaultdict
@@ -12,32 +11,13 @@ from pathlib import Path
 from types import SimpleNamespace
 
 repo = Path(__file__).resolve().parents[1]
-package_name = "astrbot_plugin_human_chat_quality"
+sys.path.insert(0, str(repo))
+from tests._support import ensure_plugin_package
 
+ensure_plugin_package()
 
-def _load_plugin():
-    expected = (repo / "__init__.py").resolve()
-    current = sys.modules.get(package_name)
-    current_file = getattr(current, "__file__", None)
-    if current_file and Path(current_file).resolve() == expected:
-        return
-    spec = importlib.util.spec_from_file_location(
-        package_name,
-        expected,
-        submodule_search_locations=[str(repo)],
-    )
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load plugin package from {repo}")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[package_name] = module
-    spec.loader.exec_module(module)
-
-
-_load_plugin()
-_signal_detectors = importlib.import_module(f"{package_name}.signal_detectors")
-detect_cliches = _signal_detectors.detect_cliches
-builtin_signal_names = _signal_detectors.builtin_signal_names
-_is_formal_writing_request = importlib.import_module(f"{package_name}.core")._is_formal_writing_request
+from astrbot_plugin_human_chat_quality.core import _is_formal_writing_request
+from astrbot_plugin_human_chat_quality.signal_detectors import builtin_signal_names, detect_cliches
 
 
 def _binary_metrics(expected: list[bool], actual: list[bool]) -> dict[str, float | int]:

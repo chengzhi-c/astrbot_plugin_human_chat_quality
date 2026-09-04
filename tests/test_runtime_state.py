@@ -84,6 +84,8 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
         self.assertIn("先说结论", detect_cliches("先说结论，测试全部通过"))
         self.assertIn("你问到了核心", detect_cliches("你问到了核心，问题在这里"))
         self.assertIn("在当今快速发展的时代", detect_cliches("在当今快速发展的时代，技术日新月异"))
+        self.assertIn("众所周知", detect_cliches("众所周知，缓存能降低延迟。"))
+        self.assertNotIn("众所周知", detect_cliches("这是一条众所周知的定理。"))
         # 句中不报
         self.assertNotIn("说白了", detect_cliches("他把事情说白了而已"))
         self.assertNotIn("先说结论", detect_cliches("我们不能先说结论再找论据"))
@@ -96,6 +98,14 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
     def test_colon_prompt_abuse(self):
         self.assertIn("结构性表演", detect_cliches("一句话总结：这个方案不可行。"))
         self.assertIn("结构性表演", detect_cliches("核心是：提高代码质量。"))
+
+    def test_vague_attribution_and_b1_variants(self):
+        self.assertIn("专家指出", detect_cliches("专家指出缓存能降低延迟。"))
+        self.assertIn("不少用户反馈", detect_cliches("不少用户反馈升级后更稳。"))
+        self.assertIn("结构性表演", detect_cliches("其实不是权限问题，只是路径配错了。"))
+        self.assertIn("结构性表演", detect_cliches("这不仅是优化，更是对工程的追求。"))
+        self.assertNotIn("结构性表演", detect_cliches("不仅能编译还能热更新。"))
+        self.assertNotIn("结构性表演", detect_cliches("其实我只是想确认一下。"))
 
 
 class TestDetectClichesLegacy(unittest.TestCase):
@@ -153,6 +163,10 @@ class TestDetectClichesLegacy(unittest.TestCase):
     def test_quoted_iron_rule_does_not_hide_later_unquoted_match(self):
         text = "他说：\u201c这不是优化而是重构。\u201d但真正的问题是测试不足。"
         self.assertIn("结构性表演", detect_cliches(text))
+
+    def test_quoted_dialogue_still_hits_iron_rule(self):
+        self.assertIn("结构性表演", detect_cliches("角色说：「这不是优化而是重构。」"))
+        self.assertIn("结构性表演", detect_cliches("角色说：“这不是优化而是重构。”这属于台词内容。"))
 
     def test_iron_rule_examples_in_code_are_ignored(self):
         text = "示例：`不是优化而是重构`。代码如下：\n```text\n真正的问题是这里\n```"

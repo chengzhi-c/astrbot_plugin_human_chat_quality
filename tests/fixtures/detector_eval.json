@@ -1085,9 +1085,11 @@
     "category": "role-dialogue",
     "user": "保留角色台词中的铁律示例。",
     "answer": "角色说：“这不是优化而是重构。”这属于台词内容。",
-    "expected_signals": [],
+    "expected_signals": [
+      "结构性表演"
+    ],
     "formal_bypass": false,
-    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "rationale": "日常 B1 翻案腔，对白引号不豁免。",
     "split": "dev"
   },
   {
@@ -1095,9 +1097,11 @@
     "category": "role-dialogue",
     "user": "用户引用了一句旧文案。",
     "answer": "引文是“真正的问题是沟通方式”，这里只是在讨论原文。",
-    "expected_signals": [],
+    "expected_signals": [
+      "结构性表演"
+    ],
     "formal_bypass": false,
-    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "rationale": "日常 B1 翻案腔，对白引号不豁免。",
     "split": "dev"
   },
   {
@@ -1115,9 +1119,11 @@
     "category": "role-dialogue",
     "user": "保留引号里的原话。",
     "answer": "原话为：“与其争论，不如先验证。”请不要改变引号内文字。",
-    "expected_signals": [],
+    "expected_signals": [
+      "结构性表演"
+    ],
     "formal_bypass": false,
-    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "rationale": "日常 B1 翻案腔，对白引号不豁免。",
     "split": "dev"
   },
   {
@@ -1145,9 +1151,11 @@
     "category": "role-dialogue",
     "user": "引号内容是我的观点吗？",
     "answer": "你引用的是“不是优化而是重构”，不一定代表你的立场。",
-    "expected_signals": [],
+    "expected_signals": [
+      "结构性表演"
+    ],
     "formal_bypass": false,
-    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "rationale": "日常 B1 翻案腔，对白引号不豁免。",
     "split": "dev"
   },
   {
@@ -1215,9 +1223,11 @@
     "category": "role-dialogue",
     "user": "检查一段对白。",
     "answer": "对白：“不是失败，而是重新开始。”属于人物语言。",
-    "expected_signals": [],
+    "expected_signals": [
+      "结构性表演"
+    ],
     "formal_bypass": false,
-    "rationale": "冻结的role-dialogue样本，用于独立回归。",
+    "rationale": "日常 B1 翻案腔，对白引号不豁免。",
     "split": "holdout"
   },
   {
@@ -2226,5 +2236,117 @@
     "formal_bypass": false,
     "rationale": "数值区间单连接号（–），不触发破折号报警",
     "split": "holdout"
+  },
+  {
+    "id": "det-208",
+    "category": "casual",
+    "user": "这个方案靠谱吗？",
+    "answer": "专家指出缓存能降低延迟。",
+    "expected_signals": [
+      "专家指出"
+    ],
+    "formal_bypass": false,
+    "rationale": "D6 专家指出正例",
+    "split": "dev"
+  },
+  {
+    "id": "det-209",
+    "category": "casual",
+    "user": "升级后稳吗？",
+    "answer": "不少用户反馈升级后更稳。",
+    "expected_signals": [
+      "不少用户反馈"
+    ],
+    "formal_bypass": false,
+    "rationale": "D6 不少用户反馈正例",
+    "split": "holdout"
+  },
+  {
+    "id": "det-210",
+    "category": "casual",
+    "user": "缓存有什么用？",
+    "answer": "众所周知，缓存能降低延迟。",
+    "expected_signals": [
+      "众所周知"
+    ],
+    "formal_bypass": false,
+    "rationale": "空降宏观：首部众所周知正例",
+    "split": "dev"
+  },
+  {
+    "id": "det-211",
+    "category": "tech",
+    "user": "这条定理熟吗？",
+    "answer": "这是一条众所周知的定理。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "句中众所周知不报",
+    "split": "holdout"
+  },
+  {
+    "id": "det-212",
+    "category": "tech",
+    "user": "权限问题怎么查？",
+    "answer": "其实不是权限问题，只是路径配错了。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B1 其实不是…只是正例",
+    "split": "dev"
+  },
+  {
+    "id": "det-213",
+    "category": "casual",
+    "user": "你确认了吗？",
+    "answer": "其实我只是想确认一下。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "B1 负例：无不是的只是",
+    "split": "holdout"
+  },
+  {
+    "id": "det-214",
+    "category": "casual",
+    "user": "优化完了吗？",
+    "answer": "这不仅是优化，更是对工程的追求。",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B1/C2 不仅是…更是正例",
+    "split": "dev"
+  },
+  {
+    "id": "det-215",
+    "category": "tech",
+    "user": "热更新支持吗？",
+    "answer": "不仅能编译还能热更新。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "B1 负例：不仅能…还能",
+    "split": "holdout"
+  },
+  {
+    "id": "det-216",
+    "category": "role-dialogue",
+    "user": "引号里这句话要改吗？",
+    "answer": "他说：「这不仅是优化，更是重构。」",
+    "expected_signals": [
+      "结构性表演"
+    ],
+    "formal_bypass": false,
+    "rationale": "B1 引号内不仅是…更是仍报",
+    "split": "holdout"
+  },
+  {
+    "id": "det-217",
+    "category": "tech",
+    "user": "注释里这句话什么意思？",
+    "answer": "代码示例 `其实不是权限问题，只是路径配错了` 只是字符串。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "代码内 B1 例句不报",
+    "split": "dev"
   }
 ]

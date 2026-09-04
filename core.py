@@ -12,6 +12,7 @@ from .constants import (
     MIN_RUNTIME_HINT_CHARS,
     PENDING_HINT_MAX_PER_SESSION,
     PENDING_HINT_TTL_SECONDS,
+    YIELD_STICKY_TTL_SECONDS,
 )
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
 from .quality_rules import (
@@ -20,12 +21,12 @@ from .quality_rules import (
     ContextRewriteResult,
     StableRewriteResult,
     append_temp_text_part,
-    build_runtime_hint,
+    render_runtime_hint,
     rewrite_context_injections,
     rewrite_stable_rules,
-    runtime_hint_items,
+    select_runtime_hint_names,
 )
-from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
+from .runtime_state import RuntimeStateStore, extract_opener, is_session_disabled, unified_origin
 from .signal_detectors import detect_cliches, signal_priority
 
 logger = logging.getLogger(__name__)
@@ -96,14 +97,6 @@ def _parse_list(value: Any) -> list[str]:
     return []
 
 
-def _parse_custom_cliches(value: Any) -> list[str]:
-    if isinstance(value, list):
-        return [str(item).strip() for item in value]
-    if isinstance(value, str):
-        return [item.strip() for item in value.splitlines()]
-    return []
-
-
 @dataclass(frozen=True)
 class AppConfig:
     """Construct-once configuration snapshot."""
@@ -135,7 +128,7 @@ class AppConfig:
             ),
             state_retention_days=_parse_int(get("state_retention_days", 14), 14, 1, 365),
             recent_reply_window=_parse_int(get("recent_reply_window", 8), 8, 3, 50),
-            custom_cliches=tuple(_parse_custom_cliches(get("custom_cliches", []))),
+            custom_cliches=tuple(_parse_list(get("custom_cliches", []))),
             disabled_sessions=frozenset(item.lower() for item in _parse_list(get("disabled_sessions", []))),
         )
 
@@ -204,33 +197,35 @@ def _is_creative_writing_request(event: MessageEventProtocol | None) -> bool:
     return bool(_CREATIVE_ACTIONS.search(text) and _CREATIVE_GENRES.search(text))
 
 
-def _should_yield(event: MessageEventProtocol | None) -> bool:
-    return _is_formal_writing_request(event) or _is_creative_writing_request(event)
+_YIELD_REASONS = {
+    "formal": "- 正式写作场景让位（不注入对话层约束）",
+    "creative": "- 创作场景让位（不注入对话层约束）",
+}
+_STICKY_EXACT = re.compile(
+    r"^(继续|然后|接着|再改一下|按这个写|同上|continue|go on)[。.!！?？]*$",
+    re.IGNORECASE,
+)
+_STICKY_WRITE = re.compile(r"^(?:继续|接着|再).*(?:写|改|润色|拟)")
 
 
-def _yield_status_reason(event: MessageEventProtocol | None) -> str | None:
+def _is_sticky_followup(text: str) -> bool:
+    stripped = text.strip()
+    if not stripped or len(stripped) > 20:
+        return False
+    return bool(_STICKY_EXACT.fullmatch(stripped) or _STICKY_WRITE.search(stripped))
+
+
+def _yield_kind(event: MessageEventProtocol | None) -> str | None:
     if _is_formal_writing_request(event):
-        return "- 正式写作场景让位（不注入对话层约束）"
+        return "formal"
     if _is_creative_writing_request(event):
-        return "- 创作场景让位（不注入对话层约束）"
+        return "creative"
     return None
 
 
 def _drop_expired_hints(pending: deque[tuple[float, tuple[str, ...]]], now: float) -> None:
     while pending and now - pending[0][0] > PENDING_HINT_TTL_SECONDS:
         pending.popleft()
-
-
-def _contains_hint_item(text: str, items: tuple[str, ...]) -> bool:
-    lowered = text.casefold()
-    for item in items:
-        candidate = item.casefold()
-        if candidate.isascii():
-            if re.search(rf"\b{re.escape(candidate)}\b", lowered):
-                return True
-        elif candidate in lowered:
-            return True
-    return False
 
 
 class HumanChatQualityCore:
@@ -247,22 +242,27 @@ class HumanChatQualityCore:
         self.text_part_factory = text_part_factory
         self.stats = QualityStats()
         self._pending_hints: dict[str, deque[tuple[float, tuple[str, ...]]]] = {}
+        self._pending_yield: dict[str, tuple[float, str]] = {}
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
         session_id = unified_origin(event)
         effective_active = (
-            bool(session_id) and not _should_yield(event) and self._is_effectively_active(session_id, event)
+            bool(session_id)
+            and not self._yield_reason(session_id, event, update=True)
+            and self._is_effectively_active(session_id, event)
         )
         injected_hint = ""
         avoid_openers: list[str] | None = None
 
         hint = ""
+        selected_names: tuple[str, ...] = ()
         if effective_active and self.cfg.inject_runtime_state and self.text_part_factory is not None:
             state = self.store.get(session_id)
             avoid_openers = state.avoid_openers
             # 危害排序：可靠性损害信号（档位 1）优先装入提示，其余按原顺序
-            avoid_sorted = sorted(enumerate(avoid_openers), key=lambda p: (signal_priority(p[1]), p[0]))
-            hint = build_runtime_hint([item for _, item in avoid_sorted], max_chars=self.cfg.max_runtime_hint_chars)
+            avoid_sorted = [item for _, item in sorted(enumerate(avoid_openers), key=lambda p: (signal_priority(p[1]), p[0]))]
+            selected_names = tuple(select_runtime_hint_names(avoid_sorted, self.cfg.max_runtime_hint_chars))
+            hint = render_runtime_hint(selected_names)
 
         context_result = rewrite_context_injections(req, hint or None)
         if (
@@ -288,7 +288,7 @@ class HumanChatQualityCore:
                 self._pending_hints[session_id] = pending
             now = time.monotonic()
             _drop_expired_hints(pending, now)
-            pending.append((now, runtime_hint_items(injected_hint)))
+            pending.append((now, selected_names if injected_hint else ()))
         self.stats.record_cleanup(stable_result.removed + context_result.stable_removed, context_result.runtime_removed)
 
         if self.cfg.debug_log and (
@@ -334,24 +334,28 @@ class HumanChatQualityCore:
         hinted_items = pending.popleft()[1] if pending else ()
         if pending is not None and not pending:
             self._pending_hints.pop(session_id, None)
-        if not session_id or _should_yield(event) or not self._is_effectively_active(session_id, event):
+        if (
+            not session_id
+            or self._yield_reason(session_id, event, update=True)
+            or not self._is_effectively_active(session_id, event)
+        ):
             return
         text = extract_response_text(resp)
         if not text:
             return
 
-        # 效果观测：上一轮带提醒的请求，若本轮回复仍出现避用项，计一次忽略（英文用词边界避免子串误伤）
-        if hinted_items and _contains_hint_item(text, hinted_items):
+        cliches = detect_cliches(text, self.store.custom_cliches)
+        opener = extract_opener(text)
+        present = set(cliches)
+        if opener:
+            present.add(opener)
+        if hinted_items and present.intersection(hinted_items):
             self.stats.runtime_hint_missed += 1
 
-        # 记录响应前先检测信号（用于统计）
-        cliches = detect_cliches(text, self.store.custom_cliches)
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
 
-        # 记录前快照，用于 delta 统计（避免重复清单重复计数膨胀）
         before_avoid = set(self.store.get(session_id).avoid_openers)
-        # 记录到状态存储
         await self.store.record_response(session_id, text, tuple(cliches))
 
         # 统计避用项数量：仅计新增项（delta），避免同一清单停留多轮重复膨胀
@@ -378,7 +382,7 @@ class HumanChatQualityCore:
             reasons.append("- 当前会话：已通过 /humanq off 关闭")
         if is_session_disabled(self.cfg.disabled_sessions, session_id, event):
             reasons.append("- 配置静态禁用：当前会话命中禁用列表")
-        yield_reason = _yield_status_reason(event)
+        yield_reason = self._yield_reason(session_id, event)
         if yield_reason:
             reasons.append(yield_reason)
         if reasons:
@@ -410,6 +414,24 @@ class HumanChatQualityCore:
         lines.append(f"- 自启动以来累计注入：{self.stats.total_injections} 次")
         lines.append(f"- 状态持久化：{persistence}")
         return "\n".join(lines)
+
+    def _yield_reason(
+        self, session_id: str, event: MessageEventProtocol | None, *, update: bool = False
+    ) -> str | None:
+        kind = _yield_kind(event)
+        now = time.monotonic()
+        if kind:
+            if update and session_id:
+                self._pending_yield[session_id] = (now, kind)
+            return _YIELD_REASONS[kind]
+        sticky = self._pending_yield.get(session_id) if session_id else None
+        if sticky and now - sticky[0] <= YIELD_STICKY_TTL_SECONDS and _is_sticky_followup(_event_text(event)):
+            if update:
+                self._pending_yield[session_id] = (now, sticky[1])
+            return _YIELD_REASONS[sticky[1]]
+        if update and session_id:
+            self._pending_yield.pop(session_id, None)
+        return None
 
     def _is_active(self, session_id: str) -> bool:
         return self.cfg.enabled and self.store.is_enabled(session_id)

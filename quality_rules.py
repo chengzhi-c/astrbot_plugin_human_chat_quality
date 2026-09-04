@@ -16,9 +16,9 @@ from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 
 # 所有注入 marker 的公共前缀
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
-# 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役：
-# 旧块按普通文本保留；reset 与保留期只清状态文件，不剥历史里的旧规则正文。
-RULES_VERSION = 11
+# 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役。
+# 历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 仍只按当前版本签名剥离。
+RULES_VERSION = 12
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
@@ -35,11 +35,12 @@ _LITE_CORE = """natural-talk 轻量注入版（规范源：SKILL.md 日常对话
 - 评价只针对内容：检验法——主语换成"这个问题/这段代码"，换不了的即越界；倾诉安慰场景坦陈真实主观感受，不做虚假心理按摩 [D1]
 - 问什么答什么并明确给出倾向；确属两难时写明判断条件与权衡基准，不得以"关键在于平衡""因人而异"消解信息 [D4]
 - 用户给出数量时严格按原量词执行：“给3步/3条”=恰好3，“至少3”=不少于3，“至多3”=不超过3；不借机扩成教程 [D5]
-- 严禁模糊假归因：删掉无出处的"有研究表明/业内普遍认为/不少用户反馈"，没来源直接陈述事实 [D6]
+- 严禁模糊假归因：删掉无出处的"有研究表明/业内普遍认为/专家指出/不少用户反馈"，没来源直接陈述事实 [D6]
 
 句式检查：
 - 删"说白了""说穿了""先说结论"，直接给判断 [B10]
-- 彻底封杀翻案腔：严禁自立靶子搞“先否定再肯定”（不是……而是/与其说……不如说）；删掉前半句否定与转折，直接正面陈述肯定事实 [B1]
+- 彻底封杀翻案腔：严禁自立靶子搞“先否定再肯定”（不是……而是/其实不是……只是/与其说……不如说）；删掉前半句否定与转折，直接正面陈述肯定事实 [B1]
+- 写完最后一件事即停，禁止末段「这不仅是…更是/更关乎」式拔高 [C2]
 - 删"一句话总结：/核心是：/总结如下：/建议如下："等空转提示语加冒号引列表，自然承接 [B4]
 - 非首段的评论式开头必须能指出明确承接对象，恢复具体主语或删掉空评论，不机械补"这" [B3]
 - 消除泛滥破折号：严禁使用“——”制造刻意揭晓或后置补充（如“核心只有一个——缓存”）；改成常规标点（逗号/句号）或自然融入整句，除代码外不打叙述破折号 [B5]
@@ -56,10 +57,11 @@ _PLUGIN_EXTRAS = (
     "- 保留事实、限制条件、安全提示和不确定性表述\n"
     "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
     "- 不要把这些约束写进回复\n"
-    "- 铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外\n"
+    "- 铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面\n"
     "- 铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓"
 )
 _STABLE_MARKERS = frozenset((STABLE_RULE_MARKER,))
+_HISTORY_RULES_MARKER_RE = re.compile(r"^[ \t]*\[Human Chat Quality Rules v\d+\][ \t]*$")
 _NEWLINE_RE = re.compile(r"\r\n|\r|\n")
 _LEADING_SEPARATOR_RE = re.compile(r"^(?:(?:\r\n|\r|\n)){2}")
 _TRAILING_SEPARATOR_RE = re.compile(r"(?:(?:\r\n|\r|\n)){2}$")
@@ -243,6 +245,11 @@ def _is_known_stable_text(text: str) -> bool:
     return False
 
 
+def _is_history_rules_block(text: str) -> bool:
+    first = _normalize_newlines(text).splitlines()[:1]
+    return bool(first and _HISTORY_RULES_MARKER_RE.match(first[0]))
+
+
 def _runtime_kind(text: str) -> str:
     normalized = _normalize_newlines(text)
     lines = normalized.splitlines()
@@ -263,7 +270,7 @@ def _is_complete_runtime(text: str) -> bool:
 
 
 def _rewrite_history_text(text: str) -> tuple[str, ContextRewriteResult]:
-    if _is_known_stable_text(text):
+    if _is_known_stable_text(text) or _is_history_rules_block(text):
         return "", ContextRewriteResult(stable_removed=1)
     kind = _runtime_kind(text)
     if kind == "ordinary":
@@ -296,7 +303,7 @@ def _rewrite_extra_parts(parts: list[Any], runtime_text: str | None) -> tuple[li
         if text is None:
             rewritten.append(part)
             continue
-        if _is_known_stable_text(text):
+        if _is_known_stable_text(text) or _is_history_rules_block(text):
             result = _merge_context_results(result, ContextRewriteResult(stable_removed=1))
             continue
         kind = _runtime_kind(text)
@@ -340,38 +347,34 @@ _SIGNAL_HINT_MAP: dict[str, str] = {
 }
 
 
-def build_runtime_hint(openers: Sequence[str], max_chars: int) -> str:
+def select_runtime_hint_names(openers: Sequence[str], max_chars: int) -> list[str]:
     # 超长自定义词不注入（record 入库侧已按 MAX_AVOID_ITEM_LEN 过滤，此处兜底旧状态文件里残留的超长词）
     openers = [item for item in openers[:MAX_AVOID_ITEMS] if item and len(item) <= MAX_AVOID_ITEM_LEN]
     if not openers:
-        return ""
-
+        return []
     prefix_len = len(_RUNTIME_PREFIX)
     sep_len = len(_RUNTIME_ITEM_SEPARATOR)
     selected: list[str] = []
     current_len = prefix_len
     for raw_item in openers:
         item = _SIGNAL_HINT_MAP.get(raw_item, raw_item)
-        # 增量：分隔符（非首项）+ 当前项
         increment = (sep_len if selected else 0) + len(item)
         if current_len + increment > max_chars:
             break
-        selected.append(item)
+        selected.append(raw_item)
         current_len += increment
-    return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(selected) if selected else ""
+    return selected
 
 
-def runtime_hint_items(text: str) -> tuple[str, ...]:
-    normalized = _normalize_newlines(text)
-    if not normalized.startswith(_RUNTIME_PREFIX):
-        return ()
-    payload = normalized[len(_RUNTIME_PREFIX) :]
-    items = payload.split(_RUNTIME_ITEM_SEPARATOR)
-    if not 1 <= len(items) <= MAX_AVOID_ITEMS:
-        return ()
-    if not all(0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items):
-        return ()
-    return tuple(items)
+def render_runtime_hint(names: Sequence[str]) -> str:
+    if not names:
+        return ""
+    rendered = [_SIGNAL_HINT_MAP.get(item, item) for item in names]
+    return _RUNTIME_PREFIX + _RUNTIME_ITEM_SEPARATOR.join(rendered)
+
+
+def build_runtime_hint(openers: Sequence[str], max_chars: int) -> str:
+    return render_runtime_hint(select_runtime_hint_names(openers, max_chars))
 
 
 def make_text_part(text: str, factory: TextPartFactoryProtocol | None = None) -> Any | None:

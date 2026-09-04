@@ -8,6 +8,8 @@ import unittest
 from tests._support import (
     V2_RULES_E4AA983,
     V5_RULES_B46BD0D,
+    FakeEvent,
+    FakeLLMResp,
     FakePart,
     FakeReq,
     ensure_plugin_package,
@@ -26,18 +28,6 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
 from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore
 
 
-class FakeEvent:
-    def __init__(self, origin, text=""):
-        self.unified_msg_origin = origin
-        self.text = text
-
-
-class FakeLLMResp:
-    def __init__(self, text):
-        self.completion_text = text
-        self.result_chain = None
-
-
 class TestCoreFlow(unittest.TestCase):
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -46,7 +36,7 @@ class TestCoreFlow(unittest.TestCase):
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")
 
     def test_legacy_block_is_preserved_as_ordinary_text(self):
-        """3.0.0 破坏性变更：旧规则块不再被剥离，按普通文本保留。"""
+        """system_prompt 里的旧规则块仍按普通文本保留。"""
         req = FakeReq()
         req.system_prompt = f"原人设：你是XX\n\n{V5_RULES_B46BD0D}"
         asyncio.run(self.core.on_llm_request(self.ev, req))
@@ -62,8 +52,7 @@ class TestCoreFlow(unittest.TestCase):
         self.assertEqual(req.system_prompt.count(STABLE_RULE_MARKER), 1)
         self.assertIn("natural-talk", req.system_prompt)
 
-    def test_legacy_v2_block_preserved_in_history(self):
-        """3.0.0：旧规则块在历史中按普通文本保留，不再清扫。"""
+    def test_legacy_v2_block_removed_from_history(self):
         req = FakeReq()
         req.contexts = [
             {
@@ -76,8 +65,8 @@ class TestCoreFlow(unittest.TestCase):
         ]
         asyncio.run(self.core.on_llm_request(self.ev, req))
         texts = [p.get("text", "") for ctx in req.contexts for p in ctx["content"]]
-        self.assertEqual(texts, ["原话", V2_RULES_E4AA983])  # 用户原话与旧块都保留
-        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)  # 稳定规则正常注入
+        self.assertEqual(texts, ["原话"])
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
     def test_no_hint_first_round_then_hint_after_three_repeats(self):
         for _ in range(3):

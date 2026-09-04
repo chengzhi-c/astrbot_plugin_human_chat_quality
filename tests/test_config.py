@@ -24,7 +24,7 @@ class TestConfigParse(unittest.TestCase):
         self.assertEqual(AppConfig.from_config({"recent_reply_window": 2}).recent_reply_window, 3)
         self.assertEqual(AppConfig.from_config({"recent_reply_window": 999}).recent_reply_window, 50)
         cfg = AppConfig.from_config({"custom_cliches": ["  词  ", ""]})
-        self.assertEqual(cfg.custom_cliches, ("词", ""))
+        self.assertEqual(cfg.custom_cliches, ("词",))
 
     def test_all_int_clamps(self):
         self.assertEqual(

@@ -50,12 +50,15 @@ OPENING_CLICHES: tuple[str, ...] = (
     "让我们先来",
     "下面我将",
     "接下来我将",
+    "众所周知",
 )
 
 # D6 模糊假归因（高置信度无出处假背书，任意位置精确命中）
 DEFAULT_VAGUE_ATTRIBUTIONS: tuple[str, ...] = (
     "有研究表明",
     "业内普遍认为",
+    "专家指出",
+    "不少用户反馈",
 )
 
 # D5 负例：这些首部开头是真实动作/指令，不是空预告，命中 OPENING_CLICHES 后在此豁免
@@ -129,6 +132,8 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
 # Tier3 铁律：结构性表演（精简高置信，去回溯风险：句内 [^。\n] 限长）
 _TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)"),
+    re.compile(r"其实不是[^。\n]{0,30}只是"),
+    re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)"),
     re.compile(r"与其[^。\n]{0,16}不如"),
     re.compile(r"与其说[^。\n]{0,16}不如说"),
     re.compile(r"看似[^。\n]{0,12}实则"),
@@ -171,28 +176,6 @@ def _mask_code(text: str) -> str:
     masked = _FENCED_CODE_RE.sub(_blank, text)
     masked = _INLINE_CODE_RE.sub(_blank, masked)
     return _URL_RE.sub(_blank, masked)
-
-
-def _quoted_spans(text: str) -> list[tuple[int, int]]:
-    spans: list[tuple[int, int]] = []
-    open_at: dict[str, int | None] = {'"': None, "'": None, "“": None}
-    for index, char in enumerate(text):
-        if char == "“":
-            if open_at["“"] is None:
-                open_at["“"] = index
-        elif char == "”":
-            start = open_at["“"]
-            if start is not None:
-                spans.append((start, index + 1))
-                open_at["“"] = None
-        elif char in {'"', "'"} and (index == 0 or text[index - 1] != "\\"):
-            start = open_at[char]
-            if start is None:
-                open_at[char] = index
-            else:
-                spans.append((start, index + 1))
-                open_at[char] = None
-    return spans
 
 
 def detect_ending_cliches(text: str) -> list[str]:
@@ -264,12 +247,9 @@ def detect_density_signals(text: str) -> list[str]:
 
 
 def detect_iron_rule(text: str) -> list[str]:
-    """Tier3 铁律：先否定后肯定等结构性表演，角色台词豁免。"""
-    quoted = _quoted_spans(text)
+    """Tier3 铁律：先否定后肯定等结构性表演。代码块与 URL 由 _mask_code 遮罩。"""
     for pat in _TIER3_PATTERNS:
-        for match in pat.finditer(text):
-            if any(start <= match.start() and match.end() <= end for start, end in quoted):
-                continue
+        if pat.search(text):
             return ["结构性表演"]
     return []
 
@@ -369,7 +349,9 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
 
 # 危害档位：1 = 损害回答可靠性（上游 D1 谄媚/D3 免责自我暴露），2 = 仅影响观感。
 # avoid_openers 里混有词面（"作为AI"）与信号标签（"结构性表演"），两类都按此表排序。
-_PRIORITY_1_SIGNALS: frozenset[str] = frozenset((*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES))
+_PRIORITY_1_SIGNALS: frozenset[str] = frozenset(
+    (*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES, *DEFAULT_VAGUE_ATTRIBUTIONS)
+)
 
 
 def signal_priority(name: str) -> int:

@@ -2,17 +2,11 @@
 
 import unittest
 
-from tests._support import ensure_plugin_package
+from tests._support import FakeLLMResp, ensure_plugin_package
 
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality.core import extract_response_text
-
-
-class FakeLLMResp:
-    def __init__(self, text):
-        self.completion_text = text
-        self.result_chain = None
 
 
 class TestResponseTextExtraction(unittest.TestCase):

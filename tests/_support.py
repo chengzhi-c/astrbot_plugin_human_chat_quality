@@ -79,6 +79,18 @@ def temporary_directory(test_case: unittest.TestCase) -> str:
     return temp_dir.name
 
 
+class FakeEvent:
+    def __init__(self, origin, text=""):
+        self.unified_msg_origin = origin
+        self.text = text
+
+
+class FakeLLMResp:
+    def __init__(self, text):
+        self.completion_text = text
+        self.result_chain = None
+
+
 class FakePart:
     def __init__(self, text):
         self.text = text

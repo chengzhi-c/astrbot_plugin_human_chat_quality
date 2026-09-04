@@ -1,7 +1,6 @@
 """quality_rules 模块契约测试：规则注入幂等、marker 三态、temp part 契约。
 
-3.0.0 起 v1–v8 legacy 剥离签名表已退役（ARCHITECTURE.md D7 终态）：
-旧 marker 块按普通文本保留，不再剥离。无需宿主 astrbot 即可运行。
+3.0.0 起 v1–v8 legacy 剥离签名表已退役。历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 人设旧块仍按签名保留。无需宿主 astrbot 即可运行。
 """
 
 import json
@@ -39,15 +38,6 @@ class TestRewriteInterfaces(unittest.TestCase):
     def test_rewrite_interfaces_exist(self):
         self.assertTrue(callable(getattr(quality_rules, "rewrite_stable_rules", None)))
         self.assertTrue(callable(getattr(quality_rules, "rewrite_context_injections", None)))
-
-    def test_runtime_factory_contract_does_not_require_removed_content_protocol(self):
-        from astrbot_plugin_human_chat_quality import protocols
-
-        self.assertTrue(hasattr(protocols, "TextPartFactoryProtocol"))
-        self.assertFalse(hasattr(protocols, "ContentPartProtocol"))
-
-    def test_quality_rules_does_not_depend_on_runtime_state(self):
-        self.assertFalse(hasattr(quality_rules, "SessionState"))
 
     def test_runtime_hint_accepts_opener_sequence(self):
         self.assertIn("好的", build_runtime_hint(["好的"], 157))
@@ -170,7 +160,18 @@ class TestContextRewrite(unittest.TestCase):
         result = rewrite_context_injections(req, None)
 
         self.assertEqual(result.runtime_removed, 2)
-        # 3.0.0：旧规则块按普通文本保留，不再剥离
+        self.assertEqual(result.stable_removed, 1)
+        self.assertEqual(
+            [part.get("text", "") for part in req.contexts[0]["content"]],
+            [],
+        )
+
+    def test_inline_rules_marker_in_user_text_is_preserved(self):
+        req = FakeReq()
+        text = "请解释 [Human Chat Quality Rules v3] 是什么"
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": text}]}]
+        result = rewrite_context_injections(req, None)
+        self.assertEqual(req.contexts[0]["content"][0]["text"], text)
         self.assertEqual(result.stable_removed, 0)
 
     def test_marker_mention_in_user_text_is_preserved(self):
@@ -265,12 +266,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 11)
-        # legacy 机器已退役：模块不再导出 legacy 剥离设施
-        self.assertFalse(hasattr(quality_rules, "LEGACY_STABLE_MARKERS"))
-        self.assertFalse(hasattr(quality_rules, "_LEGACY_STABLE_SIGNATURES"))
-        self.assertFalse(hasattr(quality_rules, "_LEGACY_RUNTIME_PREFIX"))
-        self.assertFalse(hasattr(quality_rules, "_is_legacy_truncated_runtime"))
+        self.assertEqual(RULES_VERSION, 12)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""
@@ -303,7 +299,8 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 保留事实、限制条件、安全提示和不确定性表述", rules)
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
-        self.assertIn("铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；角色引号内除外", rules)
+        self.assertIn("铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面", rules)
+        self.assertNotIn("角色引号内除外", rules)
         self.assertIn("铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓", rules)
 
     def test_lite_core_matches_fixture(self):

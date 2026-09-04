@@ -21,5 +21,6 @@ DAY_SECONDS: int = 86400
 STATE_SAVE_DEBOUNCE_SECONDS: float = 0.2  # 普通回复合并写盘；命令与退出仍直接 flush
 PENDING_HINT_MAX_PER_SESSION: int = 32  # 无宿主 request id 时 FIFO 对齐的每会话上限
 PENDING_HINT_TTL_SECONDS: float = 300.0  # 超时响应不再归因到旧请求提示
+YIELD_STICKY_TTL_SECONDS: float = 300.0  # 正式写作/创作让位的进程内续写窗口
 
 # 预算档位对应 upstream budgets，暂不暴露为用户配置，保持最轻量（需档位时再引入）

@@ -6,6 +6,8 @@ import unittest
 from unittest import mock
 
 from tests._support import (
+    FakeEvent,
+    FakeLLMResp,
     FakePart,
     FakeReq,
     ensure_plugin_package,
@@ -24,18 +26,6 @@ from astrbot_plugin_human_chat_quality.quality_rules import (
     build_stable_rules,
 )
 from astrbot_plugin_human_chat_quality.runtime_state import RuntimeStateStore, SessionState
-
-
-class FakeEvent:
-    def __init__(self, origin, text=""):
-        self.unified_msg_origin = origin
-        self.text = text
-
-
-class FakeLLMResp:
-    def __init__(self, text):
-        self.completion_text = text
-        self.result_chain = None
 
 
 class TestCoreFlowExtra(unittest.TestCase):
@@ -263,6 +253,41 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_request(event, req))
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
+    def test_sticky_yield_keeps_followup_continue_from_injecting(self):
+        origin = self.ev.unified_msg_origin
+        asyncio.run(self.core.on_llm_request(FakeEvent(origin, "帮我起草正式通知"), FakeReq()))
+        follow = FakeEvent(origin, "继续")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(follow, req))
+        self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+        self.assertIn("正式写作场景让位", self.core.status_text(origin, follow))
+
+        write_again = FakeReq()
+        asyncio.run(self.core.on_llm_request(FakeEvent(origin, "继续写通知"), write_again))
+        self.assertNotIn(STABLE_RULE_MARKER, write_again.system_prompt)
+
+        chat = FakeReq()
+        asyncio.run(self.core.on_llm_request(FakeEvent(origin, "那吃饭呢"), chat))
+        self.assertIn(STABLE_RULE_MARKER, chat.system_prompt)
+
+    def test_sticky_yield_expires_and_ignores_casual_then(self):
+        origin = self.ev.unified_msg_origin
+        now = {"value": 0.0}
+        with (
+            mock.patch.object(core_module, "YIELD_STICKY_TTL_SECONDS", 10, create=True),
+            mock.patch.object(core_module.time, "monotonic", side_effect=lambda: now["value"]),
+        ):
+            asyncio.run(self.core.on_llm_request(FakeEvent(origin, "帮我起草正式通知"), FakeReq()))
+            now["value"] = 11.0
+            req = FakeReq()
+            asyncio.run(self.core.on_llm_request(FakeEvent(origin, "继续"), req))
+            self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+        casual = FakeReq()
+        asyncio.run(self.core.on_llm_request(FakeEvent(origin, "帮我起草正式通知"), FakeReq()))
+        asyncio.run(self.core.on_llm_request(FakeEvent(origin, "然后呢"), casual))
+        self.assertIn(STABLE_RULE_MARKER, casual.system_prompt)
+
     def test_technical_system_design_does_not_yield(self):
         prompts = [
             "帮我写一个合同管理系统的表结构",
@@ -290,6 +315,17 @@ class TestCoreFlowExtra(unittest.TestCase):
         hint = req.extra_user_content_parts[0].text
         self.assertIn(harmful, hint)
         self.assertNotIn(appearance, hint)
+
+    def test_runtime_hint_missed_counts_aggregate_signal_by_canonical_name(self):
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["破折号"])
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertIn("别用破折号", req.extra_user_content_parts[0].text)
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("a——b——c")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
+        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("没有破折号的回复")))
+        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
 
     def test_runtime_hint_missed_only_checks_items_that_were_injected(self):
         first = "第一项第一项第一项第一项第一项"
@@ -330,12 +366,13 @@ class TestCoreFlowExtra(unittest.TestCase):
 
     def test_expired_pending_hint_does_not_count_as_missed(self):
         self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["旧项"])
+        now = {"value": 0.0}
         with (
             mock.patch.object(core_module, "PENDING_HINT_TTL_SECONDS", 10, create=True),
-            mock.patch.object(core_module, "time", create=True) as clock,
+            mock.patch.object(core_module.time, "monotonic", side_effect=lambda: now["value"]),
         ):
-            clock.monotonic.side_effect = [0, 11]
             asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
+            now["value"] = 11.0
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("旧项")))
 
         self.assertEqual(self.core.stats.runtime_hint_missed, 0)
@@ -348,12 +385,12 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_response(ev, FakeLLMResp("好的，回答")))
         self.assertEqual(self.store.sessions, {})
 
-    def test_unknown_stable_string_is_preserved_across_requests(self):
+    def test_unknown_stable_string_is_removed_from_history(self):
         req = FakeReq()
         req.contexts = [{"role": "user", "content": "[Human Chat Quality Rules v2]\n旧规则块"}]
         asyncio.run(self.core.on_llm_request(self.ev, req))
         asyncio.run(self.core.on_llm_request(self.ev, req))
-        self.assertEqual(req.contexts[0]["content"], "[Human Chat Quality Rules v2]\n旧规则块")
+        self.assertEqual(req.contexts[0]["content"], "")
 
     def test_debug_log_reports_ambiguous_owned_markers_kept(self):
         core = HumanChatQualityCore(AppConfig.from_config({"debug_log": True}), self.store, text_part_factory=FakePart)
