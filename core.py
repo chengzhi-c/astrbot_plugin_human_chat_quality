@@ -172,6 +172,7 @@ def extract_response_text(resp: LLMResponseProtocol) -> str:
 
 
 def _event_text(event: MessageEventProtocol | None) -> str:
+    """宿主对象形状随版本变化，逐属性探测是有意的。"""
     if event is not None:
         for attr in ("get_message_str", "message_str", "message", "text"):
             try:
@@ -303,8 +304,8 @@ class HumanChatQualityCore:
             self.stats.record_request(stable_result.injected, bool(injected_hint))
         if session_id:
             pending = self._pending_hints.get(session_id)
-            if pending is None or pending.maxlen != PENDING_HINT_MAX_PER_SESSION:
-                pending = deque(pending or (), maxlen=PENDING_HINT_MAX_PER_SESSION)
+            if pending is None:
+                pending = deque(maxlen=PENDING_HINT_MAX_PER_SESSION)
                 self._pending_hints[session_id] = pending
             now = time.monotonic()
             _drop_expired_hints(pending, now)

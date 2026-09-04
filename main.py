@@ -46,8 +46,7 @@ def _probe_text_part_cls() -> Any | None:
 
         return TextPart
     except Exception as e:
-        if logger is not None:
-            logger.warning(f"[HumanChatQuality] TextPart unavailable, temp extra injection disabled: {e}")
+        logger.warning(f"[HumanChatQuality] TextPart unavailable, temp extra injection disabled: {e}")
         return None
 
 
