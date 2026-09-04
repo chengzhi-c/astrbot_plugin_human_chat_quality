@@ -12,6 +12,7 @@ from .constants import (
     MIN_RUNTIME_HINT_CHARS,
     PENDING_HINT_MAX_PER_SESSION,
     PENDING_HINT_TTL_SECONDS,
+    PENDING_SESSION_CAP,
     STICKY_FOLLOWUP_MAX_LEN,
     YIELD_STICKY_TTL_SECONDS,
 )
@@ -290,6 +291,7 @@ class HumanChatQualityCore:
             now = time.monotonic()
             _drop_expired_hints(pending, now)
             pending.append((now, selected_names if injected_hint else ()))
+            self._evict_pending_if_needed()
         self.stats.record_cleanup(stable_result.removed + context_result.stable_removed, context_result.runtime_removed)
 
         if self.cfg.debug_log and (
@@ -424,15 +426,25 @@ class HumanChatQualityCore:
         if kind:
             if update and session_id:
                 self._pending_yield[session_id] = (now, kind)
+                self._evict_pending_if_needed()
             return _YIELD_REASONS[kind]
         sticky = self._pending_yield.get(session_id) if session_id else None
         if sticky and now - sticky[0] <= YIELD_STICKY_TTL_SECONDS and _is_sticky_followup(_event_text(event)):
             if update:
                 self._pending_yield[session_id] = (now, sticky[1])
+                self._evict_pending_if_needed()
             return _YIELD_REASONS[sticky[1]]
         if update and session_id:
             self._pending_yield.pop(session_id, None)
         return None
+
+    def _evict_pending_if_needed(self) -> None:
+        # 有界淘汰：超 cap 逐出最旧会话。方向保守：hint 队列被逐后续
+        # response 取空元组（只少计 missed）；yield 被逐最坏多注一次。
+        while len(self._pending_hints) > PENDING_SESSION_CAP:
+            self._pending_hints.pop(next(iter(self._pending_hints)))
+        while len(self._pending_yield) > PENDING_SESSION_CAP:
+            self._pending_yield.pop(next(iter(self._pending_yield)))
 
     def _is_active(self, session_id: str) -> bool:
         return self.cfg.enabled and self.store.is_enabled(session_id)

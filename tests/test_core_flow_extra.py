@@ -364,6 +364,16 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(pending.maxlen, limit)
         self.assertEqual(len(pending), limit)
 
+    def test_pending_dicts_are_bounded_by_session_cap(self):
+        with mock.patch.object(core_module, "PENDING_SESSION_CAP", 4, create=True):
+            for index in range(10):
+                event = FakeEvent(f"aiocqhttp:GroupMessage:{1000 + index}")
+                asyncio.run(self.core.on_llm_request(event, FakeReq()))
+            self.assertLessEqual(len(self.core._pending_hints), 4)
+            for index in range(10):
+                self.core._yield_reason(f"yield-{index}", FakeEvent("x", "请起草一份正式通知"), update=True)
+            self.assertLessEqual(len(self.core._pending_yield), 4)
+
     def test_expired_pending_hint_does_not_count_as_missed(self):
         self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["旧项"])
         now = {"value": 0.0}
