@@ -142,32 +142,22 @@ class AppConfig:
 
 def extract_response_text(resp: LLMResponseProtocol) -> str:
     completion = getattr(resp, "completion_text", None)
-    if isinstance(completion, str):
-        completion_text = completion.strip()
-        if completion_text:
-            return completion_text
-    return " ".join(part for part in (_extract_text_from_part(item) for item in _normalize_chain(resp)) if part).strip()
-
-
-def _normalize_chain(resp: LLMResponseProtocol) -> list[Any]:
-    chain = getattr(resp, "result_chain", None) or getattr(resp, "message", None) or []
-    chain_items = getattr(chain, "chain", None)
-    if chain_items is not None:
-        chain = chain_items
-    return chain if isinstance(chain, list) else [chain]
-
-
-def _extract_text_from_part(item: Any) -> str:
-    if item is None:
-        return ""
-    role = getattr(item, "role", None)
-    if role is not None and role != "assistant":
-        return ""
-    text = getattr(item, "text", None)
-    if isinstance(text, str):
-        return text
-    content = getattr(item, "content", None)
-    return content if isinstance(content, str) else ""
+    if isinstance(completion, str) and completion.strip():
+        return completion.strip()
+    chain = getattr(resp, "result_chain", None) or getattr(resp, "message", None) or ()
+    items = getattr(chain, "chain", chain)
+    if not isinstance(items, (list, tuple)):
+        items = (items,)
+    parts: list[str] = []
+    for item in items:
+        if item is None or getattr(item, "role", "assistant") != "assistant":
+            continue
+        val = getattr(item, "text", None)
+        if not isinstance(val, str):
+            val = getattr(item, "content", "")
+        if isinstance(val, str) and val:
+            parts.append(val)
+    return " ".join(parts).strip()
 
 
 def _event_text(event: MessageEventProtocol | None) -> str:

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Sequence
 
 from .constants import CONSECUTIVE_THRESHOLD, DENSITY_BASE
 
@@ -114,8 +115,6 @@ _TRAILING_PUNCT = "。．.!！?？~～…‥、,，;； \t\r\n"
 # 切分正则（供 detect_opening_cliches 与 runtime_state.extract_opener 共用）
 OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")
 
-_CONSECUTIVE_PATTERN = re.compile(r"然而")
-
 # 密度项与 natural-talk 计数口径一致（连续化 scale=max(1,len/300)）
 _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     ("破折号", re.compile(r"[—–]"), 2),
@@ -206,9 +205,19 @@ def detect_ending_cliches(text: str) -> list[str]:
     return []
 
 
+def _find_contained_phrases(text: str, phrases: Sequence[str], *, casefold: bool = False) -> list[str]:
+    """在文本中检索出现的短语集合（保序、精确子串）。"""
+    if not text or not phrases:
+        return []
+    if casefold:
+        target = text.casefold()
+        return [p for p in phrases if p and p.casefold() in target]
+    return [p for p in phrases if p and p in text]
+
+
 def detect_ai_self_exposure(text: str) -> list[str]:
     """检测 AI 自我暴露短语（任意位置）。"""
-    return [phrase for phrase in DEFAULT_AI_CLICHES if phrase in text]
+    return _find_contained_phrases(text, DEFAULT_AI_CLICHES)
 
 
 def detect_opening_cliches(text: str) -> list[str]:
@@ -221,27 +230,27 @@ def detect_opening_cliches(text: str) -> list[str]:
 
 def detect_custom_cliches(text: str, custom_cliches: tuple[str, ...]) -> list[str]:
     """检测自定义避用词（任意位置精确命中）。"""
-    return [phrase for phrase in custom_cliches if phrase and phrase in text]
+    return _find_contained_phrases(text, custom_cliches)
 
 
 def detect_sympathy_cliches(text: str) -> list[str]:
     """D1 谄媚越界整句触发（任意位置精确命中）。"""
-    return [phrase for phrase in DEFAULT_SYMPATHY_CLICHES if phrase in text]
+    return _find_contained_phrases(text, DEFAULT_SYMPATHY_CLICHES)
 
 
 def detect_vague_attributions(text: str) -> list[str]:
     """D6 模糊假归因（任意位置精确命中）。"""
-    return [phrase for phrase in DEFAULT_VAGUE_ATTRIBUTIONS if phrase in text]
+    return _find_contained_phrases(text, DEFAULT_VAGUE_ATTRIBUTIONS)
 
 
 def detect_atmosphere_cliches(text: str) -> list[str]:
     """C6 空泛气氛总结（任意位置精确命中，短语本身极低频）。"""
-    return [phrase for phrase in _ATMOSPHERE_CLICHES if phrase in text]
+    return _find_contained_phrases(text, _ATMOSPHERE_CLICHES)
 
 
 def detect_fixed_pattern_signals(text: str) -> list[str]:
     """检测固定次数模式（如"然而"连发）。"""
-    return ["然而连发"] if len(_CONSECUTIVE_PATTERN.findall(text)) >= CONSECUTIVE_THRESHOLD else []
+    return ["然而连发"] if text.count("然而") >= CONSECUTIVE_THRESHOLD else []
 
 
 def detect_density_signals(text: str) -> list[str]:
