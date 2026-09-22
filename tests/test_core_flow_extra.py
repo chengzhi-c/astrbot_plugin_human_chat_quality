@@ -228,6 +228,28 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_request(event, req))
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
+    def test_short_formal_requests_yield(self):
+        prompts = ["帮我写个通知", "写一份通知", "拟一份会议纪要"]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                event = FakeEvent(self.ev.unified_msg_origin, prompt)
+                req = FakeReq()
+                asyncio.run(self.core.on_llm_request(event, req))
+                self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_edit_a_bit_marketing_copy_stays_active(self):
+        """「改一下」不进动作表，避免误伤粘性口令「再改一下」。"""
+        event = FakeEvent(self.ev.unified_msg_origin, "帮我改一下营销文案")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_bare_sticky_phrase_does_not_yield_without_writing_context(self):
+        event = FakeEvent(self.ev.unified_msg_origin, "再改一下")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(event, req))
+        self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+
     def test_revise_official_document_yields(self):
         event = FakeEvent(self.ev.unified_msg_origin, "帮我改这篇公文")
         req = FakeReq()

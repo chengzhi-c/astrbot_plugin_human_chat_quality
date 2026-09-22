@@ -27,14 +27,15 @@ def event_text(event: MessageEventProtocol | None) -> str:
     return ""
 
 
-_FORMAL_ACTIONS = re.compile(r"写|撰写|起草|拟定|润色|改写|改成|改这篇|修改|生成|翻译|输出")
+_FORMAL_ACTIONS = re.compile(r"写|撰写|起草|拟定|拟(?!定)|润色|改写|改成|改这篇|修改|生成|翻译|输出")
 _FORMAL_ARTIFACTS = re.compile(
     r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|正式通知|变更通知|服务通知|研究计划|求职邮件"
 )
 _TECH_SYSTEM_SUFFIXES = re.compile(
     r"(?:合同|论文|公文|会议纪要)(?:(?:管理|流转|审批|检索)?系统|查重|平台|模块|表结构|数据库|接口|代码|算法|架构|逻辑)"
 )
-_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写")
+_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写|写个|写一份")
+_CASUAL_NOTICE = re.compile(r"朋友|同学|家人|今晚|聚餐")
 _CREATIVE_ACTIONS = re.compile(r"写|创作|续写|扮演|roleplay", re.IGNORECASE)
 _CREATIVE_GENRES = re.compile(r"小说|故事|同人|角色卡|剧本|角色扮演|roleplay", re.IGNORECASE)
 
@@ -43,7 +44,7 @@ def is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
     text = event_text(event)
     if not text:
         return False
-    if _NOTICE_DRAFT.search(text) and "通知" in text:
+    if _NOTICE_DRAFT.search(text) and "通知" in text and not _CASUAL_NOTICE.search(text):
         return True
     if not (_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text)):
         return False

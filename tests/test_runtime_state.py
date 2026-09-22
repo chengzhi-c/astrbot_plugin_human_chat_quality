@@ -172,6 +172,14 @@ class TestDetectClichesLegacy(unittest.TestCase):
         text = "示例：`不是优化而是重构`。代码如下：\n```text\n真正的问题是这里\n```"
         self.assertNotIn("结构性表演", detect_cliches(text))
 
+    def test_iron_rule_variants_hit_and_inventory_sentence_does_not(self):
+        self.assertIn("结构性表演", detect_cliches("这不是妥协，只是算账。"))
+        self.assertIn("结构性表演", detect_cliches("不在于技术，而在于排班。"))
+        self.assertIn("结构性表演", detect_cliches("表面上看是优化，实则是重构。"))
+        self.assertIn("结构性表演", detect_cliches("不是优化——是重构。"))
+        self.assertEqual(detect_cliches("冰箱里没有可乐，只有啤酒。"), [])
+        self.assertNotIn("结构性表演", detect_cliches("代码：`不是优化，只是重构`。"))
+
     def test_tilde_fence_and_url_are_masked(self):
         self.assertEqual(detect_cliches("见 https://example.com/作为AI 再看正文。"), [])
         self.assertNotIn("作为AI", detect_cliches("代码：\n~~~\n作为AI不能这样\n~~~\n以上。"))

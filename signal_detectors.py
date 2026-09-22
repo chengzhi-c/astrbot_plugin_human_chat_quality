@@ -134,6 +134,10 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
 # Tier3 铁律：结构性表演（精简高置信，去回溯风险：句内 [^。\n] 限长）
 _TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"不是[^。\n]{0,30}而是"),
+    re.compile(r"不是[^。\n]{0,16}(?:[，,]\s*|——+)只是"),
+    re.compile(r"不是[^。\n]{0,16}——+是"),
+    re.compile(r"不在于[^。\n]{0,16}[，,]\s*而在于"),
+    re.compile(r"表面(?:上)?[^。\n]{0,16}[，,]\s*实则"),
     re.compile(r"其实不是[^。\n]{0,30}只是"),
     re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)"),
     re.compile(r"与其[^。\n]{0,16}不如"),

@@ -29,7 +29,7 @@ from .quality_rules import (
     rewrite_stable_rules,
     select_runtime_hint_names,
 )
-from .runtime_state import RuntimeStateStore, extract_opener, is_session_disabled, unified_origin
+from .runtime_state import RuntimeStateStore, is_session_disabled, unified_origin
 from .scene_guard import event_text, is_creative_writing_request, is_formal_writing_request, is_sticky_followup
 from .signal_detectors import detect_cliches, signal_priority
 
@@ -285,10 +285,6 @@ class HumanChatQualityCore:
             return
 
         cliches = detect_cliches(text, self.store.custom_cliches)
-        opener = extract_opener(text)
-        present = set(cliches)
-        if opener:
-            present.add(opener)
 
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)

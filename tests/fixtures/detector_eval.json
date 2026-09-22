@@ -2408,5 +2408,65 @@
     "formal_bypass": false,
     "rationale": "D2 服务腔收尾变体，仅结尾命中。",
     "split": "holdout"
+  },
+  {
+    "id": "det-223",
+    "category": "casual",
+    "user": "年轻人为啥不买大件了？",
+    "answer": "这不是妥协，只是算账。",
+    "expected_signals": ["结构性表演"],
+    "formal_bypass": false,
+    "rationale": "省「而」的翻案腔，句内逗号分隔。",
+    "split": "dev"
+  },
+  {
+    "id": "det-224",
+    "category": "casual",
+    "user": "延迟是机器不行吗？",
+    "answer": "不在于技术，而在于排班。",
+    "expected_signals": ["结构性表演"],
+    "formal_bypass": false,
+    "rationale": "不在于/而在于对举。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-225",
+    "category": "tech",
+    "user": "这次提交算优化吗？",
+    "answer": "表面上看是优化，实则是重构。",
+    "expected_signals": ["结构性表演"],
+    "formal_bypass": false,
+    "rationale": "表面/实则，中间有逗号，旧「看似…实则」覆盖不到。",
+    "split": "dev"
+  },
+  {
+    "id": "det-226",
+    "category": "tech",
+    "user": "这是优化还是重构？",
+    "answer": "不是优化——是重构。",
+    "expected_signals": ["结构性表演"],
+    "formal_bypass": false,
+    "rationale": "破折号分隔的省「而」翻案腔。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-227",
+    "category": "casual",
+    "user": "冰箱里有什么？",
+    "answer": "冰箱里没有可乐，只有啤酒。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "事实清点，不报翻案腔。",
+    "split": "dev"
+  },
+  {
+    "id": "det-228",
+    "category": "tech",
+    "user": "这段示例什么意思？",
+    "answer": "代码里写的是 `不是优化，只是重构`，别当结论。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "行内代码遮罩，变体正则不得穿透。",
+    "split": "holdout"
   }
 ]
