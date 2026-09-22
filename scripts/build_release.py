@@ -30,7 +30,7 @@ RUNTIME_MANIFEST = (
     "THIRD_PARTY_NOTICES.md",
     "LICENSE",
 )
-_CHANGELOG_VERSION_RE = re.compile(r"^## \[([^\]\s]+)\]")
+_CHANGELOG_VERSION_RE = re.compile(r"^## \[?([^\]\s]+)\]?")
 _META_FIELD_RE = re.compile(r"^(name|version):\s*[\"']?([^\"'\s]+)")
 _SAFE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 

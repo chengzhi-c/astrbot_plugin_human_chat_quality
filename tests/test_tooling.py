@@ -131,7 +131,7 @@ class TestReleaseBuild(unittest.TestCase):
         current = build_release.validate_release(repo).version
         changelog = repo / "CHANGELOG.md"
         text = changelog.read_text(encoding="utf-8")
-        changelog.write_text(text.replace(f"## [{current}]", "## [9.9.9]", 1), encoding="utf-8")
+        changelog.write_text(text.replace(f"## {current}", "## 9.9.9", 1), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "version"):
             build_release.build_archive(repo, out_dir)
@@ -165,7 +165,7 @@ class TestReleaseBuild(unittest.TestCase):
         metadata.write_text(text.replace(f"version: {current}", "version: ../private", 1), encoding="utf-8")
         changelog = repo / "CHANGELOG.md"
         text = changelog.read_text(encoding="utf-8")
-        changelog.write_text(text.replace(f"## [{current}]", "## [../private]", 1), encoding="utf-8")
+        changelog.write_text(text.replace(f"## {current}", "## ../private", 1), encoding="utf-8")
 
         with self.assertRaisesRegex(ValueError, "version"):
             build_release.build_archive(repo, out_dir)
