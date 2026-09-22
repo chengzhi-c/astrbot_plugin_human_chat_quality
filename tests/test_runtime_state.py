@@ -102,7 +102,7 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
         self.assertEqual(detect_cliches("视情况而定的排班先不动。"), [])
 
     def test_casual_invite_is_not_a_service_tail(self):
-        """随时问我是口语邀约，不进避用清单；随时联系我仍是客服收尾。"""
+        """随时问我不检测；随时联系我仍命中。"""
         self.assertEqual(detect_cliches("今晚有空就来，随时问我。"), [])
         self.assertEqual(detect_cliches("字段名以文档为准，随时问我。"), [])
         self.assertIn("随时联系我", detect_cliches("补丁合上就能跑，随时联系我。"))
