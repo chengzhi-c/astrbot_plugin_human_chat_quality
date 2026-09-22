@@ -7,7 +7,7 @@ import unittest
 import zipfile
 from pathlib import Path
 
-from scripts import build_release, run_tests
+from scripts import build_release, check_upstream_sync, run_tests
 from scripts.run_tests import run_suite
 from tests._support import temporary_directory
 
@@ -30,6 +30,27 @@ class TestStrictRunner(unittest.TestCase):
         self.assertGreater(run_tests.load_suite("host").countTestCases(), 0)
         self.assertNotIn("tests.test_tooling", run_tests.CORE_MODULES)
         self.assertIn("tests.test_tooling", run_tests.SUITES["core"])
+
+    def test_suite_registry_covers_every_test_module(self):
+        """新增 tests/test_*.py 必须登记进 core 或 host 套件，漏登记即红。"""
+        repo = Path(__file__).resolve().parents[1]
+        discovered = {f"tests.{path.stem}" for path in (repo / "tests").glob("test_*.py")}
+        registered = set(run_tests.CORE_MODULES) | set(run_tests.SUITES["host"]) | set(run_tests.SUITES["core"])
+        self.assertEqual(discovered - registered, set(), "tests/ 下存在未登记进套件的测试模块")
+        self.assertEqual(registered - discovered, set(), "套件登记了不存在的测试模块")
+
+    def test_upstream_sync_lists_come_from_single_source(self):
+        """check_upstream_sync 的标签/禁词清单单源化到 anchors fixture，不得再有第二份字面量。"""
+        import inspect
+
+        self.assertEqual(check_upstream_sync._ANCHORS_PATH.name, "stable-rules-anchors.json")
+        tags, forbidden = check_upstream_sync._load_anchors()
+        self.assertIn("D2", tags)
+        self.assertIn("B1", tags)
+        self.assertIn("智慧的导师", forbidden)
+        source = inspect.getsource(check_upstream_sync)
+        self.assertNotIn("REQUIRED_GUIDELINE_TAGS = (", source)
+        self.assertNotIn("FORBIDDEN_DESYNC_PHRASES = (", source)
 
 
 class TestReleaseBuild(unittest.TestCase):

@@ -752,15 +752,16 @@ class TestConcurrentPersistence(unittest.TestCase):
                 writes += 1
                 real_write(payload)
 
+            # 防抖窗拉长到远超突发时长：无论循环中是否让出事件循环，
+            # 窗内全部更新都必须合并为一次写盘（不再依赖"循环内不让出"的时序巧合）
             with (
-                mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0.01, create=True),
+                mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 3600, create=True),
                 mock.patch.object(store, "_write_snapshot_sync", side_effect=count_write),
             ):
                 for index in range(100):
                     await store.record_response("g", f"第{index}次回答", ())
-                save_task = getattr(store, "_save_task", None)
-                self.assertIsNotNone(save_task)
-                await save_task
+                self.assertTrue(store.has_pending_save)
+                self.assertTrue(await store.terminate())
 
             self.assertEqual(writes, 1)
             self.assertFalse(store.has_pending_save)

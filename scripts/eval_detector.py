@@ -20,38 +20,42 @@ from astrbot_plugin_human_chat_quality.scene_guard import is_formal_writing_requ
 from astrbot_plugin_human_chat_quality.signal_detectors import builtin_signal_names, detect_cliches
 
 
-def _binary_metrics(expected: list[bool], actual: list[bool]) -> dict[str, float | int]:
+def _binary_metrics(expected: list[bool], actual: list[bool]) -> dict[str, float | int | None]:
     tp = sum(want and got for want, got in zip(expected, actual, strict=True))
     fp = sum(not want and got for want, got in zip(expected, actual, strict=True))
     fn = sum(want and not got for want, got in zip(expected, actual, strict=True))
     return {
-        "precision": round(tp / (tp + fp), 4) if tp + fp else 1.0,
-        "recall": round(tp / (tp + fn), 4) if tp + fn else 1.0,
+        # 空类别 precision/recall 记 None（n/a），与"有样本且满分"区分
+        "precision": round(tp / (tp + fp), 4) if tp + fp else None,
+        "recall": round(tp / (tp + fn), 4) if tp + fn else None,
         "fp": fp,
         "fn": fn,
+        "n": len(expected),
     }
 
 
 def _metrics(rows: list[dict[str, object]]) -> dict[str, object]:
-    buckets: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0})
+    buckets: dict[str, dict[str, int]] = defaultdict(lambda: {"tp": 0, "fp": 0, "fn": 0, "n": 0})
     for row in rows:
         category = str(row["category"])
         expected = {str(item) for item in row["expected_signals"]}
         actual = set(detect_cliches(str(row["answer"])))
         bucket = buckets[category]
+        bucket["n"] += 1
         for signal in expected & actual:
             bucket["tp"] += 1
         bucket["fp"] += len(actual - expected)
         bucket["fn"] += len(expected - actual)
 
-    categories: dict[str, dict[str, float | int]] = {}
+    categories: dict[str, dict[str, float | int | None]] = {}
     for category, bucket in sorted(buckets.items()):
         tp, fp, fn = bucket["tp"], bucket["fp"], bucket["fn"]
         categories[category] = {
-            "precision": round(tp / (tp + fp), 4) if tp + fp else 1.0,
-            "recall": round(tp / (tp + fn), 4) if tp + fn else 1.0,
+            "precision": round(tp / (tp + fp), 4) if tp + fp else None,
+            "recall": round(tp / (tp + fn), 4) if tp + fn else None,
             "fp": fp,
             "fn": fn,
+            "n": bucket["n"],
         }
     return {
         "count": len(rows),

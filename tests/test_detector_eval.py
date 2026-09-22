@@ -17,11 +17,18 @@ class TestDetectorEvaluation(unittest.TestCase):
         self.fixture = self.repo / "tests" / "fixtures" / "detector_eval.json"
 
     def test_fixture_is_frozen_and_covers_required_categories(self):
+        """契约锁：fixture 与实现同源演进，此测试锁"实现未变 + 覆盖面下限"，不是泛化证据。
+
+        新增样例须逐条可解释（rationale 写清判据），独立泛化验证靠人工标注的 holdout。
+        """
         rows = json.loads(self.fixture.read_text(encoding="utf-8"))
         self.assertGreaterEqual(len(rows), 120)
         self.assertEqual(len({row["id"] for row in rows}), len(rows))
         self.assertEqual({row["split"] for row in rows}, {"dev", "holdout"})
-        self.assertGreaterEqual(len([row for row in rows if row["split"] == "holdout"]), 40)
+        holdout = [row for row in rows if row["split"] == "holdout"]
+        self.assertGreaterEqual(len(holdout), 40)
+        # split 不得塌缩成开发集独大：holdout 至少占三分之一
+        self.assertGreaterEqual(len(holdout) * 3, len(rows))
         categories = {row["category"] for row in rows}
         required = {"casual", "tech", "steps", "emotion", "formal", "identity", "uncertainty", "role-dialogue"}
         self.assertGreaterEqual(categories, required)
@@ -52,10 +59,10 @@ class TestDetectorEvaluation(unittest.TestCase):
         for name in ("dev", "holdout"):
             split = report[name]
             self.assertTrue(split["categories"])
-            self.assertEqual(set(split["formal_bypass"]), {"precision", "recall", "fp", "fn"})
+            self.assertEqual(set(split["formal_bypass"]), {"precision", "recall", "fp", "fn", "n"})
             self.assertEqual((split["formal_bypass"]["fp"], split["formal_bypass"]["fn"]), (0, 0))
             for metrics in split["categories"].values():
-                self.assertEqual(set(metrics), {"precision", "recall", "fp", "fn"})
+                self.assertEqual(set(metrics), {"precision", "recall", "fp", "fn", "n"})
                 self.assertEqual((metrics["fp"], metrics["fn"]), (0, 0))
 
     def test_check_mode_rejects_any_false_positive_or_negative(self):

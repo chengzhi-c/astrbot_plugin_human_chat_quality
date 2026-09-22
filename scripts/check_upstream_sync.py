@@ -4,39 +4,19 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# 上游日常对话与回答问题核心准绳标识集合
-REQUIRED_GUIDELINE_TAGS = (
-    "D1",
-    "D2",
-    "D4",
-    "D5",
-    "D6",
-    "B1",
-    "B3",
-    "B4",
-    "B5",
-    "B8",
-    "B10",
-    "B12",
-    "C1",
-    "C2",
-    "C3",
-    "C4",
-)
+# 清单单源：上游必备准绳标签与禁入词以 tests/fixtures/stable-rules-anchors.json 为准
+_ANCHORS_PATH = REPO / "tests" / "fixtures" / "stable-rules-anchors.json"
 
-# 严禁渗入日常对话与问答规则的脱节残留词（小说氛围/成文清理）
-FORBIDDEN_DESYNC_PHRASES = (
-    "成文清理时",
-    "声音填满空间",
-    "静有重量",
-    "世界退回壳里",
-    "智慧的导师",
-)
+
+def _load_anchors() -> tuple[tuple[str, ...], tuple[str, ...]]:
+    data = json.loads(_ANCHORS_PATH.read_text(encoding="utf-8"))
+    return tuple(data["guideline_tags"]), tuple(data["forbidden"])
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -44,6 +24,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--upstream", required=True, help="path to a natural-talk checkout")
     args = parser.parse_args(argv)
     upstream = Path(args.upstream)
+    if not _ANCHORS_PATH.is_file():
+        print(f"anchors fixture missing: {_ANCHORS_PATH}", file=sys.stderr)
+        return 1
+    required_tags, forbidden_phrases = _load_anchors()
 
     skill_path = upstream / "SKILL.md"
     rules_full_path = upstream / "references" / "rules-full.md"
@@ -68,7 +52,7 @@ def main(argv: list[str] | None = None) -> int:
     upstream_content = "\n".join(upstream_parts)
 
     # 验证上游单一事实源中是否包含核心准绳定义
-    missing_in_upstream = [tag for tag in REQUIRED_GUIDELINE_TAGS if tag not in upstream_content]
+    missing_in_upstream = [tag for tag in required_tags if tag not in upstream_content]
     if missing_in_upstream:
         print(f"upstream is missing guideline definitions: {missing_in_upstream}", file=sys.stderr)
         return 1
@@ -90,13 +74,13 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     # 验证本地规则覆盖日常问答核心准绳
-    missing_in_core = [f"[{tag}]" for tag in REQUIRED_GUIDELINE_TAGS if f"[{tag}]" not in _LITE_CORE]
+    missing_in_core = [f"[{tag}]" for tag in required_tags if f"[{tag}]" not in _LITE_CORE]
     if missing_in_core:
         print(f"quality_rules._LITE_CORE is missing required guideline tags: {missing_in_core}", file=sys.stderr)
         return 1
 
     # 验证脱节残留词未渗入
-    leaked = [phrase for phrase in FORBIDDEN_DESYNC_PHRASES if phrase in _LITE_CORE]
+    leaked = [phrase for phrase in forbidden_phrases if phrase in _LITE_CORE]
     if leaked:
         print(f"quality_rules._LITE_CORE contains desynchronized phrases: {leaked}", file=sys.stderr)
         return 1

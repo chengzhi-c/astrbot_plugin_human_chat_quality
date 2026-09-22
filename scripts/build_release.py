@@ -3,13 +3,16 @@
 
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
+import tempfile
 import zipfile
 from dataclasses import dataclass
 from pathlib import Path
 
+GATE_TIMEOUT_SECONDS = 600
 RUNTIME_MANIFEST = (
     "main.py",
     "core.py",
@@ -99,8 +102,13 @@ def build_archive(repo: Path, out_dir: Path) -> Path:
     return archive
 
 
-def _run_gate(command: list[str], repo: Path) -> None:
-    subprocess.run(command, cwd=repo, check=True)
+def _run_gate(command: list[str], repo: Path, env: dict[str, str] | None = None) -> None:
+    try:
+        subprocess.run(command, cwd=repo, check=True, timeout=GATE_TIMEOUT_SECONDS, env=env)
+    except FileNotFoundError as error:
+        raise SystemExit(f"[build_release] 门禁命令不可用: {command[0]}（{error}）") from error
+    except subprocess.TimeoutExpired as error:
+        raise SystemExit(f"[build_release] 门禁超时（>{GATE_TIMEOUT_SECONDS}s）: {command}") from error
 
 
 def _compile_command() -> list[str]:
@@ -110,11 +118,14 @@ def _compile_command() -> list[str]:
 
 def main() -> int:
     repo = Path(__file__).resolve().parents[1]
-    _run_gate([sys.executable, "scripts/run_tests.py", "all"], repo)
-    _run_gate([sys.executable, "-S", "scripts/eval_detector.py", "--check"], repo)
-    _run_gate(_compile_command(), repo)
-    _run_gate([sys.executable, "-m", "ruff", "check", "."], repo)
-    _run_gate([sys.executable, "-m", "ruff", "format", "--check", "."], repo)
+    # bytecode 统一写入临时目录：compileall/run_tests 不在源码树留 __pycache__
+    with tempfile.TemporaryDirectory() as cache_dir:
+        env = {**os.environ, "PYTHONPYCACHEPREFIX": cache_dir}
+        _run_gate([sys.executable, "scripts/run_tests.py", "all"], repo, env)
+        _run_gate([sys.executable, "-S", "scripts/eval_detector.py", "--check"], repo, env)
+        _run_gate(_compile_command(), repo, env)
+        _run_gate([sys.executable, "-m", "ruff", "check", "."], repo, env)
+        _run_gate([sys.executable, "-m", "ruff", "format", "--check", "."], repo, env)
     archive = build_archive(repo, repo.parent)
     print(f"[build_release] OK: {archive}")
     return 0

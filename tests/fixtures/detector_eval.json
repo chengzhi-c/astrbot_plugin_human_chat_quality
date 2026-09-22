@@ -2578,5 +2578,241 @@
     "formal_bypass": false,
     "rationale": "技术根因澄清里的对举是信息性的，上游按 REVIEW 交人工复核；插件的机械层无上下文能力，故按铁律照报（_PLUGIN_EXTRAS 已明文列为铁律），此条锁定该取舍为有意行为，防止后人误判为漏报。",
     "split": "holdout"
+  },
+  {
+    "id": "det-238",
+    "category": "casual",
+    "user": "今天上线顺利吗？",
+    "answer": "今晚先做压测——白天人多；再做灰度——放百分之五流量；最后复盘——看错误率。",
+    "expected_signals": [
+      "破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "300 字内 3 个破折号超密度阈 2，属提示语停顿滥用",
+    "split": "dev"
+  },
+  {
+    "id": "det-239",
+    "category": "emotion",
+    "user": "刚才那通电话说了什么？",
+    "answer": "他说——算了不提。她想了想——还是走了。你看——事情就是这样。",
+    "expected_signals": [
+      "破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "3 个破折号制造停顿感，短句内超阈",
+    "split": "dev"
+  },
+  {
+    "id": "det-240",
+    "category": "casual",
+    "user": "测试结果怎么样？",
+    "answer": "太好了！全绿！一次过！收工！明天继续！",
+    "expected_signals": [
+      "感叹号"
+    ],
+    "formal_bypass": false,
+    "rationale": "5 个感叹号超密度阈 3",
+    "split": "dev"
+  },
+  {
+    "id": "det-241",
+    "category": "tech",
+    "user": "构建过了吗？",
+    "answer": "过了！镜像也推了！签名也验了！文档也更新了！可以下班了！",
+    "expected_signals": [
+      "感叹号"
+    ],
+    "formal_bypass": false,
+    "rationale": "5 个感叹号连发超阈，技术回复里不必要",
+    "split": "dev"
+  },
+  {
+    "id": "det-242",
+    "category": "tech",
+    "user": "指标真的变好了吗？",
+    "answer": "先看数据。事实上，错误率没有下降。实际上，流量也少了。换句话说，指标是假的。",
+    "expected_signals": [
+      "路标词堆砌"
+    ],
+    "formal_bypass": false,
+    "rationale": "事实上/实际上/换句话说 3 连发超阈",
+    "split": "dev"
+  },
+  {
+    "id": "det-243",
+    "category": "steps",
+    "user": "这个方案怎么评价？",
+    "answer": "分三段说。值得注意的是，队列在堆积。需要强调的是，重试也在放大。更关键的是，消费者已经卡死。",
+    "expected_signals": [
+      "路标词堆砌"
+    ],
+    "formal_bypass": false,
+    "rationale": "值得注意/需要强调/更关键 3 连发超阈",
+    "split": "dev"
+  },
+  {
+    "id": "det-244",
+    "category": "casual",
+    "user": "缓存怎么还没生效？",
+    "answer": "说白了，这不是缓存的问题，而是连接池打满了。我看就这样吧，希望能帮到你。",
+    "expected_signals": [
+      "希望能帮到你",
+      "说白了",
+      "翻案腔"
+    ],
+    "formal_bypass": false,
+    "rationale": "起手式+翻案腔+客服收尾三类同轮叠加",
+    "split": "dev"
+  },
+  {
+    "id": "det-245",
+    "category": "emotion",
+    "user": "他为什么突然改了主意？",
+    "answer": "那不是妥协——是他终于学会了算账。",
+    "expected_signals": [
+      "翻案腔"
+    ],
+    "formal_bypass": false,
+    "rationale": "破折号分隔的翻案腔变体，铁律正则覆盖",
+    "split": "dev"
+  },
+  {
+    "id": "det-246",
+    "category": "tech",
+    "user": "参数文档在哪？",
+    "answer": "具体参数看文档第三节。如有疑问。",
+    "expected_signals": [
+      "如有疑问"
+    ],
+    "formal_bypass": false,
+    "rationale": "收尾短语带句号仍应命中（尾部标点剥离边界）",
+    "split": "dev"
+  },
+  {
+    "id": "det-247",
+    "category": "tech",
+    "user": "这段代码在说什么？",
+    "answer": "```python\nprint('不是优化而是重构')\n``` 还有 https://example.com/?q=不是而是 以及 `好问题` 都不算正文。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "代码块/URL/行内代码遮罩后无正文病灶，不得误报",
+    "split": "dev"
+  },
+  {
+    "id": "det-248",
+    "category": "casual",
+    "user": "这台老机器撑住了吗？",
+    "answer": "撑住了。然而下一次就不一定了，建议换掉。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "然而单次低于连发阈值 2",
+    "split": "dev"
+  },
+  {
+    "id": "det-249",
+    "category": "tech",
+    "user": "把排障过程讲一遍。",
+    "answer": "这是一段说明排障过程的日常长文。机器在凌晨出过一次抖动，我们把监控翻了一遍，先看错误率曲线，再看下游依赖的超时记录，最后核对发布窗口。三步走下来没有发现异常，于是把目光放回应用本身。日志里有一段重试记录特别长，重试的间隔是递增的，第一次两秒，第二次四秒，第三次八秒，一直加到一分钟。这个设计本身没问题，但如果下游一直不恢复，重试会把队列堆满。后来我们把重试次数从五次降到三次，又给队列加了告警，从此这类问题在扩大之前就会被发现。整个过程花了大概两个小时，值得记录下来，给后面接手的人省点时间。顺带一提，值班群那晚也没人插话，大家默契地等到结果出来才收工。第二天复盘会上，我把这条经验写进了排障手册，团队里几个新人后来看了都说有帮助。中途他停了两次——一次接电话，一次看监控。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "超 300 字的长文档位放宽到阈 4，3 个破折号不报",
+    "split": "holdout"
+  },
+  {
+    "id": "det-250",
+    "category": "tech",
+    "user": "再讲详细一点。",
+    "answer": "这是一段说明排障过程的日常长文。机器在凌晨出过一次抖动，我们把监控翻了一遍，先看错误率曲线，再看下游依赖的超时记录，最后核对发布窗口。三步走下来没有发现异常，于是把目光放回应用本身。日志里有一段重试记录特别长，重试的间隔是递增的，第一次两秒，第二次四秒，第三次八秒，一直加到一分钟。这个设计本身没问题，但如果下游一直不恢复，重试会把队列堆满。后来我们把重试次数从五次降到三次，又给队列加了告警，从此这类问题在扩大之前就会被发现。整个过程花了大概两个小时，值得记录下来，给后面接手的人省点时间。顺带一提，值班群那晚也没人插话，大家默契地等到结果出来才收工。第二天复盘会上，我把这条经验写进了排障手册，团队里几个新人后来看了都说有帮助。这里还有几处停顿——他说——先等等——再看一眼——就这样——结束了。",
+    "expected_signals": [
+      "破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "长文档位下 5 个破折号仍超阈 4",
+    "split": "holdout"
+  },
+  {
+    "id": "det-251",
+    "category": "casual",
+    "user": "发布那天什么场面？",
+    "answer": "这是一段说明排障过程的日常长文。机器在凌晨出过一次抖动，我们把监控翻了一遍，先看错误率曲线，再看下游依赖的超时记录，最后核对发布窗口。三步走下来没有发现异常，于是把目光放回应用本身。日志里有一段重试记录特别长，重试的间隔是递增的，第一次两秒，第二次四秒，第三次八秒，一直加到一分钟。这个设计本身没问题，但如果下游一直不恢复，重试会把队列堆满。后来我们把重试次数从五次降到三次，又给队列加了告警，从此这类问题在扩大之前就会被发现。整个过程花了大概两个小时，值得记录下来，给后面接手的人省点时间。顺带一提，值班群那晚也没人插话，大家默契地等到结果出来才收工。第二天复盘会上，我把这条经验写进了排障手册，团队里几个新人后来看了都说有帮助。人群里有人喊——成功了！过了！全绿！太棒了！收工！万岁！打车回家！终于结束了！",
+    "expected_signals": [
+      "感叹号"
+    ],
+    "formal_bypass": false,
+    "rationale": "600 字档阈 6，8 个感叹号超限",
+    "split": "holdout"
+  },
+  {
+    "id": "det-252",
+    "category": "steps",
+    "user": "给我一个目录结构。",
+    "answer": "## 一、准备\n### 二、实施\n## 三、验收\n",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "同级连续序列被异级标题打断，不构成连发",
+    "split": "holdout"
+  },
+  {
+    "id": "det-253",
+    "category": "casual",
+    "user": "这个方案谁把关？",
+    "answer": "这个方案让我来把关，你先看数据。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "让位动词出现在句中而非首部，不属元话语空预告",
+    "split": "holdout"
+  },
+  {
+    "id": "det-254",
+    "category": "steps",
+    "user": "行程怎么安排？",
+    "answer": "接下来我们将从北京出发，先到济南。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "构词差异（将/我们将）不得误命中空预告",
+    "split": "holdout"
+  },
+  {
+    "id": "det-255",
+    "category": "casual",
+    "user": "冰箱里还有什么喝的？",
+    "answer": "冰箱里没有可乐，只有啤酒。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "事实清点的对举是具体物件，白名单放行",
+    "split": "holdout"
+  },
+  {
+    "id": "det-256",
+    "category": "emotion",
+    "user": "这事你怎么看？",
+    "answer": "这只是因人而异的判断，别太当真。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "万能收尾仅句尾匹配，句中构词不报",
+    "split": "holdout"
+  },
+  {
+    "id": "det-257",
+    "category": "emotion",
+    "user": "到底选哪个？",
+    "answer": "两件事的权重不一样，选哪个真的因人而异",
+    "expected_signals": [
+      "因人而异"
+    ],
+    "formal_bypass": false,
+    "rationale": "句尾无标点的万能收尾仍命中",
+    "split": "holdout"
+  },
+  {
+    "id": "det-258",
+    "category": "tech",
+    "user": "监控面板准吗？",
+    "answer": "面板其实有延迟。事实上，只有三十秒。实际上，影响很小。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "路标词 2 次未超阈（>2 才报），临界负例",
+    "split": "holdout"
   }
 ]
