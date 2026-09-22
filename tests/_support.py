@@ -5,8 +5,6 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_DEFAULT_TMPDIR = Path(__file__).resolve().parents[2]
-
 
 def ensure_plugin_package() -> None:
     """Load the source tree under its canonical package name."""
@@ -73,7 +71,8 @@ V5_RULES_B46BD0D = (
 
 
 def temporary_directory(test_case: unittest.TestCase) -> str:
-    root = os.environ.get("HCQ_TEST_TMPDIR") or _DEFAULT_TMPDIR
+    """独立临时目录（系统 temp，用完即清）；HCQ_TEST_TMPDIR 可指定父目录。"""
+    root = os.environ.get("HCQ_TEST_TMPDIR") or None
     temp_dir = tempfile.TemporaryDirectory(dir=root)
     test_case.addCleanup(temp_dir.cleanup)
     return temp_dir.name

@@ -435,5 +435,40 @@ class TestRuntimeHint(unittest.TestCase):
         self.assertNotIn("多用感叹号", hint)
 
 
+class TestOwnershipEdges(unittest.TestCase):
+    """所有权判定的边界与注入失败降级（此前全无覆盖）。"""
+
+    def test_overlong_runtime_item_set_is_ambiguous_not_owned(self):
+        items = "、".join("甲乙丙" * 8 for _ in range(quality_rules.MAX_AVOID_ITEMS + 1))
+        text = f"{RUNTIME_HINT_MARKER}\n{quality_rules._RUNTIME_INSTRUCTION}\n{items}"
+        self.assertEqual(quality_rules._runtime_kind(text), "ambiguous")
+
+    def test_runtime_item_with_newline_is_ambiguous(self):
+        text = f"{RUNTIME_HINT_MARKER}\n{quality_rules._RUNTIME_INSTRUCTION}\n开头\n结尾"
+        self.assertEqual(quality_rules._runtime_kind(text), "ambiguous")
+
+    def test_append_temp_text_part_rejects_marker_mismatch(self):
+        req = FakeReq()
+        self.assertFalse(append_temp_text_part(req, "没有 marker 的文本", FakePart, marker=RUNTIME_HINT_MARKER))
+        self.assertEqual(req.extra_user_content_parts, [])
+
+    def test_append_temp_text_part_degrades_when_factory_raises(self):
+        def broken_factory(*, text):
+            raise RuntimeError("provider rejects")
+
+        req = FakeReq()
+        self.assertFalse(append_temp_text_part(req, f"{RUNTIME_HINT_MARKER}\n提示", broken_factory))
+        self.assertEqual(req.extra_user_content_parts, [])
+
+    def test_append_temp_text_part_rejects_non_list_parts(self):
+        req = FakeReq()
+        req.extra_user_content_parts = "不是列表"
+        self.assertFalse(append_temp_text_part(req, f"{RUNTIME_HINT_MARKER}\n提示", FakePart))
+        self.assertEqual(req.extra_user_content_parts, "不是列表")
+
+    def test_make_text_part_without_factory_returns_none(self):
+        self.assertIsNone(quality_rules.make_text_part("文本", None))
+
+
 if __name__ == "__main__":
     unittest.main()

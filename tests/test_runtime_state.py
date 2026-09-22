@@ -22,6 +22,7 @@ from astrbot_plugin_human_chat_quality.runtime_state import (
     RuntimeStateStore,
     SessionState,
     _parse_group_id_from_origin,
+    _state_from_dict,
     extract_opener,
     group_id_from_event,
     is_session_disabled,
@@ -202,8 +203,12 @@ class TestDetectClichesLegacy(unittest.TestCase):
         self.assertIn("翻案腔", detect_cliches('\u201c前文这不是优化而是重构"后文'))
 
     def test_density_uses_normalized_text_length(self):
-        """密度折算用归一化后字符数，原始空白不计入篇幅档位。"""
-        text = "破" + " " * 300 + "折" + "—" * 5
+        """密度折算用归一化后字符数，原始空白不计入篇幅档位。
+
+        样本 3 个破折号：归一 5 字→档 1→阈 2→报；原始 305 字→档 2→阈 4→不报，
+        两种口径输出分叉，能抓"误用原始长度"的实现。
+        """
+        text = "破" + " " * 300 + "折" + "—" * 3
         self.assertIn("破折号", detect_cliches(text))
 
     def test_density_uses_shared_constant(self):
@@ -912,6 +917,31 @@ class TestDisabledMatch(unittest.TestCase):
 
     def test_parse_group_id_from_three_part_origin(self):
         self.assertEqual(_parse_group_id_from_origin("aiocqhttp:GroupMessage:111"), "111")
+
+
+class TestStoreBoundaries(unittest.TestCase):
+    """store 钳制与序列化边界（此前无覆盖）。"""
+
+    def test_window_below_repeat_threshold_is_clamped(self):
+        # 窗口 < 重复阈值会形成"永不达标"的静默死区，构造期钳到阈值
+        store = RuntimeStateStore(temporary_directory(self) + "/s.json", 14, 1, ())
+        self.assertEqual(store.recent_reply_window, 3)
+
+    def test_opener_truncated_to_max_opener_len(self):
+        self.assertEqual(extract_opener("一二三四五六七八九十多余尾巴，继续"), "一二三四五六七八")
+
+    def test_repeated_items_respects_limit(self):
+        items = ["甲", "甲", "甲", "乙", "乙", "乙", "丙", "丙", "丙"]
+        self.assertEqual(repeated_items(items, limit=2), ["甲", "乙"])
+
+    def test_state_from_dict_zero_timestamp_stays_unset(self):
+        state = _state_from_dict({"a": ["翻案腔"], "r": "好的", "t": 0}, 8)
+        self.assertIsNone(state.updated_at)
+        self.assertEqual(state.avoid_openers, ["翻案腔"])
+
+    def test_state_from_dict_non_list_avoid_key_yields_empty(self):
+        state = _state_from_dict({"a": "不是列表", "r": ""}, 8)
+        self.assertEqual(state.avoid_openers, [])
 
 
 if __name__ == "__main__":

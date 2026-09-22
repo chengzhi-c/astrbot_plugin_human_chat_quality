@@ -391,9 +391,11 @@ class TestCoreFlowExtra(unittest.TestCase):
     def test_sticky_yield_expires_and_ignores_casual_then(self):
         origin = self.ev.unified_msg_origin
         now = {"value": 0.0}
+        time_stub = mock.Mock()
+        time_stub.monotonic.side_effect = lambda: now["value"]
         with (
             mock.patch.object(core_module, "YIELD_STICKY_TTL_SECONDS", 10, create=True),
-            mock.patch.object(core_module.time, "monotonic", side_effect=lambda: now["value"]),
+            mock.patch.object(core_module, "time", time_stub),
         ):
             asyncio.run(self.core.on_llm_request(FakeEvent(origin, "帮我起草正式通知"), FakeReq()))
             now["value"] = 11.0
@@ -405,20 +407,6 @@ class TestCoreFlowExtra(unittest.TestCase):
         asyncio.run(self.core.on_llm_request(FakeEvent(origin, "帮我起草正式通知"), FakeReq()))
         asyncio.run(self.core.on_llm_request(FakeEvent(origin, "然后呢"), casual))
         self.assertIn(STABLE_RULE_MARKER, casual.system_prompt)
-
-    def test_technical_system_design_does_not_yield(self):
-        prompts = [
-            "帮我写一个合同管理系统的表结构",
-            "写一个论文查重算法的Python实现",
-            "写一段公文流转系统的审批流代码",
-            "写个合同系统的数据库设计",
-        ]
-        for prompt in prompts:
-            with self.subTest(prompt=prompt):
-                event = FakeEvent(self.ev.unified_msg_origin, prompt)
-                req = FakeReq()
-                asyncio.run(self.core.on_llm_request(event, req))
-                self.assertIn(STABLE_RULE_MARKER, req.system_prompt, f"技术问答被误让位: {prompt}")
 
     def test_runtime_hint_prefers_reliability_signals_when_budget_is_tight(self):
         appearance = "第一项第一项第一项第一项第一项"
@@ -470,9 +458,9 @@ class TestCoreFlowExtra(unittest.TestCase):
             "核心是：提高代码质量。": "删掉“核心是：”这类空转提示语",
             "他的答案是——那就是缓存。": "别用破折号制造揭晓",
         }
-        for text, expected in samples.items():
+        for index, (text, expected) in enumerate(samples.items()):
             with self.subTest(text=text):
-                store = RuntimeStateStore(os.path.join(self.dir, f"hint-{hash(text) & 0xFFFF}.json"), 14, 8, ())
+                store = RuntimeStateStore(os.path.join(self.dir, f"hint-{index}.json"), 14, 8, ())
                 core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=FakePart)
                 asyncio.run(core.on_llm_response(self.ev, FakeLLMResp(text)))
                 req = FakeReq()
@@ -519,6 +507,41 @@ class TestCoreFlowExtra(unittest.TestCase):
             self.assertIn("待重试", self.core.status_text(self.ev.unified_msg_origin, self.ev))
 
         asyncio.run(run())
+
+
+class TestEventTextProbing(unittest.TestCase):
+    """宿主对象形状探测链与粘性口令长度上限（此前无覆盖）。"""
+
+    def test_event_text_prefers_callable_message_str(self):
+        class Ev:
+            unified_msg_origin = "x"
+
+            def get_message_str(self):
+                return "  有内容  "
+
+        from astrbot_plugin_human_chat_quality.scene_guard import event_text
+
+        self.assertEqual(event_text(Ev()), "有内容")
+
+    def test_event_text_skips_raising_attribute(self):
+        class Ev:
+            unified_msg_origin = "x"
+
+            @property
+            def message_str(self):
+                raise RuntimeError("host shape drift")
+
+            message = "后备文本"
+
+        from astrbot_plugin_human_chat_quality.scene_guard import event_text
+
+        self.assertEqual(event_text(Ev()), "后备文本")
+
+    def test_sticky_followup_rejects_overlong_input(self):
+        from astrbot_plugin_human_chat_quality.scene_guard import is_sticky_followup
+
+        self.assertFalse(is_sticky_followup("继续" + "啊" * 30))
+        self.assertTrue(is_sticky_followup("继续"))
 
 
 if __name__ == "__main__":

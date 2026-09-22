@@ -69,9 +69,15 @@ class TestCoreFlow(unittest.TestCase):
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
     def test_no_hint_first_round_then_hint_after_three_repeats(self):
-        for _ in range(3):
+        for round_no in range(1, 4):
             req = FakeReq()
             asyncio.run(self.core.on_llm_request(self.ev, req))
+            # 第 1–3 轮都不得有提示：只断言首轮捕获不到阈值失效的变异（变异下提示从第 2 轮就出现）
+            self.assertEqual(
+                req.extra_user_content_parts,
+                [],
+                f"第 {round_no} 轮就注入了动态提示（重复阈值=3 未生效）",
+            )
             asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))
