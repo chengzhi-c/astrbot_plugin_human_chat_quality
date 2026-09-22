@@ -152,8 +152,6 @@ _TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
     ("翻案腔", re.compile(r"真正的问题是")),
     # C2 结尾拔高
     ("结尾拔高", re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)")),
-    # B16/F7 假深沉回环
-    ("假深沉回环", re.compile(r"很久[^。\n]{0,6}久到|安静[^。\n]{0,4}静[到得]|沉默[^。\n]{0,4}沉默到")),
     # B4a 空转提示语加冒号引列表
     (
         "空转提示语",
@@ -165,15 +163,6 @@ _TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
 _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
     re.compile(r"(?:通常来说|一般来说|通常情况下).{0,10}(?:可能|或许|大概|大致|也许)"),
-)
-# C6 空泛气氛总结：上游限定"具体描写后"的语境条件无法用词表表达，但这些短语本身极低频，
-# 任意位置精确命中误报率可接受（进冻结评测集验证）
-_ATMOSPHERE_CLICHES: tuple[str, ...] = (
-    "声音填满空间",
-    "空气仿佛凝固",
-    "眼中闪过一丝",
-    "时间仿佛静止",
-    "世界仿佛安静",
 )
 _FENCED_CODE_RE = re.compile(r"(```|~~~).*?\1", re.DOTALL)
 _INLINE_CODE_RE = re.compile(r"`[^`\n]*`")
@@ -244,11 +233,6 @@ def detect_sympathy_cliches(text: str) -> list[str]:
 def detect_vague_attributions(text: str) -> list[str]:
     """D6 模糊假归因（任意位置精确命中）。"""
     return _find_contained_phrases(text, DEFAULT_VAGUE_ATTRIBUTIONS)
-
-
-def detect_atmosphere_cliches(text: str) -> list[str]:
-    """C6 空泛气氛总结（任意位置精确命中，短语本身极低频）。"""
-    return _find_contained_phrases(text, _ATMOSPHERE_CLICHES)
 
 
 def detect_fixed_pattern_signals(text: str) -> list[str]:
@@ -323,7 +307,6 @@ def builtin_signal_names() -> frozenset[str]:
             *DEFAULT_SYMPATHY_CLICHES,
             *DEFAULT_ENDINGS,
             *DEFAULT_VAGUE_ATTRIBUTIONS,
-            *_ATMOSPHERE_CLICHES,
             "然而连发",
             *dict.fromkeys(label for label, _ in _TIER3_PATTERNS),
             "模糊叠加",
@@ -339,8 +322,8 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
     """检测高置信度 AI 腔信号（去重、保序，分层对齐 upstream Tier1-6 精简）。
 
     内置末尾模板仅结尾命中；AI 自我暴露与谄媚整句任意位置；开场仅首部；custom_cliches 任意位置。
-    Tier3 铁律按上游编号分族（翻案腔/结尾拔高/假深沉回环/空转提示语/揭示式破折号）与模糊叠加；
-    密度按 300 字基准折算；C6 空泛气氛总结短语任意位置。
+    Tier3 铁律按上游编号分族（翻案腔/结尾拔高/空转提示语/揭示式破折号）与模糊叠加；
+    密度按 300 字基准折算。
     """
     normalized = _normalize_text(text)
     if not normalized:
@@ -359,7 +342,6 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
         detect_fixed_pattern_signals(normalized),
         detect_iron_rule(normalized),
         detect_hedge(normalized),
-        detect_atmosphere_cliches(normalized),
         detect_density_signals(normalized),
         # 标题检测依赖分行，不能吃合并换行后的 normalized（函数内自做 _mask_code）
         detect_numbered_headings(text),

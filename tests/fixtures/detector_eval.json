@@ -1551,11 +1551,9 @@
     "category": "emotion",
     "user": "这段气氛怎么写？",
     "answer": "门关上之后，世界仿佛安静。",
-    "expected_signals": [
-      "世界仿佛安静"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：世界仿佛安静",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "holdout"
   },
   {
@@ -1684,11 +1682,9 @@
     "category": "emotion",
     "user": "高潮怎么写？",
     "answer": "鼓点落下，声音填满空间。",
-    "expected_signals": [
-      "声音填满空间"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：声音填满空间",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "dev"
   },
   {
@@ -1804,11 +1800,9 @@
     "category": "emotion",
     "user": "对峙怎么写？",
     "answer": "两人对视时，时间仿佛静止。",
-    "expected_signals": [
-      "时间仿佛静止"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：时间仿佛静止",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "dev"
   },
   {
@@ -1900,11 +1894,9 @@
     "category": "emotion",
     "user": "角色反应怎么写？",
     "answer": "他抬眼时，眼中闪过一丝犹豫。",
-    "expected_signals": [
-      "眼中闪过一丝"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：眼中闪过一丝",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "dev"
   },
   {
@@ -1936,11 +1928,9 @@
     "category": "emotion",
     "user": "安静怎么写？",
     "answer": "话停住后，空气仿佛凝固。",
-    "expected_signals": [
-      "空气仿佛凝固"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：空气仿佛凝固",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "holdout"
   },
   {
@@ -2546,11 +2536,9 @@
     "category": "casual",
     "user": "你觉得这个故事该怎么写结尾",
     "answer": "他们坐了很久，久到茶都凉了。",
-    "expected_signals": [
-      "假深沉回环"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "B16 同词回环：很A，A到…… 表层句式，正例锁定新标签可达性。",
+    "rationale": "叙事层句式，日常对话不检测",
     "split": "dev"
   },
   {

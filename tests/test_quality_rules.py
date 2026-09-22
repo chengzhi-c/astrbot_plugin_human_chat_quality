@@ -58,7 +58,6 @@ class TestRewriteInterfaces(unittest.TestCase):
         aggregate_signals = {
             "翻案腔",
             "结尾拔高",
-            "假深沉回环",
             "空转提示语",
             "揭示式破折号",
             "然而连发",
@@ -87,7 +86,6 @@ class TestRewriteInterfaces(unittest.TestCase):
         samples = {
             "翻案腔": "不是优化而是重构。",
             "结尾拔高": "这不仅是优化，更是对工程的追求。",
-            "假深沉回环": "他们看了很久，久到忘了时间。",
             "空转提示语": "核心是：提高代码质量。",
             "揭示式破折号": "他的答案是——那就是缓存。",
             "模糊叠加": "可能或许要等正式通知。",
@@ -122,7 +120,7 @@ class TestRewriteInterfaces(unittest.TestCase):
         """
         from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
 
-        for key in ("翻案腔", "结尾拔高", "假深沉回环", "空转提示语", "揭示式破折号"):
+        for key in ("翻案腔", "结尾拔高", "空转提示语", "揭示式破折号"):
             with self.subTest(signal=key):
                 self.assertTrue(_SIGNAL_HINT_MAP[key].startswith(("别", "删")), _SIGNAL_HINT_MAP[key])
 
@@ -355,7 +353,7 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
         self.assertIn(
-            "铁律：自立靶子的先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；用户前提被证伪时的纠错句放行",
+            "铁律：自立靶子的先否定后肯定（不是/与其/看似）删否定留肯定，直接说肯定面；用户前提被证伪时的纠错句放行",
             rules,
         )
         self.assertNotIn("角色引号内除外", rules)
