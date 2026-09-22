@@ -321,7 +321,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 16)
+        self.assertEqual(RULES_VERSION, 17)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""
@@ -354,7 +354,10 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 保留事实、限制条件、安全提示和不确定性表述", rules)
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
-        self.assertIn("铁律：先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面", rules)
+        self.assertIn(
+            "铁律：自立靶子的先否定后肯定（不是/与其/看似/很久…久到）删否定留肯定，直接说肯定面；用户前提被证伪时的纠错句放行",
+            rules,
+        )
         self.assertNotIn("角色引号内除外", rules)
         self.assertIn("铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓", rules)
 
