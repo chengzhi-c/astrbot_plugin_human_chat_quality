@@ -1,7 +1,7 @@
 # Human Chat Quality 架构文档
 
-**文档版本**: 3.3.0
-**更新日期**: 2026-09-04
+**文档版本**: 3.4.0
+**更新日期**: 2026-09-22
 
 > 本文档说明插件的模块职责与系统设计。配置项定义以 `_conf_schema.json` 为准，运行时约束与行为保证由 `tests/` 覆盖。
 
@@ -18,17 +18,17 @@ main.py            宿主适配层：事件订阅、命令注册、配置加载�
         ▼
 core.py            编排层：会话判定、正式写作让位、流程编排、统计
         │
-   ┌────┴────────────────┬─────────────────┐
-   ▼                     ▼                 ▼
-quality_rules.py    runtime_state.py   signal_detectors.py
-规则注入与块管理      状态存储与持久化      AI 腔信号检测
-   │                     │                 │
-   └─────────────────────┴─────────────────┘
+   ┌────┴──────────┬─────────────┬──────────────┐
+   ▼               ▼             ▼              ▼
+quality_rules.py  runtime_state.py  signal_detectors.py  scene_guard.py
+规则注入与块管理   状态存储与持久化   AI 腔信号检测          会话场景判定
+   │               │             │              │
+   └───────────────┴─────────────┴──────────────┘
                         ▼
               constants.py → protocols.py（类型契约，零运行时依赖）
 ```
 
-**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors} → constants/protocols`，保持单向无环调用。
+**依赖方向**：`main → core → {quality_rules, runtime_state, signal_detectors, scene_guard} → constants/protocols`，保持单向无环调用。
 `constants.py` 统一定义系统常量与阈值。核心模块（`core` 及下游）与 AstrBot 平台解耦，支持在无宿主环境下独立运行与测试。
 
 ## 2. 模块职责
@@ -36,10 +36,11 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 | 模块 | 职责 | 关键接口 |
 |------|------|----------|
 | `main.py` | 宿主平台接入：订阅 `on_llm_request` / `on_llm_response`、注册 `/humanq` 命令组、加载配置、终止时触发写盘 | `HumanChatQualityPlugin` |
-| `core.py` | 业务流编排：生效判定、场景让位、调度注入与状态记录、维护内存统计 | `HumanChatQualityCore`、`AppConfig`、`QualityStats` |
+| `core.py` | 业务流编排：生效判定、场景让位（粘性 TTL 状态）、调度注入与状态记录、维护内存统计 | `HumanChatQualityCore`、`AppConfig`、`QualityStats` |
 | `quality_rules.py` | 规则管理：稳定规则注入与剥离、动态提示组装、历史注入块清理 | `rewrite_stable_rules`、`rewrite_context_injections`、`build_runtime_hint` |
-| `runtime_state.py` | 状态存储：重复开头与避用词记录、文件原子写入与损坏容错 | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
+| `runtime_state.py` | 状态存储：重复开头与避用词记录、文件原子写入与损坏容错（含根非对象 JSON 备份+全清） | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
 | `signal_detectors.py` | 信号检测：收尾模板、身份暴露、起手式、句式特征、高频标点与词汇统计、危害分档 | `detect_cliches`、`detect_iron_rule`、`detect_hedge`、`signal_priority` |
+| `scene_guard.py` | 会话场景判定：正式写作 / 文艺创作 / 粘性续写的纯文本判定（无状态） | `is_formal_writing_request`、`is_creative_writing_request`、`is_sticky_followup` |
 | `constants.py` | 常量与阈值集中定义 | 数值常量与配置约束 |
 | `protocols.py` | 宿主接口协议抽象 | `ProviderRequest`、`LLMResponse`、`MessageEvent` 等类型协议 |
 
@@ -49,16 +50,17 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 1. **让位与跳过判定**：会话禁用或会话标识为空时跳过处理；匹配到正式写作（如起草公文）或文艺创作/角色扮演场景时让位，不注入规则。短 TTL 内的续写口令沿用上一轮让位原因。
 2. **清理历史注入**：通过 `rewrite_context_injections` 扫描并清理历史上下文中的插件注入块；历史 user 内容里整段旧 `Rules vN` 块一并删除，保留句中提到 marker 的用户话。system_prompt 人设仍只按当前版本签名剥离。
-3. **构建动态提示**：通过 `build_runtime_hint` 将避用项按危害档位排序并装配为单轮提示，受字符上限（`max_runtime_hint_chars`）约束，注入至请求的附加消息段（`extra_user_content_parts`）。
+3. **构建动态提示**：将避用项按危害档位排序并装配为单轮提示，受字符上限（`max_runtime_hint_chars`）约束，注入至请求的附加消息段（`extra_user_content_parts`）。
 4. **注入稳定规则**：通过 `rewrite_stable_rules` 向 `system_prompt` 幂等写入当前版本规则（含 marker 与签名）；插件禁用时执行剥离。
 5. **统计计数**：累加本次请求的注入与清理指标。
 
 **响应处理（on_llm_response）**：
 
-1. **文本提取**：获取模型生成的回复文本。
-2. **信号检测**：调用 `detect_cliches` 检测 AI 腔特征，提取回复首部短语并计算重复频次。
-3. **更新状态**：调用 `record_response` 更新内存状态，并通过防抖任务异步写入磁盘。
-4. **记录统计**：累加特征信号命中计数。
+1. **让位与跳过判定**：会话禁用或让位中则跳过记录。
+2. **文本提取**：获取模型生成的回复文本。
+3. **信号检测**：调用 `detect_cliches` 检测 AI 腔特征，提取回复首部短语。
+4. **更新状态**：调用 `record_response` 更新内存状态，并通过防抖任务异步写入磁盘。
+5. **记录统计**：累加特征信号命中与避用项新增计数。
 
 ## 4. 设计决策
 
@@ -74,7 +76,7 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 ### D3. 状态文件存储格式与容错机制
 
 为降低频繁读写的 IO 开销与磁盘占用，运行时状态采用紧凑键名（`a` 对应避用词，`r` 对应近期开头，`t` 对应时间戳）。读取仅接受 v2 紧凑格式；pre-2.0 旧键条目拒收（备份+跳过），升级后首次成功落盘即整体迁移。
-遇到文件格式损坏或 IO 异常时，系统将异常文件重命名为 `.corrupted` 副本留存排查，并重置为空状态；单个会话解析失败时仅跳过该条目，保障其余正常会话加载。
+遇到文件格式损坏（JSON 解析失败或根非对象）或 IO 异常时，系统将异常文件复制为 `.corrupt.*` 副本留存排查，并重置为空状态；单个会话解析失败时仅跳过该条目，保障其余正常会话加载。
 
 ### D4. 信号检测策略与误报控制
 
@@ -93,8 +95,8 @@ quality_rules.py    runtime_state.py   signal_detectors.py
 
 ### D7. 正式写作让位与状态反馈
 
-- **场景让位**：根据“动作动词 + 正式文体产物”（如“拟定/起草”与“通知/公文”）组合判定正式写作场景；创作与扮演场景根据生成动词与体裁组合判定。让位时不注入质量规则。
-- **粘性让位**：正式写作或创作命中后，进程内 300 秒内的短续写口令（如「继续」「继续写通知」）仍让位，原因沿用上次；窗口为滑动语义，命中续写口令即刷新 TTL；不写入 `runtime_state.json`。
+- **场景让位**：`scene_guard.py` 根据“动作动词 + 正式文体产物”（如“拟定/起草”与“通知/公文”）组合判定正式写作场景；创作与扮演场景根据生成动词与体裁组合判定。让位时不注入质量规则。判定函数无状态，粘性 TTL 状态由 `core.py` 维护。
+- **粘性让位**：正式写作或创作命中后，进程内 300 秒内的短续写口令（如「继续」「继续写通知」）仍让位，原因沿用上次；窗口为滑动语义，命中续写口令即刷新 TTL；不写入 `runtime_state.json`。粘性会话数有进程内上限（`PENDING_SESSION_CAP`）防膨胀。
 - **状态报告**：`/humanq status` 分别展示全局配置、会话禁用、让位判定、动态提示可用性等运行状态；粘性生效时仍显示原来的让位原因。
 
 ### D8. 历史规则块处理机制
@@ -114,10 +116,6 @@ strict 对照（日常对话向，不扩展）：客服话术让位、B2/B7/B9/B
 ### D11. 基础规则注入与文本遮罩
 
 基础系统提示词基于上游 lite 规范整理，包含任务优先、保留事实约束与输出规范。检测器预处理阶段对代码块（包括 ```` 和 `~~~` 格式）及 URL 执行等长字符遮罩，避免代码内容与链接文本误触发规则检测。
-
-### D12. 请求与响应的关联匹配
-
-宿主事件未提供全局请求标识符，同一会话的连续请求依赖到达序列匹配。每个会话维护固定容量的 FIFO 队列，记录 `(时间戳, 注入项)`；无注入的请求记录空占位以保持序列对应。队列中超出时间阈值的条目在请求边界清理。
 
 ## 5. 测试与发布
 

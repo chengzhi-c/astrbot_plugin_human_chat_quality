@@ -179,30 +179,23 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(self.core.stats.legacy_blocks_removed, 2)
         self.assertEqual(self.core.stats.stale_hints_removed, 2)
 
-    def test_runtime_hint_missed_counts_repetition_after_hint(self):
-        for _ in range(3):
-            req = FakeReq()
-            asyncio.run(self.core.on_llm_request(self.ev, req))
-            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
-        # 第四轮请求注入提醒（avoid_openers=["好的"]），回复仍用同一开头 → 计一次忽略
-        req = FakeReq()
-        asyncio.run(self.core.on_llm_request(self.ev, req))
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，还在重复")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
-        # 下一轮换了开头，不再计数
-        req = FakeReq()
-        asyncio.run(self.core.on_llm_request(self.ev, req))
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("换了个自然开头")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
+    def test_runtime_hint_missed_counter_removed(self):
+        """P1 删链路后：QualityStats 不再有 missed 字段（防回归再引入）。"""
+        self.assertFalse(hasattr(self.core.stats, "runtime_hint_missed"))
 
-    def test_runtime_hint_missed_not_counted_without_hint(self):
-        for _ in range(3):
-            req = FakeReq()
-            asyncio.run(self.core.on_llm_request(self.ev, req))
-            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("好的，回答")))
-        # 无提醒注入的响应（如另一会话）：不计数
-        asyncio.run(self.core.on_llm_response(FakeEvent("aiocqhttp:GroupMessage:999"), FakeLLMResp("好的，重复")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
+    def test_runtime_hint_budget_fits_only_prefix_items(self):
+        first = "第一项第一项第一项第一项第一项"
+        second = "第二项第二项第二项第二项第二项"
+        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[first, second])
+        core = HumanChatQualityCore(
+            AppConfig.from_config({"max_runtime_hint_chars": 80}), self.store, text_part_factory=FakePart
+        )
+        req = FakeReq()
+
+        asyncio.run(core.on_llm_request(self.ev, req))
+
+        self.assertIn(first, req.extra_user_content_parts[0].text)
+        self.assertNotIn(second, req.extra_user_content_parts[0].text)
 
     def test_formal_writing_with_emotion_topic_skips_request_and_response(self):
         event = FakeEvent(self.ev.unified_msg_origin, "写一篇关于抑郁的论文")
@@ -316,76 +309,17 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertIn(harmful, hint)
         self.assertNotIn(appearance, hint)
 
-    def test_runtime_hint_missed_counts_aggregate_signal_by_canonical_name(self):
+    def test_runtime_hint_renders_aggregate_signal_by_canonical_name(self):
         self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["破折号"])
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))
         self.assertIn("别用破折号", req.extra_user_content_parts[0].text)
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("a——b——c")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
-        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("没有破折号的回复")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
 
-    def test_runtime_hint_missed_only_checks_items_that_were_injected(self):
-        first = "第一项第一项第一项第一项第一项"
-        second = "第二项第二项第二项第二项第二项"
-        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[first, second])
-        core = HumanChatQualityCore(
-            AppConfig.from_config({"max_runtime_hint_chars": 80}), self.store, text_part_factory=FakePart
-        )
-        req = FakeReq()
-
-        asyncio.run(core.on_llm_request(self.ev, req))
-        asyncio.run(core.on_llm_response(self.ev, FakeLLMResp(second)))
-
-        self.assertIn(first, req.extra_user_content_parts[0].text)
-        self.assertNotIn(second, req.extra_user_content_parts[0].text)
-        self.assertEqual(core.stats.runtime_hint_missed, 0)
-
-    def test_runtime_hint_tracking_is_fifo_per_session(self):
-        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["第一项"])
-        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
-        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["第二项"])
-        asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
-
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("第二项")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
-        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("第二项")))
-        self.assertEqual(self.core.stats.runtime_hint_missed, 1)
-
-    def test_pending_hint_queue_is_bounded_per_session(self):
-        limit = core_module.PENDING_HINT_MAX_PER_SESSION
-        for index in range(limit + 3):
-            self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=[f"第{index}项"])
-            asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
-
-        pending = self.core._pending_hints[self.ev.unified_msg_origin]
-        self.assertEqual(pending.maxlen, limit)
-        self.assertEqual(len(pending), limit)
-
-    def test_pending_dicts_are_bounded_by_session_cap(self):
+    def test_yield_sessions_are_bounded_by_cap(self):
         with mock.patch.object(core_module, "PENDING_SESSION_CAP", 4, create=True):
-            for index in range(10):
-                event = FakeEvent(f"aiocqhttp:GroupMessage:{1000 + index}")
-                asyncio.run(self.core.on_llm_request(event, FakeReq()))
-            self.assertLessEqual(len(self.core._pending_hints), 4)
             for index in range(10):
                 self.core._yield_reason(f"yield-{index}", FakeEvent("x", "请起草一份正式通知"), update=True)
             self.assertLessEqual(len(self.core._pending_yield), 4)
-
-    def test_expired_pending_hint_does_not_count_as_missed(self):
-        self.store.sessions[self.ev.unified_msg_origin] = SessionState(avoid_openers=["旧项"])
-        now = {"value": 0.0}
-        with (
-            mock.patch.object(core_module, "PENDING_HINT_TTL_SECONDS", 10, create=True),
-            mock.patch.object(core_module.time, "monotonic", side_effect=lambda: now["value"]),
-        ):
-            asyncio.run(self.core.on_llm_request(self.ev, FakeReq()))
-            now["value"] = 11.0
-            asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("旧项")))
-
-        self.assertEqual(self.core.stats.runtime_hint_missed, 0)
 
     def test_no_origin_skips_everything(self):
         ev = FakeEvent("")

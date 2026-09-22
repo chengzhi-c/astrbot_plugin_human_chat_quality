@@ -2348,5 +2348,65 @@
     "formal_bypass": false,
     "rationale": "代码内 B1 例句不报",
     "split": "dev"
+  },
+  {
+    "id": "det-218",
+    "category": "casual",
+    "user": "为什么我的电脑开机这么慢？",
+    "answer": "问得好，启动项太多会拖慢开机，先禁用不必要的自启程序。",
+    "expected_signals": [
+      "问得好"
+    ],
+    "formal_bypass": false,
+    "rationale": "D2 服务腔开场变体（上游 D2_OPENERS 收录），仅首部命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-219",
+    "category": "casual",
+    "user": "要不要报个培训班？",
+    "answer": "这是个好问题，先想清楚目标再决定。",
+    "expected_signals": [
+      "这是个好问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "D2 服务腔开场变体，仅首部命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-220",
+    "category": "casual",
+    "user": "怎么挑显示器？",
+    "answer": "这真是个好问题，先看面板类型和色域。",
+    "expected_signals": [
+      "这真是个好问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "D2 服务腔开场变体，仅首部命中。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-221",
+    "category": "casual",
+    "user": "积分怎么兑换？",
+    "answer": "商城首页就有入口，选好奖品确认收货地址即可，详见规则页，如有疑问",
+    "expected_signals": [
+      "如有疑问"
+    ],
+    "formal_bypass": false,
+    "rationale": "D2 服务腔收尾变体（上游 D2_OPENERS 收录），仅结尾命中。",
+    "split": "dev"
+  },
+  {
+    "id": "det-222",
+    "category": "casual",
+    "user": "能开发票吗？",
+    "answer": "能，下单时备注抬头就行，开票问题联系客服，如有任何问题",
+    "expected_signals": [
+      "如有任何问题"
+    ],
+    "formal_bypass": false,
+    "rationale": "D2 服务腔收尾变体，仅结尾命中。",
+    "split": "holdout"
   }
 ]

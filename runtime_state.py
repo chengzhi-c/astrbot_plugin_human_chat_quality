@@ -207,7 +207,7 @@ class RuntimeStateStore:
         return True
 
     def _load(self) -> None:
-        """状态加载。损坏策略：顶层损坏（JSON 解析失败/根结构非预期）备份+全清；
+        """状态加载。损坏策略：顶层损坏（JSON 解析失败/根非对象）备份+全清；
         条目损坏（容器类型错误/单条 session 非 dict）备份+跳过坏键+warning，保留好数据。"""
         try:
             file_mtime = self.state_path.stat().st_mtime
@@ -217,9 +217,16 @@ class RuntimeStateStore:
             self.sessions = {}
             self.runtime_disabled = set()
             return
+        if not isinstance(raw, dict):
+            self._backup_corrupt_state_file()
+            if logger is not None:
+                logger.warning(f"[HumanChatQuality] state file root is not an object, reset ({type(raw).__name__})")
+            self.sessions = {}
+            self.runtime_disabled = set()
+            return
 
+        backed_up = False
         try:
-            backed_up = False
             raw_disabled = raw.get("disabled_sessions") or []
             if isinstance(raw_disabled, list):
                 self.runtime_disabled = {str(item) for item in raw_disabled}

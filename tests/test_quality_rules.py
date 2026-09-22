@@ -266,7 +266,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 12)
+        self.assertEqual(RULES_VERSION, 13)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""

@@ -22,6 +22,7 @@ REQUIRED_GUIDELINE_TAGS = (
     "B5",
     "B8",
     "B10",
+    "B12",
     "C1",
     "C2",
     "C3",
@@ -45,21 +46,23 @@ def main(argv: list[str] | None = None) -> int:
     upstream = Path(args.upstream)
 
     skill_path = upstream / "SKILL.md"
-    dialogue_path = upstream / "references" / "dialogue.md"
+    rules_full_path = upstream / "references" / "rules-full.md"
 
-    polish_path = upstream / "references" / "polish.md"
     scan_path = upstream / "scripts" / "scan-mechanical.py"
 
     if not skill_path.is_file():
         print(f"upstream SKILL.md missing: {skill_path}", file=sys.stderr)
         return 2
-    if not dialogue_path.is_file():
-        print(f"upstream references/dialogue.md missing: {dialogue_path}", file=sys.stderr)
+    if not rules_full_path.is_file():
+        print(f"upstream references/rules-full.md missing: {rules_full_path}", file=sys.stderr)
         return 2
 
-    upstream_parts = [skill_path.read_text(encoding="utf-8"), dialogue_path.read_text(encoding="utf-8")]
-    if polish_path.is_file():
-        upstream_parts.append(polish_path.read_text(encoding="utf-8"))
+    # 上游 2026-09-14 起合并 references：dialogue.md 并入 SKILL.md/rules-full.md，
+    # 规范源以 SKILL.md + rules-full.md 为准。
+    upstream_parts = [skill_path.read_text(encoding="utf-8"), rules_full_path.read_text(encoding="utf-8")]
+    fiction_path = upstream / "references" / "fiction.md"
+    if fiction_path.is_file():
+        upstream_parts.append(fiction_path.read_text(encoding="utf-8"))
     if scan_path.is_file():
         upstream_parts.append(scan_path.read_text(encoding="utf-8"))
     upstream_content = "\n".join(upstream_parts)
@@ -98,7 +101,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"quality_rules._LITE_CORE contains desynchronized phrases: {leaked}", file=sys.stderr)
         return 1
 
-    print("upstream sync: OK (dialogue & QA guidelines verified)")
+    print("upstream sync: OK (SKILL.md + rules-full.md guidelines verified)")
     return 0
 
 

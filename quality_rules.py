@@ -18,7 +18,7 @@ from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役。
 # 历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 仍只按当前版本签名剥离。
-RULES_VERSION = 12
+RULES_VERSION = 13
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
@@ -31,6 +31,7 @@ _LITE_CORE = """natural-talk 轻量注入版（规范源：SKILL.md 日常对话
 日常对话与回答问题自查：
 - 首句直接给结论或第一个事实，末句落在事实、建议或排查边界上，删客服客套（好问题/希望能帮到你/随时联系我） [D2]
 - 严禁复述题目开场：首句从答案开始，严禁用“关于你提到的……”把用户问题重念一遍 [C3]
+- 删宏观开场：“在当今/随着……的发展/众所周知”不含具体背景信息就删，第一句直接进实质；起手语承载真实背景（人物、时间、数据、事件）时删壳留信息 [B12]
 - 视觉不过度结构化：短回答优先呼吸自然的段落展开；各项间有连贯推演逻辑的，严禁碎片化拆成列表或滥用粗体；用户明确要求清单除外 [C1]
 - 评价只针对内容：检验法——主语换成"这个问题/这段代码"，换不了的即越界；倾诉安慰场景坦陈真实主观感受，不做虚假心理按摩 [D1]
 - 问什么答什么并明确给出倾向；确属两难时写明判断条件与权衡基准，不得以"关键在于平衡""因人而异"消解信息 [D4]

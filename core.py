@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import logging
-import re
 import time
-from collections import deque
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -16,10 +14,7 @@ from .constants import (
     MIN_RECENT_REPLY_WINDOW,
     MIN_RUNTIME_HINT_CHARS,
     MIN_STATE_RETENTION_DAYS,
-    PENDING_HINT_MAX_PER_SESSION,
-    PENDING_HINT_TTL_SECONDS,
     PENDING_SESSION_CAP,
-    STICKY_FOLLOWUP_MAX_LEN,
     YIELD_STICKY_TTL_SECONDS,
 )
 from .protocols import LLMResponseProtocol, MessageEventProtocol, ProviderRequestProtocol
@@ -35,6 +30,7 @@ from .quality_rules import (
     select_runtime_hint_names,
 )
 from .runtime_state import RuntimeStateStore, extract_opener, is_session_disabled, unified_origin
+from .scene_guard import event_text, is_creative_writing_request, is_formal_writing_request, is_sticky_followup
 from .signal_detectors import detect_cliches, signal_priority
 
 logger = logging.getLogger(__name__)
@@ -51,7 +47,6 @@ class QualityStats:
 
     # 信号统计
     avoid_openers_seen: int = 0
-    runtime_hint_missed: int = 0
     cliche_hits: dict[str, int] = field(default_factory=dict)
 
     # 清理统计
@@ -172,80 +167,18 @@ def extract_response_text(resp: LLMResponseProtocol) -> str:
     return " ".join(parts).strip()
 
 
-def _event_text(event: MessageEventProtocol | None) -> str:
-    """宿主对象形状随版本变化，逐属性探测是有意的。"""
-    if event is not None:
-        for attr in ("get_message_str", "message_str", "message", "text"):
-            try:
-                v = getattr(event, attr, None)
-                if callable(v):
-                    v = v()
-                if isinstance(v, str) and v.strip():
-                    return v.strip()
-            except Exception:
-                continue
-    return ""
-
-
-_FORMAL_ACTIONS = re.compile(r"写|撰写|起草|拟定|润色|改写|改成|改这篇|修改|生成|翻译|输出")
-_FORMAL_ARTIFACTS = re.compile(
-    r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|正式通知|变更通知|服务通知|研究计划|求职邮件"
-)
-_TECH_SYSTEM_SUFFIXES = re.compile(
-    r"(?:合同|论文|公文|会议纪要)(?:(?:管理|流转|审批|检索)?系统|查重|平台|模块|表结构|数据库|接口|代码|算法|架构|逻辑)"
-)
-_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写")
-_CREATIVE_ACTIONS = re.compile(r"写|创作|续写|扮演|roleplay", re.IGNORECASE)
-_CREATIVE_GENRES = re.compile(r"小说|故事|同人|角色卡|剧本|角色扮演|roleplay", re.IGNORECASE)
-
-
-def _is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
-    text = _event_text(event)
-    if not text:
-        return False
-    if _NOTICE_DRAFT.search(text) and "通知" in text:
-        return True
-    if not (_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text)):
-        return False
-    return not bool(_TECH_SYSTEM_SUFFIXES.search(text))
-
-
-def _is_creative_writing_request(event: MessageEventProtocol | None) -> bool:
-    text = _event_text(event)
-    if not text:
-        return False
-    return bool(_CREATIVE_ACTIONS.search(text) and _CREATIVE_GENRES.search(text))
-
-
 _YIELD_REASONS = {
     "formal": "- 正式写作场景让位（不注入对话层约束）",
     "creative": "- 创作场景让位（不注入对话层约束）",
 }
-_STICKY_EXACT = re.compile(
-    r"^(继续|然后|接着|再改一下|按这个写|同上|continue|go on)[。.!！?？]*$",
-    re.IGNORECASE,
-)
-_STICKY_WRITE = re.compile(r"^(?:继续|接着|再).*(?:写|改|润色|拟)")
-
-
-def _is_sticky_followup(text: str) -> bool:
-    stripped = text.strip()
-    if not stripped or len(stripped) > STICKY_FOLLOWUP_MAX_LEN:
-        return False
-    return bool(_STICKY_EXACT.fullmatch(stripped) or _STICKY_WRITE.search(stripped))
 
 
 def _yield_kind(event: MessageEventProtocol | None) -> str | None:
-    if _is_formal_writing_request(event):
+    if is_formal_writing_request(event):
         return "formal"
-    if _is_creative_writing_request(event):
+    if is_creative_writing_request(event):
         return "creative"
     return None
-
-
-def _drop_expired_hints(pending: deque[tuple[float, tuple[str, ...]]], now: float) -> None:
-    while pending and now - pending[0][0] > PENDING_HINT_TTL_SECONDS:
-        pending.popleft()
 
 
 class HumanChatQualityCore:
@@ -261,7 +194,6 @@ class HumanChatQualityCore:
         self.store = store
         self.text_part_factory = text_part_factory
         self.stats = QualityStats()
-        self._pending_hints: dict[str, deque[tuple[float, tuple[str, ...]]]] = {}
         self._pending_yield: dict[str, tuple[float, str]] = {}
 
     async def on_llm_request(self, event: MessageEventProtocol, req: ProviderRequestProtocol) -> None:
@@ -303,15 +235,6 @@ class HumanChatQualityCore:
         # 统计收集
         if stable_result.injected or injected_hint:
             self.stats.record_request(stable_result.injected, bool(injected_hint))
-        if session_id:
-            pending = self._pending_hints.get(session_id)
-            if pending is None:
-                pending = deque(maxlen=PENDING_HINT_MAX_PER_SESSION)
-                self._pending_hints[session_id] = pending
-            now = time.monotonic()
-            _drop_expired_hints(pending, now)
-            pending.append((now, selected_names if injected_hint else ()))
-            self._evict_pending_if_needed()
         self.stats.record_cleanup(stable_result.removed + context_result.stable_removed, context_result.runtime_removed)
 
         if self.cfg.debug_log and (
@@ -351,12 +274,6 @@ class HumanChatQualityCore:
 
     async def on_llm_response(self, event: MessageEventProtocol, resp: LLMResponseProtocol) -> None:
         session_id = unified_origin(event)
-        pending = self._pending_hints.get(session_id)
-        if pending:
-            _drop_expired_hints(pending, time.monotonic())
-        hinted_items = pending.popleft()[1] if pending else ()
-        if pending is not None and not pending:
-            self._pending_hints.pop(session_id, None)
         if (
             not session_id
             or self._yield_reason(session_id, event, update=True)
@@ -372,8 +289,6 @@ class HumanChatQualityCore:
         present = set(cliches)
         if opener:
             present.add(opener)
-        if hinted_items and present.intersection(hinted_items):
-            self.stats.runtime_hint_missed += 1
 
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
@@ -444,23 +359,20 @@ class HumanChatQualityCore:
         if kind:
             if update and session_id:
                 self._pending_yield[session_id] = (now, kind)
-                self._evict_pending_if_needed()
+                self._evict_yield_if_needed()
             return _YIELD_REASONS[kind]
         sticky = self._pending_yield.get(session_id) if session_id else None
-        if sticky and now - sticky[0] <= YIELD_STICKY_TTL_SECONDS and _is_sticky_followup(_event_text(event)):
+        if sticky and now - sticky[0] <= YIELD_STICKY_TTL_SECONDS and is_sticky_followup(event_text(event)):
             if update:
                 self._pending_yield[session_id] = (now, sticky[1])
-                self._evict_pending_if_needed()
+                self._evict_yield_if_needed()
             return _YIELD_REASONS[sticky[1]]
         if update and session_id:
             self._pending_yield.pop(session_id, None)
         return None
 
-    def _evict_pending_if_needed(self) -> None:
-        # 有界淘汰：超 cap 逐出最旧会话。方向保守：hint 队列被逐后续
-        # response 取空元组（只少计 missed）；yield 被逐最坏多注一次。
-        while len(self._pending_hints) > PENDING_SESSION_CAP:
-            self._pending_hints.pop(next(iter(self._pending_hints)))
+    def _evict_yield_if_needed(self) -> None:
+        # 有界淘汰：超 cap 逐出最旧会话；yield 被逐最坏多注一次（保守方向）
         while len(self._pending_yield) > PENDING_SESSION_CAP:
             self._pending_yield.pop(next(iter(self._pending_yield)))
 

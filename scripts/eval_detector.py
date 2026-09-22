@@ -16,7 +16,7 @@ from tests._support import ensure_plugin_package
 
 ensure_plugin_package()
 
-from astrbot_plugin_human_chat_quality.core import _is_formal_writing_request
+from astrbot_plugin_human_chat_quality.scene_guard import is_formal_writing_request
 from astrbot_plugin_human_chat_quality.signal_detectors import builtin_signal_names, detect_cliches
 
 
@@ -58,7 +58,7 @@ def _metrics(rows: list[dict[str, object]]) -> dict[str, object]:
         "categories": categories,
         "formal_bypass": _binary_metrics(
             [bool(row["formal_bypass"]) for row in rows],
-            [_is_formal_writing_request(SimpleNamespace(text=str(row["user"]))) for row in rows],
+            [is_formal_writing_request(SimpleNamespace(text=str(row["user"]))) for row in rows],
         ),
     }
 

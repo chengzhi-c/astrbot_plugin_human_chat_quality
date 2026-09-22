@@ -287,6 +287,18 @@ class TestStore(unittest.TestCase):
         self.assertEqual(s.sessions, {})
         self.assertTrue(any("corrupt" in fn for fn in os.listdir(self.dir)))
 
+    def test_valid_json_non_dict_root_backup_and_reset(self):
+        """合法 JSON 但根非对象（list/str/int）→ 备份+全清，构造不抛异常。"""
+        for index, bad in enumerate(("[]", "[1, 2]", '"x"', "123")):
+            with self.subTest(bad=bad):
+                p = self._path(f"root-{index}.json")
+                with open(p, "w", encoding="utf-8") as f:
+                    f.write(bad)
+                s = RuntimeStateStore(p, 14, 8)
+                self.assertEqual(s.sessions, {})
+                self.assertEqual(s.runtime_disabled, set())
+                self.assertTrue(any(".corrupt." in fn for fn in os.listdir(self.dir)))
+
     def test_entry_level_tolerant(self):
         p = self._path("s2.json")
         with open(p, "w", encoding="utf-8") as f:

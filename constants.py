@@ -28,11 +28,9 @@ CONSECUTIVE_THRESHOLD: int = 2  # 然而连发等固定模式阈值
 DENSITY_BASE: int = 300  # 密度折算基准：每300字一档，长文按比例放宽（上游 engines/detector scale=max(1,len/300)）
 DAY_SECONDS: int = 86400
 STATE_SAVE_DEBOUNCE_SECONDS: float = 0.2  # 普通回复合并写盘；命令与退出仍直接 flush
-PENDING_HINT_MAX_PER_SESSION: int = 32  # 无宿主 request id 时 FIFO 对齐的每会话上限
-PENDING_HINT_TTL_SECONDS: float = 300.0  # 超时响应不再归因到旧请求提示
 YIELD_STICKY_TTL_SECONDS: float = 300.0  # 正式写作/创作让位的进程内续写窗口
-STICKY_FOLLOWUP_MAX_LEN: int = 20  # 粘性续写口令最大长度（core._is_sticky_followup）
-PENDING_SESSION_CAP: int = 256  # 进程内 pending 队列会话数上限（core._evict_pending_if_needed）
+STICKY_FOLLOWUP_MAX_LEN: int = 20  # 粘性续写口令最大长度（scene_guard.is_sticky_followup）
+PENDING_SESSION_CAP: int = 256  # 进程内 yield 会话数上限（core._evict_yield_if_needed）
 
 # 切分正则（供 signal_detectors.detect_opening_cliches 与 runtime_state.extract_opener 共用）
 OPENER_DELIM = re.compile(r"[，,。.!！?？\n\r]")

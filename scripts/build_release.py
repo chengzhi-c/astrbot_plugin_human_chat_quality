@@ -16,6 +16,7 @@ RUNTIME_MANIFEST = (
     "quality_rules.py",
     "runtime_state.py",
     "signal_detectors.py",
+    "scene_guard.py",
     "protocols.py",
     "constants.py",
     "__init__.py",

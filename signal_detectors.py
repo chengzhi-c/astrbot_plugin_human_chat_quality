@@ -29,6 +29,9 @@ DEFAULT_AI_CLICHES: tuple[str, ...] = (
 # natural-talk Tier 1/2：谄媚/预告/起手式开场，仅回复首部（首个标点前）命中
 OPENING_CLICHES: tuple[str, ...] = (
     "好问题",
+    "问得好",
+    "这是个好问题",
+    "这真是个好问题",
     "让我来",
     "感谢你的提问",
     "Great question",
@@ -88,6 +91,8 @@ DEFAULT_ENDINGS: tuple[str, ...] = (
     "希望对你有所帮助",
     "如果还有问题",
     "如果还有其他问题",
+    "如有疑问",
+    "如有任何问题",
     "有任何问题随时",
     "随时联系我",
     "随时问我",
@@ -128,7 +133,7 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
 
 # Tier3 铁律：结构性表演（精简高置信，去回溯风险：句内 [^。\n] 限长）
 _TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"不是[^。\n]{0,30}(?:而是|而是说|而是要)"),
+    re.compile(r"不是[^。\n]{0,30}而是"),
     re.compile(r"其实不是[^。\n]{0,30}只是"),
     re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)"),
     re.compile(r"与其[^。\n]{0,16}不如"),
@@ -176,7 +181,7 @@ def _mask_code(text: str) -> str:
 
 
 def detect_ending_cliches(text: str) -> list[str]:
-    """检测收尾模板（仅结尾命中）。"""
+    """检测收尾模板（仅结尾命中；多词命中只报首个，避免同轮噪声）。"""
     tail = text.rstrip(_TRAILING_PUNCT)
     folded_tail = tail.casefold()
     for phrase in DEFAULT_ENDINGS:
