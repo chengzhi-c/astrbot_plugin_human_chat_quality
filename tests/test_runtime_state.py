@@ -95,6 +95,17 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
         self.assertIn("关键在于找到平衡", detect_cliches("具体如何选择，关键在于找到平衡。"))
         self.assertIn("要结合实际情况", detect_cliches("具体方案要结合实际情况。"))
         self.assertEqual(detect_cliches("要结合实际情况进行综合分析，然后再下定论。"), [])
+        # 上游整句万能收尾；句中构词仍不报
+        self.assertEqual(detect_cliches("视情况而定。"), ["视情况而定"])
+        self.assertEqual(detect_cliches("没有标准答案。"), ["没有标准答案"])
+        self.assertEqual(detect_cliches("看具体情况。"), ["看具体情况"])
+        self.assertEqual(detect_cliches("视情况而定的排班先不动。"), [])
+
+    def test_casual_invite_is_not_a_service_tail(self):
+        """随时问我是口语邀约，不进避用清单；随时联系我仍是客服收尾。"""
+        self.assertEqual(detect_cliches("今晚有空就来，随时问我。"), [])
+        self.assertEqual(detect_cliches("字段名以文档为准，随时问我。"), [])
+        self.assertIn("随时联系我", detect_cliches("补丁合上就能跑，随时联系我。"))
 
     def test_colon_prompt_abuse(self):
         self.assertIn("空转提示语", detect_cliches("一句话总结：这个方案不可行。"))

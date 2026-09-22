@@ -2008,11 +2008,9 @@
     "category": "casual",
     "user": "好。",
     "answer": "字段名以文档为准，随时问我。",
-    "expected_signals": [
-      "随时问我"
-    ],
+    "expected_signals": [],
     "formal_bypass": false,
-    "rationale": "内置命中名覆盖：随时问我",
+    "rationale": "随时问我是口语邀约，与上游 _D2_TAIL 放行口径一致，不报",
     "split": "holdout"
   },
   {
@@ -2814,5 +2812,41 @@
     "formal_bypass": false,
     "rationale": "路标词 2 次未超阈（>2 才报），临界负例",
     "split": "holdout"
+  },
+  {
+    "id": "det-259",
+    "category": "casual",
+    "user": "选哪个？",
+    "answer": "视情况而定。",
+    "expected_signals": [
+      "视情况而定"
+    ],
+    "formal_bypass": false,
+    "rationale": "上游整句万能收尾，独立成句才报",
+    "split": "dev"
+  },
+  {
+    "id": "det-260",
+    "category": "casual",
+    "user": "有标准吗？",
+    "answer": "没有标准答案。",
+    "expected_signals": [
+      "没有标准答案"
+    ],
+    "formal_bypass": false,
+    "rationale": "上游整句万能收尾，独立成句才报",
+    "split": "dev"
+  },
+  {
+    "id": "det-261",
+    "category": "casual",
+    "user": "怎么定？",
+    "answer": "看具体情况。",
+    "expected_signals": [
+      "看具体情况"
+    ],
+    "formal_bypass": false,
+    "rationale": "上游整句万能收尾，独立成句才报",
+    "split": "dev"
   }
 ]
