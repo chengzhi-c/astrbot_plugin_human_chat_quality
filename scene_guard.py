@@ -51,10 +51,15 @@ def is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
     return not bool(_TECH_SYSTEM_SUFFIXES.search(text))
 
 
+_USER_STORY = re.compile(r"用户故事|user story", re.IGNORECASE)
+
+
 def is_creative_writing_request(event: MessageEventProtocol | None) -> bool:
     text = event_text(event)
     if not text:
         return False
+    # 「用户故事 / user story」是产品任务，不是体裁；屏蔽后再看还有没有真体裁。
+    text = _USER_STORY.sub(" ", text)
     return bool(_CREATIVE_ACTIONS.search(text) and _CREATIVE_GENRES.search(text))
 
 

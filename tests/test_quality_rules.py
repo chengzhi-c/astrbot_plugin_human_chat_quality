@@ -266,7 +266,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 14)
+        self.assertEqual(RULES_VERSION, 15)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""
@@ -373,6 +373,11 @@ class TestRuntimeHint(unittest.TestCase):
         self.assertIn(items[0], short)
         self.assertNotIn(items[1], short)
         self.assertFalse(short.endswith("..."))
+
+    def test_aggregate_hint_forbids_the_signal_it_names(self):
+        hint = build_runtime_hint(["感叹号"], 157)
+        self.assertIn("别堆感叹号", hint)
+        self.assertNotIn("多用感叹号", hint)
 
 
 if __name__ == "__main__":

@@ -259,6 +259,29 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertNotIn(event.unified_msg_origin, self.store.sessions)
         self.assertIn("正式写作场景让位", self.core.status_text(event.unified_msg_origin, event))
 
+    def test_user_story_stays_active_until_a_real_genre_appears(self):
+        for prompt in ("写个用户故事", "帮我写一条 user story"):
+            with self.subTest(prompt=prompt):
+                event = FakeEvent(self.ev.unified_msg_origin, prompt)
+                req = FakeReq()
+                asyncio.run(self.core.on_llm_request(event, req))
+                self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
+        novel = FakeReq()
+        asyncio.run(self.core.on_llm_request(FakeEvent(self.ev.unified_msg_origin, "写个用户故事，再写个小说"), novel))
+        self.assertNotIn(STABLE_RULE_MARKER, novel.system_prompt)
+
+    def test_reply_does_not_rewrite_yield_kind(self):
+        origin = self.ev.unified_msg_origin
+        ask = FakeEvent(origin, "帮我写个通知")
+        asyncio.run(self.core.on_llm_request(ask, FakeReq()))
+        asyncio.run(self.core.on_llm_response(FakeEvent(origin, "写个故事"), FakeLLMResp("好的，我来写个故事")))
+        follow = FakeEvent(origin, "继续")
+        req = FakeReq()
+        asyncio.run(self.core.on_llm_request(follow, req))
+        self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+        self.assertIn("正式写作场景让位", self.core.status_text(origin, follow))
+        self.assertNotIn("创作场景让位", self.core.status_text(origin, follow))
+
     def test_roleplay_request_yields_without_injecting_fiction_rules(self):
         event = FakeEvent(self.ev.unified_msg_origin, "写一段角色扮演")
         req = FakeReq()

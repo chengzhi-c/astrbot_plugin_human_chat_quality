@@ -18,7 +18,7 @@ from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役。
 # 历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 仍只按当前版本签名剥离。
-RULES_VERSION = 14
+RULES_VERSION = 15
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
@@ -39,7 +39,7 @@ _LITE_CORE = """natural-talk 轻量注入版（规范源：SKILL.md 日常对话
 - 严禁模糊假归因：删掉无出处的"有研究表明/业内普遍认为/专家指出/不少用户反馈"，没来源直接陈述事实 [D6]
 
 句式检查：
-- 删"说白了""说穿了""先说结论"，直接给判断 [B10]
+- 删"说白了""说穿了""先说结论""说到底""归根结底"；"先说结论：""直接给答案："是空壳，结论本身开场 [B10]
 - 彻底封杀翻案腔：严禁自立靶子搞“先否定再肯定”（不是……而是/其实不是……只是/与其说……不如说）；没有具体画面的“没有……只有……”“不在于……而在于……”同样直接说肯定面；删掉前半句否定与转折，直接正面陈述肯定事实 [B1]
 - 写完最后一件事即停，禁止末段「这不仅是…更是/更关乎」式拔高 [C2]
 - 删"一句话总结：/核心是：/总结如下：/建议如下："等空转提示语加冒号引列表，自然承接 [B4]
@@ -333,7 +333,7 @@ _SIGNAL_HINT_MAP: dict[str, str] = {
     "然而连发": "连用然而",
     "路标词堆砌": "堆砌路标词",
     "破折号": "别用破折号（——），改用常规标点",
-    "感叹号": "多用感叹号",
+    "感叹号": "别堆感叹号",
 }
 
 

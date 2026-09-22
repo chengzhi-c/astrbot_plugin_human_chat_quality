@@ -2468,5 +2468,65 @@
     "formal_bypass": false,
     "rationale": "行内代码遮罩，变体正则不得穿透。",
     "split": "holdout"
+  },
+  {
+    "id": "det-229",
+    "category": "casual",
+    "user": "所以到底怎么选？",
+    "answer": "说到底，这个量级选 A。",
+    "expected_signals": ["说到底"],
+    "formal_bypass": false,
+    "rationale": "句首「说到底」是空壳，与「先说结论」同口径。",
+    "split": "dev"
+  },
+  {
+    "id": "det-230",
+    "category": "casual",
+    "user": "这事的关键是什么？",
+    "answer": "归根结底，瓶颈在连接池。",
+    "expected_signals": ["归根结底"],
+    "formal_bypass": false,
+    "rationale": "句首「归根结底」是空壳，不靠密度阈值才报。",
+    "split": "dev"
+  },
+  {
+    "id": "det-231",
+    "category": "tech",
+    "user": "接口为什么慢？",
+    "answer": "直接给答案：瓶颈在连接池。",
+    "expected_signals": ["直接给答案"],
+    "formal_bypass": false,
+    "rationale": "「直接给答案：」是不带信息的提示语。",
+    "split": "dev"
+  },
+  {
+    "id": "det-232",
+    "category": "casual",
+    "user": "你刚才那句什么意思？",
+    "answer": "我是把说到底放在句中解释，不是拿它起头。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "「说到底」不在句首，开头检测不报。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-233",
+    "category": "tech",
+    "user": "这段注释要改吗？",
+    "answer": "注释里写了归根结底，正文从连接池说起。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "句中「归根结底」单独出现，不达密度阈值，也不算开头壳。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-234",
+    "category": "tech",
+    "user": "先看结论还是先看步骤？",
+    "answer": "连接池先看。文末那句直接给答案不带新信息。",
+    "expected_signals": [],
+    "formal_bypass": false,
+    "rationale": "「直接给答案」不在句首，不报。",
+    "split": "holdout"
   }
 ]

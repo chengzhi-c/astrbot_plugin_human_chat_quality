@@ -276,7 +276,8 @@ class HumanChatQualityCore:
         session_id = unified_origin(event)
         if (
             not session_id
-            or self._yield_reason(session_id, event, update=True)
+            # 回复正文不参与让位分类，避免模型复述体裁词改写本轮请求写入的粘性原因。
+            or self._yield_reason(session_id, event, update=False)
             or not self._is_effectively_active(session_id, event)
         ):
             return
