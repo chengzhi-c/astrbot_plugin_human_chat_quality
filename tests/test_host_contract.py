@@ -10,6 +10,7 @@ ensure_plugin_package()
 from astrbot.api.event.filter import PermissionType, PermissionTypeFilter
 from astrbot.api.star import Star
 from astrbot.core.star.star_handler import EventType, star_handlers_registry
+from astrbot_plugin_human_chat_quality import main as main_module
 from astrbot_plugin_human_chat_quality.main import HumanChatQualityPlugin, _version_from_lines
 
 
@@ -86,11 +87,15 @@ class TestHostRegistration(unittest.TestCase):
 
         stub = type("StubCore", (), {"on_llm_request": staticmethod(fail)})()
         plugin = type("StubPlugin", (), {"core": stub})()
-        asyncio.run(HumanChatQualityPlugin.on_llm_request(plugin, object(), object()))
+        with mock.patch.object(main_module, "logger") as fake_logger:
+            asyncio.run(HumanChatQualityPlugin.on_llm_request(plugin, object(), object()))
+            self.assertEqual(fake_logger.error.call_count, 1)
 
         stub = type("StubCore", (), {"on_llm_response": staticmethod(fail)})()
         plugin = type("StubPlugin", (), {"core": stub})()
-        asyncio.run(HumanChatQualityPlugin.on_llm_response(plugin, object(), object()))
+        with mock.patch.object(main_module, "logger") as fake_logger:
+            asyncio.run(HumanChatQualityPlugin.on_llm_response(plugin, object(), object()))
+            self.assertEqual(fake_logger.error.call_count, 1)
 
     def test_state_commands_report_pending_persistence(self):
         class Event:

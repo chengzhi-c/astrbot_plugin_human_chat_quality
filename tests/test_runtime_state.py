@@ -229,7 +229,7 @@ class TestOpener(unittest.TestCase):
         self.assertEqual(extract_opener("今天天气真不错，适合出门"), "今天天气真不错")
 
     def test_single_char_skipped_and_empty(self):
-        self.assertNotEqual(extract_opener("嗯。好的吧"), "嗯")
+        self.assertEqual(extract_opener("嗯。好的吧"), "")
         self.assertEqual(extract_opener(""), "")
 
     def test_prefix_hit_returns_prefix_truncated(self):
