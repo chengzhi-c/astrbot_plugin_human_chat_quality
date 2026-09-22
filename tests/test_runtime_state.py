@@ -280,6 +280,19 @@ class TestStore(unittest.TestCase):
 
         asyncio.run(run())
 
+    def test_record_response_returns_new_avoid_count(self):
+        """契约：返回本轮新增避用项数；同词重复命中不重复计数；空文本返回 0。"""
+
+        async def run():
+            s = RuntimeStateStore(self._path("cnt.json"), 14, 8, ("自定义词",))
+            self.assertEqual(await s.record_response("g", "回复带自定义词", ("自定义词",)), 1)
+            self.assertEqual(await s.record_response("g", "又是自定义词", ("自定义词",)), 0)
+            self.assertEqual(await s.record_response("g", ""), 0)
+
+        import asyncio
+
+        asyncio.run(run())
+
     def test_corrupt_top_level_backup_and_reset(self):
         with open(self._path(), "w", encoding="utf-8") as f:
             f.write("{broken json")
@@ -338,7 +351,8 @@ class TestStore(unittest.TestCase):
         self.assertEqual(len(list(Path(self.dir).glob("compact-invalid.corrupt.*.json"))), 1)
 
         async def persist_new_session():
-            self.assertTrue(await s.record_response("new", "可以，继续处理。", ()))
+            # 新会话首轮无新增避用项（开头未达重复阈值、无命中信号）→ 返回 0
+            self.assertEqual(await s.record_response("new", "可以，继续处理。", ()), 0)
             self.assertTrue(await s.flush())
 
         asyncio.run(persist_new_session())
@@ -548,7 +562,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=OSError("disk full")),
             ):
-                self.assertTrue(await s.record_response("g", "好的，回答", ()))
+                await s.record_response("g", "好的，回答", ())
                 save_task = getattr(s, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -558,7 +572,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
                 mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 0, create=True),
                 mock.patch.object(s, "_write_snapshot_sync", side_effect=real_write),
             ):
-                self.assertTrue(await s.record_response("g", "可以，继续", ()))
+                await s.record_response("g", "可以，继续", ())
                 save_task = getattr(s, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -615,7 +629,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
         async def run():
             path = os.path.join(self.dir, "reset-retry.json")
             s = RuntimeStateStore(path, 14, 8, ())
-            self.assertTrue(await s.record_response("g", "好的，回答", ()))
+            await s.record_response("g", "好的，回答", ())
             real_write = s._write_snapshot_sync
             attempts = 0
 
@@ -700,7 +714,7 @@ class TestConcurrentPersistence(unittest.TestCase):
                     self.assertTrue(first_record.done())
                     save_task = getattr(s, "_save_task", None)
                     self.assertIsNotNone(save_task)
-                    self.assertTrue(await s.record_response("g", "可以，回答二", ()))
+                    await s.record_response("g", "可以，回答二", ())
                 finally:
                     release_first.set()
                     await first_record
@@ -730,7 +744,7 @@ class TestConcurrentPersistence(unittest.TestCase):
                 mock.patch.object(store, "_write_snapshot_sync", side_effect=count_write),
             ):
                 for index in range(100):
-                    self.assertTrue(await store.record_response("g", f"第{index}次回答", ()))
+                    await store.record_response("g", f"第{index}次回答", ())
                 save_task = getattr(store, "_save_task", None)
                 self.assertIsNotNone(save_task)
                 await save_task
@@ -747,7 +761,7 @@ class TestConcurrentPersistence(unittest.TestCase):
             path = os.path.join(self.dir, "terminate.json")
             store = RuntimeStateStore(path, 14, 8, ())
             with mock.patch.object(runtime_state_module, "STATE_SAVE_DEBOUNCE_SECONDS", 3600, create=True):
-                self.assertTrue(await store.record_response("g", "好的，回答", ()))
+                await store.record_response("g", "好的，回答", ())
                 self.assertTrue(store.has_pending_save)
                 self.assertTrue(await store.terminate())
 

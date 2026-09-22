@@ -169,7 +169,7 @@ class TestCoreFlow(unittest.TestCase):
         self.assertIn("/humanq off", session_off)
 
     def test_status_reports_runtime_capability_and_invalid_config_summary(self):
-        store = RuntimeStateStore(self.dir + "-status.json", 14, 8, ["", "词", "词", "x" * 21])
+        store = RuntimeStateStore(os.path.join(self.dir, "status.json"), 14, 8, ["", "词", "词", "x" * 21])
         core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=None)
         text = core.status_text(self.ev.unified_msg_origin, self.ev)
         self.assertIn("宿主临时文本部件不可用", text)

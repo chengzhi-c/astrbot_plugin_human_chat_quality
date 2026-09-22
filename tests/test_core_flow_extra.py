@@ -161,6 +161,13 @@ class TestCoreFlowExtra(unittest.TestCase):
         # 检测只在 core 发生一次；store 只做合并，不再有任何检测调用
         self.assertEqual(core_mock.call_count, 1)
 
+    def test_stats_count_new_avoid_items_only(self):
+        """避用项统计只计新增：同词重复命中不再累计（防停留多轮重复膨胀）。"""
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("我完全理解你的感受。")))
+        self.assertEqual(self.core.stats.avoid_openers_seen, 1)
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp("我完全理解你的感受。再来一次")))
+        self.assertEqual(self.core.stats.avoid_openers_seen, 1)
+
     def test_cleanup_stats_count_all_removed_blocks(self):
         runtime = build_runtime_hint(["旧开头"], MAX_RUNTIME_HINT_CHARS)
         req = FakeReq(system_prompt=f"{build_stable_rules()}\n\n{build_stable_rules()}")
@@ -352,8 +359,6 @@ class TestCoreFlowExtra(unittest.TestCase):
             self.assertFalse(result)
             self.assertFalse(self.store.is_enabled(self.ev.unified_msg_origin))
             self.assertIn("待重试", self.core.status_text(self.ev.unified_msg_origin, self.ev))
-
-        from unittest import mock
 
         asyncio.run(run())
 

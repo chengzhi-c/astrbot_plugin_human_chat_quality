@@ -293,17 +293,12 @@ class HumanChatQualityCore:
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
 
-        before_avoid = set(self.store.get(session_id).avoid_openers)
-        await self.store.record_response(session_id, text, tuple(cliches))
-
-        # 统计避用项数量：仅计新增项（delta），避免同一清单停留多轮重复膨胀
-        state = self.store.get(session_id)
-        if state.avoid_openers:
-            new_items = set(state.avoid_openers) - before_avoid
-            self.stats.avoid_openers_seen += len(new_items)
+        # 新增避用项计数由 store 合并时直接给出，避免调用侧再做前后快照差分
+        new_avoid = await self.store.record_response(session_id, text, tuple(cliches))
+        self.stats.avoid_openers_seen += new_avoid
 
         if self.cfg.debug_log:
-            logger.debug("response recorded for %s: %s", session_id, state.avoid_openers)
+            logger.debug("response recorded for %s: +%d avoid items", session_id, new_avoid)
 
     async def set_session_enabled(self, session_id: str, enabled: bool) -> bool:
         return await self.store.set_enabled(session_id, enabled)
@@ -327,18 +322,19 @@ class HumanChatQualityCore:
             return "\n".join(["Human Chat Quality 状态：", *reasons, "- 无运行时状态", f"- 状态持久化：{persistence}"])
         state = self.store.get(session_id)
         avoid = "、".join(state.avoid_openers) if state.avoid_openers else "无（尚未形成重复或套话信号）"
+        if not self.cfg.inject_runtime_state:
+            runtime_line = "- 运行时提示：配置关闭"
+        elif self.text_part_factory is None:
+            runtime_line = "- 运行时提示：已配置，但宿主临时文本部件不可用"
+        else:
+            runtime_line = "- 运行时提示：启用"
         lines = [
             "Human Chat Quality 状态：",
             "- 当前会话：启用",
             f"- 稳定规则：{'启用' if self.cfg.inject_stable_rules else '配置关闭'}（system_prompt）",
+            runtime_line,
             f"- 下一轮避用：{avoid}",
         ]
-        if not self.cfg.inject_runtime_state:
-            lines.insert(3, "- 运行时提示：配置关闭")
-        elif self.text_part_factory is None:
-            lines.insert(3, "- 运行时提示：已配置，但宿主临时文本部件不可用")
-        else:
-            lines.insert(3, "- 运行时提示：启用")
         if self.store.custom_cliches_ignored:
             ignored = dict(self.store.custom_cliches_ignored_reasons)
             details = "、".join(

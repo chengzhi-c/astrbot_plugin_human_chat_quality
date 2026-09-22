@@ -179,11 +179,14 @@ class RuntimeStateStore:
         session_id: str,
         response_text: str,
         detected_cliches: Sequence[str] = (),
-    ) -> bool:
-        """接纳一次回复：True 仅表示已接纳/无事可做，不代表落盘（以 has_pending_save/flush 为准）。"""
+    ) -> int:
+        """接纳一次回复并合并动态提示清单；返回本次新增的避用项数（0 = 无新增或空文本）。
+
+        落盘状态以 has_pending_save/flush 为准，返回值不代表写盘结果。
+        """
         text = re.sub(r"\s+", " ", (response_text or "")).strip()
         if not text:
-            return True
+            return 0
 
         async with self._state_lock:
             state = self.sessions.get(session_id, SessionState())
@@ -195,16 +198,18 @@ class RuntimeStateStore:
             # 两路合并进动态提示清单：① 最近窗口里高频重复的开头；② 本轮命中的高置信度信号。
             # 检测只发生一次（调用方负责），store 只做合并，保证信号不被重复计入。
             repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_ITEMS)
+            previous = set(state.avoid_openers)
             merged: list[str] = []
             for item in [*repeated, *detected_cliches]:
                 if item and len(item) <= MAX_AVOID_ITEM_LEN and item not in merged:
                     merged.append(item)
             state.avoid_openers = merged[:MAX_AVOID_ITEMS]
+            new_items = sum(1 for item in state.avoid_openers if item not in previous)
 
             self.sessions[session_id] = state
             self._generation += 1
         self._schedule_flush()
-        return True
+        return new_items
 
     def _load(self) -> None:
         """状态加载。损坏策略：顶层损坏（JSON 解析失败/根非对象）备份+全清；
