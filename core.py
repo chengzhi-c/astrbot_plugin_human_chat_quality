@@ -290,8 +290,11 @@ class HumanChatQualityCore:
         for cliche in cliches:
             self.stats.record_cliche_hit(cliche)
 
+        # 入库截断在 store 内按 MAX_AVOID_ITEMS 执行，故可靠性信号须先排序再传入，
+        # 否则档 1 会被同轮的观感项挤出名额（注入侧排序发生在截断之后，救不回来）。
+        ordered = tuple(sorted(cliches, key=signal_priority))
         # 新增避用项计数由 store 合并时直接给出，避免调用侧再做前后快照差分
-        new_avoid = await self.store.record_response(session_id, text, tuple(cliches))
+        new_avoid = await self.store.record_response(session_id, text, ordered)
         self.stats.avoid_openers_seen += new_avoid
 
         if self.cfg.debug_log:

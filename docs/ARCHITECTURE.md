@@ -1,6 +1,6 @@
 # Human Chat Quality 架构文档
 
-**文档版本**: 3.7.0
+**文档版本**: 3.8.0
 **更新日期**: 2026-09-22
 
 > 本文档说明插件的模块职责与系统设计。配置项定义以 `_conf_schema.json` 为准，运行时约束与行为保证由 `tests/` 覆盖。
@@ -39,7 +39,7 @@ quality_rules.py  runtime_state.py  signal_detectors.py  scene_guard.py
 | `core.py` | 业务流编排：生效判定、场景让位（粘性 TTL 状态）、调度注入与状态记录、维护内存统计 | `HumanChatQualityCore`、`AppConfig`、`QualityStats` |
 | `quality_rules.py` | 规则管理：稳定规则注入与剥离、动态提示组装、历史注入块清理 | `rewrite_stable_rules`、`rewrite_context_injections`、`build_runtime_hint` |
 | `runtime_state.py` | 状态存储：重复开头与避用词记录、文件原子写入与损坏容错（含根非对象 JSON 备份+全清） | `RuntimeStateStore`、`unified_origin`、`is_session_disabled` |
-| `signal_detectors.py` | 信号检测：收尾模板、身份暴露、起手式、句式特征、高频标点与词汇统计、危害分档 | `detect_cliches`、`detect_iron_rule`、`detect_hedge`、`signal_priority` |
+| `signal_detectors.py` | 信号检测：收尾模板、身份暴露、起手式、铁律语义族、高频标点与词汇统计、危害分档 | `detect_cliches`、`detect_iron_rule`、`detect_hedge`、`signal_priority` |
 | `scene_guard.py` | 会话场景判定：正式写作 / 文艺创作 / 粘性续写的纯文本判定（无状态） | `is_formal_writing_request`、`is_creative_writing_request`、`is_sticky_followup` |
 | `constants.py` | 常量与阈值集中定义 | 数值常量与配置约束 |
 | `protocols.py` | 宿主接口协议抽象 | `ProviderRequest`、`LLMResponse`、`MessageEvent` 等类型协议 |
@@ -81,8 +81,9 @@ quality_rules.py  runtime_state.py  signal_detectors.py  scene_guard.py
 ### D4. 信号检测策略与误报控制
 
 - **位置约束**：收尾模板仅在文本尾部判定，问候与起手式仅在文本首部判定，全句型特征全文本判定。
+- **危害分族**：铁律（Tier3）按上游编号分五个语义族返回——`翻案腔`（B1）、`结尾拔高`（C2）、`假深沉回环`（B16/F7）、`空转提示语`（B4a）、`揭示式破折号`（B5）；同族多模式命中只报一个标签，异族同时命中全部报出，使注入端能分别给出对应修改指令。
 - **篇幅折算**：标点与路标词密度以 300 字符为基准向上折算阈值（`ceil(len / 300)`），适应长文本回复。
-- **代码遮罩**：代码块、行内代码与 URL 等长遮罩后不参与检测。翻案腔等铁律全句生效，不对白豁免。
+- **代码遮罩**：代码块、行内代码与 URL 等长遮罩后不参与检测。翻案腔等铁律全句生效，不对白豁免；技术根因澄清里的对举同为合法信息表达，机械层无上下文能力时按上游 REVIEW 语义照报，由模型侧提示复核。
 - **结构检索**：使用不可变元组与表驱动包含检索，保持零外部依赖。
 
 ### D5. 统计生命周期与数据存储边界
@@ -95,7 +96,7 @@ quality_rules.py  runtime_state.py  signal_detectors.py  scene_guard.py
 
 ### D7. 正式写作让位与状态反馈
 
-- **场景让位**：`scene_guard.py` 根据“动作动词 + 正式文体产物”（如“拟定/起草”与“通知/公文”）组合判定正式写作场景；创作与扮演场景根据生成动词与体裁组合判定。让位时不注入质量规则。判定函数无状态，粘性 TTL 状态由 `core.py` 维护。裸「通知」仅在「写个 / 写一份 / 拟定 / 起草 / 撰写」下让位；同句出现朋友、同学、家人、今晚、聚餐时不让位。「改一下」不进动作表，避免误伤粘性口令「再改一下」。「用户故事 / user story」先从体裁扫描里屏蔽，同句还有小说等真体裁时仍让位。
+- **场景让位**：`scene_guard.py` 根据“动作动词 + 正式文体产物”（如“拟定/起草”与“通知/公文”）组合判定正式写作场景；创作与扮演场景根据生成动词与体裁组合判定。让位时不注入质量规则。判定函数无状态，粘性 TTL 状态由 `core.py` 维护。通知类起草动词覆盖全部常见量词（`写份 / 写一封 / 写一篇 / 拟个 / 拟一份 / 拟一篇`）；正式产物含周报、日报、公告、汇报。技术系统（`写个通知推送的代码`）与私域场景（私聊/群内知会，同句出现朋友、同学、家人、今晚、聚餐）优先放行，两者在正式判定之前短路。「改一下」不进动作表，避免误伤粘性口令「再改一下」。「用户故事 / user story」先从体裁扫描里屏蔽，同句还有小说等真体裁时仍让位。
 - **粘性让位**：正式写作或创作命中后，进程内 300 秒内的短续写口令（如「继续」「继续写通知」）仍让位，原因沿用上次；窗口为滑动语义，命中续写口令即刷新 TTL；不写入 `runtime_state.json`。粘性原因只在请求路径写入，响应路径只读，模型回复里的体裁词不改写原因。粘性会话数有进程内上限（`PENDING_SESSION_CAP`）防膨胀。
 - **状态报告**：`/humanq status` 分别展示全局配置、会话禁用、让位判定、动态提示可用性等运行状态；粘性生效时仍显示原来的让位原因。
 
@@ -105,7 +106,9 @@ quality_rules.py  runtime_state.py  signal_detectors.py  scene_guard.py
 
 ### D9. 动态提示装配与危害优先级排序
 
-当命中的避用项超出单轮提示容量上限（`max_runtime_hint_chars`）时，系统通过 `signal_priority` 将信号按严重程度分档（如事实免责与过度谄媚为高优先级）。在 `core.py` 中按危害档位排序后装入提示文本，容量不足时截断低优先级项，保障高优先级提示优先注入。
+当命中的避用项超出单轮提示容量上限（`max_runtime_hint_chars`）时，系统通过 `signal_priority` 将信号按严重程度分档（如事实免责、过度谄媚与翻案腔为高优先级）。
+
+排序分两处、职责不同：`core.on_llm_response` 在**入库前**排序后传给 `store.record_response`（该处按 `MAX_AVOID_ITEMS` 截断，是名额竞争点）；`core.on_llm_request` 在装提示前再排一次（覆盖历史遗留状态）。只排注入侧会失效——截断发生在排序之前，被丢弃的信号无法找回。
 
 ### D10. 规则检测范围与词表设计
 

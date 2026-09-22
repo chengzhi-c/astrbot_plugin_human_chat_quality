@@ -479,7 +479,7 @@
     "user": "我因为一句话难过很久。",
     "answer": "真正的问题是那句话刺痛了你，先允许自己难受。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
@@ -944,7 +944,7 @@
     "user": "错误肯定是数据库导致的吗？",
     "answer": "不是只看数据库，而是也要查网络或上游超时。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "冻结的正例，用于验证高置信检测与误报控制。",
@@ -1086,7 +1086,7 @@
     "user": "保留角色台词中的铁律示例。",
     "answer": "角色说：“这不是优化而是重构。”这属于台词内容。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "日常 B1 翻案腔，对白引号不豁免。",
@@ -1098,7 +1098,7 @@
     "user": "用户引用了一句旧文案。",
     "answer": "引文是“真正的问题是沟通方式”，这里只是在讨论原文。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "日常 B1 翻案腔，对白引号不豁免。",
@@ -1120,7 +1120,7 @@
     "user": "保留引号里的原话。",
     "answer": "原话为：“与其争论，不如先验证。”请不要改变引号内文字。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "日常 B1 翻案腔，对白引号不豁免。",
@@ -1152,7 +1152,7 @@
     "user": "引号内容是我的观点吗？",
     "answer": "你引用的是“不是优化而是重构”，不一定代表你的立场。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "日常 B1 翻案腔，对白引号不豁免。",
@@ -1224,7 +1224,7 @@
     "user": "检查一段对白。",
     "answer": "对白：“不是失败，而是重新开始。”属于人物语言。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "日常 B1 翻案腔，对白引号不豁免。",
@@ -1420,10 +1420,10 @@
     "user": "总结一下今天的会议内容。",
     "answer": "一句话总结：下周一开始灰度发布。",
     "expected_signals": [
-      "结构性表演"
+      "空转提示语"
     ],
     "formal_bypass": false,
-    "rationale": "B4a冒号提示语命中结构性表演。",
+    "rationale": "B4a冒号提示语命中空转提示语。",
     "split": "dev"
   },
   {
@@ -1480,7 +1480,7 @@
     "user": "如何看待新版本更新？",
     "answer": "核心是：提升了高并发下的响应速度。",
     "expected_signals": [
-      "结构性表演"
+      "空转提示语"
     ],
     "formal_bypass": false,
     "rationale": "B4a提示语冒号命中。",
@@ -2163,7 +2163,7 @@
     "user": "微服务和单体怎么选？",
     "answer": "建议如下：\n1. 团队规模小于五人优先单体。\n2. 业务拆分清晰再考虑微服务。",
     "expected_signals": [
-      "结构性表演"
+      "空转提示语"
     ],
     "formal_bypass": false,
     "rationale": "B4 汇报冒号提示语正例（建议如下：）",
@@ -2209,7 +2209,7 @@
     "user": "怎么升级 Python 版本？",
     "answer": "总结如下：\n1. 先备份现有环境配置。\n2. 下载新版本包并替换软链接。",
     "expected_signals": [
-      "结构性表演"
+      "空转提示语"
     ],
     "formal_bypass": false,
     "rationale": "B4 汇报冒号提示语正例（总结如下：）",
@@ -2289,7 +2289,7 @@
     "user": "权限问题怎么查？",
     "answer": "其实不是权限问题，只是路径配错了。",
     "expected_signals": [
-      "结构性表演"
+      "翻案腔"
     ],
     "formal_bypass": false,
     "rationale": "B1 其实不是…只是正例",
@@ -2311,7 +2311,7 @@
     "user": "优化完了吗？",
     "answer": "这不仅是优化，更是对工程的追求。",
     "expected_signals": [
-      "结构性表演"
+      "结尾拔高"
     ],
     "formal_bypass": false,
     "rationale": "B1/C2 不仅是…更是正例",
@@ -2333,7 +2333,7 @@
     "user": "引号里这句话要改吗？",
     "answer": "他说：「这不仅是优化，更是重构。」",
     "expected_signals": [
-      "结构性表演"
+      "结尾拔高"
     ],
     "formal_bypass": false,
     "rationale": "B1 引号内不仅是…更是仍报",
@@ -2414,7 +2414,9 @@
     "category": "casual",
     "user": "年轻人为啥不买大件了？",
     "answer": "这不是妥协，只是算账。",
-    "expected_signals": ["结构性表演"],
+    "expected_signals": [
+      "翻案腔"
+    ],
     "formal_bypass": false,
     "rationale": "省「而」的翻案腔，句内逗号分隔。",
     "split": "dev"
@@ -2424,7 +2426,9 @@
     "category": "casual",
     "user": "延迟是机器不行吗？",
     "answer": "不在于技术，而在于排班。",
-    "expected_signals": ["结构性表演"],
+    "expected_signals": [
+      "翻案腔"
+    ],
     "formal_bypass": false,
     "rationale": "不在于/而在于对举。",
     "split": "holdout"
@@ -2434,7 +2438,9 @@
     "category": "tech",
     "user": "这次提交算优化吗？",
     "answer": "表面上看是优化，实则是重构。",
-    "expected_signals": ["结构性表演"],
+    "expected_signals": [
+      "翻案腔"
+    ],
     "formal_bypass": false,
     "rationale": "表面/实则，中间有逗号，旧「看似…实则」覆盖不到。",
     "split": "dev"
@@ -2444,7 +2450,9 @@
     "category": "tech",
     "user": "这是优化还是重构？",
     "answer": "不是优化——是重构。",
-    "expected_signals": ["结构性表演"],
+    "expected_signals": [
+      "翻案腔"
+    ],
     "formal_bypass": false,
     "rationale": "破折号分隔的省「而」翻案腔。",
     "split": "holdout"
@@ -2474,7 +2482,9 @@
     "category": "casual",
     "user": "所以到底怎么选？",
     "answer": "说到底，这个量级选 A。",
-    "expected_signals": ["说到底"],
+    "expected_signals": [
+      "说到底"
+    ],
     "formal_bypass": false,
     "rationale": "句首「说到底」是空壳，与「先说结论」同口径。",
     "split": "dev"
@@ -2484,7 +2494,9 @@
     "category": "casual",
     "user": "这事的关键是什么？",
     "answer": "归根结底，瓶颈在连接池。",
-    "expected_signals": ["归根结底"],
+    "expected_signals": [
+      "归根结底"
+    ],
     "formal_bypass": false,
     "rationale": "句首「归根结底」是空壳，不靠密度阈值才报。",
     "split": "dev"
@@ -2494,7 +2506,9 @@
     "category": "tech",
     "user": "接口为什么慢？",
     "answer": "直接给答案：瓶颈在连接池。",
-    "expected_signals": ["直接给答案"],
+    "expected_signals": [
+      "直接给答案"
+    ],
     "formal_bypass": false,
     "rationale": "「直接给答案：」是不带信息的提示语。",
     "split": "dev"
@@ -2527,6 +2541,42 @@
     "expected_signals": [],
     "formal_bypass": false,
     "rationale": "「直接给答案」不在句首，不报。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-235",
+    "category": "casual",
+    "user": "你觉得这个故事该怎么写结尾",
+    "answer": "他们坐了很久，久到茶都凉了。",
+    "expected_signals": [
+      "假深沉回环"
+    ],
+    "formal_bypass": false,
+    "rationale": "B16 同词回环：很A，A到…… 表层句式，正例锁定新标签可达性。",
+    "split": "dev"
+  },
+  {
+    "id": "det-236",
+    "category": "casual",
+    "user": "帮我看看这段总结",
+    "answer": "所有线索最终指向一个结论——那就是缓存穿透。",
+    "expected_signals": [
+      "揭示式破折号"
+    ],
+    "formal_bypass": false,
+    "rationale": "B5 揭示式破折号：右侧承担揭晓，正例锁定新标签可达性。",
+    "split": "holdout"
+  },
+  {
+    "id": "det-237",
+    "category": "tech",
+    "user": "这个报错是哪里来的",
+    "answer": "报错的来源不是应用层，而是网关的超时配置。",
+    "expected_signals": [
+      "翻案腔"
+    ],
+    "formal_bypass": false,
+    "rationale": "技术根因澄清里的对举是信息性的，上游按 REVIEW 交人工复核；插件的机械层无上下文能力，故按铁律照报（_PLUGIN_EXTRAS 已明文列为铁律），此条锁定该取舍为有意行为，防止后人误判为漏报。",
     "split": "holdout"
   }
 ]

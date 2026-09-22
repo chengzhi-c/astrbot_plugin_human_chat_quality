@@ -96,16 +96,16 @@ class TestDetectClichesNaturalTalk(unittest.TestCase):
         self.assertEqual(detect_cliches("要结合实际情况进行综合分析，然后再下定论。"), [])
 
     def test_colon_prompt_abuse(self):
-        self.assertIn("结构性表演", detect_cliches("一句话总结：这个方案不可行。"))
-        self.assertIn("结构性表演", detect_cliches("核心是：提高代码质量。"))
+        self.assertIn("空转提示语", detect_cliches("一句话总结：这个方案不可行。"))
+        self.assertIn("空转提示语", detect_cliches("核心是：提高代码质量。"))
 
     def test_vague_attribution_and_b1_variants(self):
         self.assertIn("专家指出", detect_cliches("专家指出缓存能降低延迟。"))
         self.assertIn("不少用户反馈", detect_cliches("不少用户反馈升级后更稳。"))
-        self.assertIn("结构性表演", detect_cliches("其实不是权限问题，只是路径配错了。"))
-        self.assertIn("结构性表演", detect_cliches("这不仅是优化，更是对工程的追求。"))
-        self.assertNotIn("结构性表演", detect_cliches("不仅能编译还能热更新。"))
-        self.assertNotIn("结构性表演", detect_cliches("其实我只是想确认一下。"))
+        self.assertIn("翻案腔", detect_cliches("其实不是权限问题，只是路径配错了。"))
+        self.assertIn("结尾拔高", detect_cliches("这不仅是优化，更是对工程的追求。"))
+        self.assertNotIn("结尾拔高", detect_cliches("不仅能编译还能热更新。"))
+        self.assertNotIn("翻案腔", detect_cliches("其实我只是想确认一下。"))
 
 
 class TestDetectClichesLegacy(unittest.TestCase):
@@ -162,23 +162,23 @@ class TestDetectClichesLegacy(unittest.TestCase):
 
     def test_quoted_iron_rule_does_not_hide_later_unquoted_match(self):
         text = "他说：\u201c这不是优化而是重构。\u201d但真正的问题是测试不足。"
-        self.assertIn("结构性表演", detect_cliches(text))
+        self.assertIn("翻案腔", detect_cliches(text))
 
     def test_quoted_dialogue_still_hits_iron_rule(self):
-        self.assertIn("结构性表演", detect_cliches("角色说：「这不是优化而是重构。」"))
-        self.assertIn("结构性表演", detect_cliches("角色说：“这不是优化而是重构。”这属于台词内容。"))
+        self.assertIn("翻案腔", detect_cliches("角色说：「这不是优化而是重构。」"))
+        self.assertIn("翻案腔", detect_cliches("角色说：“这不是优化而是重构。”这属于台词内容。"))
 
     def test_iron_rule_examples_in_code_are_ignored(self):
         text = "示例：`不是优化而是重构`。代码如下：\n```text\n真正的问题是这里\n```"
-        self.assertNotIn("结构性表演", detect_cliches(text))
+        self.assertNotIn("翻案腔", detect_cliches(text))
 
     def test_iron_rule_variants_hit_and_inventory_sentence_does_not(self):
-        self.assertIn("结构性表演", detect_cliches("这不是妥协，只是算账。"))
-        self.assertIn("结构性表演", detect_cliches("不在于技术，而在于排班。"))
-        self.assertIn("结构性表演", detect_cliches("表面上看是优化，实则是重构。"))
-        self.assertIn("结构性表演", detect_cliches("不是优化——是重构。"))
+        self.assertIn("翻案腔", detect_cliches("这不是妥协，只是算账。"))
+        self.assertIn("翻案腔", detect_cliches("不在于技术，而在于排班。"))
+        self.assertIn("翻案腔", detect_cliches("表面上看是优化，实则是重构。"))
+        self.assertIn("翻案腔", detect_cliches("不是优化——是重构。"))
         self.assertEqual(detect_cliches("冰箱里没有可乐，只有啤酒。"), [])
-        self.assertNotIn("结构性表演", detect_cliches("代码：`不是优化，只是重构`。"))
+        self.assertNotIn("翻案腔", detect_cliches("代码：`不是优化，只是重构`。"))
 
     def test_tilde_fence_and_url_are_masked(self):
         self.assertEqual(detect_cliches("见 https://example.com/作为AI 再看正文。"), [])
@@ -199,7 +199,7 @@ class TestDetectClichesLegacy(unittest.TestCase):
         )
 
     def test_mismatched_quotes_do_not_create_an_exemption(self):
-        self.assertIn("结构性表演", detect_cliches('\u201c前文这不是优化而是重构"后文'))
+        self.assertIn("翻案腔", detect_cliches('\u201c前文这不是优化而是重构"后文'))
 
     def test_density_uses_normalized_text_length(self):
         """密度折算用归一化后字符数，原始空白不计入篇幅档位。"""

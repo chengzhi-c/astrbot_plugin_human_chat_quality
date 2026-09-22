@@ -17,7 +17,7 @@ from tests._support import (
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality import core as core_module
-from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS
+from astrbot_plugin_human_chat_quality.constants import MAX_AVOID_ITEMS, MAX_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore
 from astrbot_plugin_human_chat_quality.quality_rules import (
     RUNTIME_HINT_MARKER,
@@ -229,13 +229,86 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertIn(STABLE_RULE_MARKER, req.system_prompt)
 
     def test_short_formal_requests_yield(self):
-        prompts = ["帮我写个通知", "写一份通知", "拟一份会议纪要"]
+        prompts = [
+            "帮我写个通知",
+            "写一份通知",
+            "拟一份会议纪要",
+            # 量词全覆盖（旧实现只认「写个/写一份」，其余漏让位）
+            "写份通知",
+            "写一封通知",
+            "写一篇通知",
+            "拟个通知",
+            "拟一份通知",
+            "拟一篇通知",
+            "起草通知",
+            "拟定通知",
+            "撰写通知",
+            "写个周报",
+            "写份周报",
+            "写个日报",
+            "写份日报",
+            "写个公告",
+            "拟个公告",
+            "起草公告",
+            "写个汇报",
+            "写份汇报",
+            "帮我写一份汇报",
+        ]
         for prompt in prompts:
             with self.subTest(prompt=prompt):
                 event = FakeEvent(self.ev.unified_msg_origin, prompt)
                 req = FakeReq()
                 asyncio.run(self.core.on_llm_request(event, req))
                 self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt)
+
+    def test_technical_and_private_cases_do_not_yield(self):
+        """让位扩展的护栏：技术系统与私下叮嘱不得被正式规则接管。"""
+        prompts = [
+            "帮我写一个合同管理系统的表结构",
+            "写一个论文查重算法的Python实现",
+            "写一段公文流转系统的审批流代码",
+            "写个合同系统的数据库设计",
+            "写个通知推送的代码",
+            "写个通知队列的表结构",
+            "写个通知服务的脚本",
+            "写个通知查询接口",
+            "写个通知数据表结构",
+            "写个公告组件的接口",
+            "写个公告组件的样式",
+            "写个周报汇总的服务",
+            "写个通知系统",
+            "写个通知给我朋友今晚聚餐",
+            "写个通知发到同学群里",
+            "写个公告告诉家人今晚不用等我",
+            "拟一份方案",
+            "通知一下大家",
+            "这个通知是什么意思",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                event = FakeEvent(self.ev.unified_msg_origin, prompt)
+                req = FakeReq()
+                asyncio.run(self.core.on_llm_request(event, req))
+                self.assertIn(STABLE_RULE_MARKER, req.system_prompt, f"技术/私域场景被误让位: {prompt}")
+
+    def test_formal_artifacts_with_explanatory_verbs_still_yield(self):
+        """反向护栏：正式产物的表述里带传达类动词时仍须让位，不得被技术排除吞掉。"""
+        prompts = [
+            "写个公告说明服务下线",
+            "帮我写份通知说明服务变更",
+            "写份通知说明系统升级",
+            "写个公告说明服务恢复时间",
+            "拟一份通知告知服务暂停",
+            "写一份通知说明代码规范",
+            "写个公告介绍新功能",
+            "写个通知解释一下延迟原因",
+        ]
+        for prompt in prompts:
+            with self.subTest(prompt=prompt):
+                event = FakeEvent(self.ev.unified_msg_origin, prompt)
+                req = FakeReq()
+                asyncio.run(self.core.on_llm_request(event, req))
+                self.assertNotIn(STABLE_RULE_MARKER, req.system_prompt, f"正式文稿被误判为技术件: {prompt}")
 
     def test_edit_a_bit_marketing_copy_stays_active(self):
         """「改一下」不进动作表，避免误伤粘性口令「再改一下」。"""
@@ -366,6 +439,46 @@ class TestCoreFlowExtra(unittest.TestCase):
         req = FakeReq()
         asyncio.run(self.core.on_llm_request(self.ev, req))
         self.assertIn("别用破折号", req.extra_user_content_parts[0].text)
+
+    def test_reliability_signals_survive_admission_truncation(self):
+        """阶位保名额：同轮命中超过 MAX_AVOID_ITEMS 时，档 1 不得被档 2 挤出。
+
+        回归目标——旧实现按 detect_cliches 的分层返回顺序截断，末位的档 1 信号会被丢弃，
+        而注入侧排序发生在截断之后，救不回来。
+        """
+        reply = (
+            "好问题，让我来梳理。说白了，我直接说。作为AI，我需要说明边界。"
+            "你说得太对了。有研究表明这样更快。专家指出另一个方向。"
+            "综合来看，希望能帮到你。"
+        )
+        asyncio.run(self.core.on_llm_response(self.ev, FakeLLMResp(reply)))
+        admitted = self.store.get(self.ev.unified_msg_origin).avoid_openers
+
+        self.assertEqual(len(admitted), MAX_AVOID_ITEMS)
+        for signal in ("作为AI", "你说得太对了", "有研究表明", "专家指出"):
+            with self.subTest(signal=signal):
+                self.assertIn(signal, admitted, f"档 1 信号 {signal} 被挤出名额")
+        dropped = [s for s in ("希望能帮到你", "好问题") if s not in admitted]
+        self.assertTrue(dropped, "本用例需要一个档 2 信号被挤出以证明排序生效")
+
+    def test_each_signal_family_gets_its_own_hint(self):
+        """提示指向病灶：五类异质病灶必须得到五条不同的修改指令，不能再共用一条。"""
+        samples = {
+            "不是优化而是重构。": "别用“不是A而是B”式对比",
+            "这不仅是优化，更是对工程的追求。": "别在结尾升大命题",
+            "他们看了很久，久到忘了时间。": "别用“很久，久到”式回环",
+            "核心是：提高代码质量。": "删掉“核心是：”这类空转提示语",
+            "他的答案是——那就是缓存。": "别用破折号制造揭晓",
+        }
+        for text, expected in samples.items():
+            with self.subTest(text=text):
+                store = RuntimeStateStore(os.path.join(self.dir, f"hint-{hash(text) & 0xFFFF}.json"), 14, 8, ())
+                core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=FakePart)
+                asyncio.run(core.on_llm_response(self.ev, FakeLLMResp(text)))
+                req = FakeReq()
+                asyncio.run(core.on_llm_request(self.ev, req))
+                self.assertEqual(len(req.extra_user_content_parts), 1)
+                self.assertIn(expected, req.extra_user_content_parts[0].text)
 
     def test_yield_sessions_are_bounded_by_cap(self):
         with mock.patch.object(core_module, "PENDING_SESSION_CAP", 4, create=True):

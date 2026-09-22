@@ -29,13 +29,20 @@ def event_text(event: MessageEventProtocol | None) -> str:
 
 _FORMAL_ACTIONS = re.compile(r"写|撰写|起草|拟定|拟(?!定)|润色|改写|改成|改这篇|修改|生成|翻译|输出")
 _FORMAL_ARTIFACTS = re.compile(
-    r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|正式通知|变更通知|服务通知|研究计划|求职邮件"
+    r"论文|摘要|公文|演讲稿|营销文案|法律(?:文书|声明)|合同|会议纪要|(?:正式)?道歉声明|正式声明|新闻稿|采购申请|正式通知|变更通知|服务通知|研究计划|求职邮件|周报|日报|公告|汇报"
 )
+# 技术系统排除：产物词与系统词可跨少量名词性修饰（"通知推送的代码"、"周报汇总的服务"）。
+# 修饰位不得含传达类动词（说明/告知/介绍…）——"写个公告说明服务下线"是正式公告，不是技术件。
 _TECH_SYSTEM_SUFFIXES = re.compile(
-    r"(?:合同|论文|公文|会议纪要)(?:(?:管理|流转|审批|检索)?系统|查重|平台|模块|表结构|数据库|接口|代码|算法|架构|逻辑)"
+    r"(?:合同|论文|公文|会议纪要|通知|公告|周报|日报|汇报)"
+    r"(?:(?!(?:说明|告知|介绍|描述|解释|讲清|说明白))[^，。；！？\n]){0,6}"
+    r"(?:系统|平台|模块|表结构|数据库|接口|代码|算法|架构|逻辑|组件|服务|队列|脚本|函数|查重)"
 )
-_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写|写个|写一份")
-_CASUAL_NOTICE = re.compile(r"朋友|同学|家人|今晚|聚餐")
+# 通知类的起草动词：量词全覆盖（写个/写份/写一封/拟个/拟一份/拟一篇…）
+_NOTICE_DRAFT = re.compile(r"拟定|起草|撰写|(?:写|拟)(?:个|一份|份|一封|一篇|篇)")
+# 私域场景豁免：私下叮嘱与群内知会不是正式文体
+_PRIVATE_NOTICE = re.compile(r"朋友|同学|家人|今晚|聚餐")
+_PRIVATE_ARTIFACTS = re.compile(r"通知|公告")
 _CREATIVE_ACTIONS = re.compile(r"写|创作|续写|扮演|roleplay", re.IGNORECASE)
 _CREATIVE_GENRES = re.compile(r"小说|故事|同人|角色卡|剧本|角色扮演|roleplay", re.IGNORECASE)
 
@@ -44,11 +51,14 @@ def is_formal_writing_request(event: MessageEventProtocol | None) -> bool:
     text = event_text(event)
     if not text:
         return False
-    if _NOTICE_DRAFT.search(text) and "通知" in text and not _CASUAL_NOTICE.search(text):
-        return True
-    if not (_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text)):
+    # 技术系统与私域场景优先让行，再判正式文体，否则会接管技术问答与私下叮嘱
+    if _TECH_SYSTEM_SUFFIXES.search(text):
         return False
-    return not bool(_TECH_SYSTEM_SUFFIXES.search(text))
+    if _PRIVATE_NOTICE.search(text) and _PRIVATE_ARTIFACTS.search(text):
+        return False
+    if _NOTICE_DRAFT.search(text) and "通知" in text:
+        return True
+    return bool(_FORMAL_ACTIONS.search(text) and _FORMAL_ARTIFACTS.search(text))
 
 
 _USER_STORY = re.compile(r"用户故事|user story", re.IGNORECASE)

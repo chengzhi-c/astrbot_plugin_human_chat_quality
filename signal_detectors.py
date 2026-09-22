@@ -134,22 +134,30 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
     ),
 )
 
-# Tier3 铁律：结构性表演（精简高置信，去回溯风险：句内 [^。\n] 限长）
-_TIER3_PATTERNS: tuple[re.Pattern[str], ...] = (
-    re.compile(r"不是[^。\n]{0,30}而是"),
-    re.compile(r"不是[^。\n]{0,16}(?:[，,]\s*|——+)只是"),
-    re.compile(r"不是[^。\n]{0,16}——+是"),
-    re.compile(r"不在于[^。\n]{0,16}[，,]\s*而在于"),
-    re.compile(r"表面(?:上)?[^。\n]{0,16}[，,]\s*实则"),
-    re.compile(r"其实不是[^。\n]{0,30}只是"),
-    re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)"),
-    re.compile(r"与其[^。\n]{0,16}不如"),
-    re.compile(r"与其说[^。\n]{0,16}不如说"),
-    re.compile(r"看似[^。\n]{0,12}实则"),
-    re.compile(r"很久[^。\n]{0,6}久到|安静[^。\n]{0,4}静[到得]|沉默[^。\n]{0,4}沉默到"),
-    re.compile(r"真正的问题是"),
-    re.compile(r"(?:一句话总结|核心是|关键在于|原因如下|本质上|总结如下|具体分析如下|建议如下|分析如下)\s*[:：]"),
-    re.compile(r"[—–]{1,2}(?:那就是|那是|原来|其实|也就是|这就是|正因如此|真正的原因)"),
+# Tier3 铁律：按上游编号分族，标签即模型端修改指令的索引（精简高置信，去回溯风险：句内 [^。\n] 限长）
+_TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    # B1 翻案腔：自立靶子的先否定再肯定
+    ("翻案腔", re.compile(r"不是[^。\n]{0,30}而是")),
+    ("翻案腔", re.compile(r"不是[^。\n]{0,16}(?:[，,]\s*|——+)只是")),
+    ("翻案腔", re.compile(r"不是[^。\n]{0,16}——+是")),
+    ("翻案腔", re.compile(r"不在于[^。\n]{0,16}[，,]\s*而在于")),
+    ("翻案腔", re.compile(r"表面(?:上)?[^。\n]{0,16}[，,]\s*实则")),
+    ("翻案腔", re.compile(r"其实不是[^。\n]{0,30}只是")),
+    ("翻案腔", re.compile(r"与其[^。\n]{0,16}不如")),
+    ("翻案腔", re.compile(r"与其说[^。\n]{0,16}不如说")),
+    ("翻案腔", re.compile(r"看似[^。\n]{0,12}实则")),
+    ("翻案腔", re.compile(r"真正的问题是")),
+    # C2 结尾拔高
+    ("结尾拔高", re.compile(r"不仅是[^。\n]{0,20}更(?:是|关乎)")),
+    # B16/F7 假深沉回环
+    ("假深沉回环", re.compile(r"很久[^。\n]{0,6}久到|安静[^。\n]{0,4}静[到得]|沉默[^。\n]{0,4}沉默到")),
+    # B4a 空转提示语加冒号引列表
+    (
+        "空转提示语",
+        re.compile(r"(?:一句话总结|核心是|关键在于|原因如下|本质上|总结如下|具体分析如下|建议如下|分析如下)\s*[:：]"),
+    ),
+    # B5 揭示式破折号
+    ("揭示式破折号", re.compile(r"[—–]{1,2}(?:那就是|那是|原来|其实|也就是|这就是|正因如此|真正的原因)")),
 )
 _HEDGE_PATTERNS: tuple[re.Pattern[str], ...] = (
     re.compile(r"可能.{0,4}(?:或许|大概|大致)"),
@@ -256,11 +264,15 @@ def detect_density_signals(text: str) -> list[str]:
 
 
 def detect_iron_rule(text: str) -> list[str]:
-    """Tier3 铁律：先否定后肯定等结构性表演。代码块与 URL 由 _mask_code 遮罩。"""
-    for pat in _TIER3_PATTERNS:
-        if pat.search(text):
-            return ["结构性表演"]
-    return []
+    """Tier3 铁律：按上游编号分族返回全部命中标签（保序去重）；同族多模式只报一个。
+
+    代码块与 URL 由 _mask_code 遮罩。一行同时含多类病灶时全部报出，便于注入端分别给出修改指令。
+    """
+    hits: list[str] = []
+    for label, pat in _TIER3_PATTERNS:
+        if label not in hits and pat.search(text):
+            hits.append(label)
+    return hits
 
 
 def detect_numbered_headings(text: str) -> list[str]:
@@ -310,7 +322,7 @@ def builtin_signal_names() -> frozenset[str]:
             *DEFAULT_VAGUE_ATTRIBUTIONS,
             *_ATMOSPHERE_CLICHES,
             "然而连发",
-            "结构性表演",
+            *dict.fromkeys(label for label, _ in _TIER3_PATTERNS),
             "模糊叠加",
             "破折号",
             "感叹号",
@@ -324,8 +336,8 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
     """检测高置信度 AI 腔信号（去重、保序，分层对齐 upstream Tier1-6 精简）。
 
     内置末尾模板仅结尾命中；AI 自我暴露与谄媚整句任意位置；开场仅首部；custom_cliches 任意位置。
-    Tier3 铁律（不是…而是/与其说…不如说/看似…实则等）与模糊叠加；密度按 300 字基准折算；
-    C6 空泛气氛总结短语任意位置。
+    Tier3 铁律按上游编号分族（翻案腔/结尾拔高/假深沉回环/空转提示语/揭示式破折号）与模糊叠加；
+    密度按 300 字基准折算；C6 空泛气氛总结短语任意位置。
     """
     normalized = _normalize_text(text)
     if not normalized:
@@ -357,10 +369,11 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
     return hits
 
 
-# 危害档位：1 = 损害回答可靠性（上游 D1 谄媚/D3 免责自我暴露），2 = 仅影响观感。
-# avoid_openers 里混有词面（"作为AI"）与信号标签（"结构性表演"），两类都按此表排序。
+# 危害档位：1 = 损害回答可靠性（上游 D1 谄媚/D3 免责自我暴露/B1 翻案腔），2 = 仅影响观感。
+# avoid_openers 里混有词面（"作为AI"）与信号标签（"翻案腔"），两类都按此表排序。
+# 翻案腔入档 1：自立靶子的先否定再肯定属编造立场，_PLUGIN_EXTRAS 亦明文列为铁律，档位须与产品判断一致。
 _PRIORITY_1_SIGNALS: frozenset[str] = frozenset(
-    (*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES, *DEFAULT_VAGUE_ATTRIBUTIONS)
+    (*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES, *DEFAULT_VAGUE_ATTRIBUTIONS, "翻案腔")
 )
 
 

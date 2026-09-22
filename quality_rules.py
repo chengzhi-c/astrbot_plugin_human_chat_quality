@@ -18,7 +18,7 @@ from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役。
 # 历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 仍只按当前版本签名剥离。
-RULES_VERSION = 15
+RULES_VERSION = 16
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
@@ -44,7 +44,7 @@ _LITE_CORE = """natural-talk 轻量注入版（规范源：SKILL.md 日常对话
 - 写完最后一件事即停，禁止末段「这不仅是…更是/更关乎」式拔高 [C2]
 - 删"一句话总结：/核心是：/总结如下：/建议如下："等空转提示语加冒号引列表，自然承接 [B4]
 - 非首段的评论式开头必须能指出明确承接对象，恢复具体主语或删掉空评论，不机械补"这" [B3]
-- 消除泛滥破折号：严禁使用“——”制造刻意揭晓或后置补充（如“核心只有一个——缓存”）；改成常规标点（逗号/句号）或自然融入整句，除代码外不打叙述破折号 [B5]
+- 消除泛滥破折号：制造刻意揭晓或后置补充的破折号（如“核心只有一个——缓存”）改成常规标点或完整句；只保留话被打断、没说完的停顿 [B5]
 - 拆解过长前置定语与前置从句 [B8]；同句严禁"可能或许大致"多个不确定推测词堆叠 [C4]
 
 禁止当作问题修改的内容（防误杀反清单）：
@@ -227,7 +227,18 @@ def _text_value(part: Any) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _has_marker(text: str) -> bool:
+    """廉价前置判据：本插件所有注入块都以 INJECTED_MARKER_PREFIX 起首。
+
+    必要不充分，仅供历史扫描跳过全文校验；不含前缀的普通消息直接判定为非 owned，
+    避免每条历史消息都跑一次 SHA-256（长会话下按历史条数线性放大）。
+    """
+    return INJECTED_MARKER_PREFIX in text
+
+
 def _is_known_stable_text(text: str) -> bool:
+    if not _has_marker(text):
+        return False
     normalized = _normalize_newlines(text)
     lines = normalized.splitlines()
     if not lines or lines[0] != STABLE_RULE_MARKER:
@@ -236,11 +247,15 @@ def _is_known_stable_text(text: str) -> bool:
 
 
 def _is_history_rules_block(text: str) -> bool:
+    if not _has_marker(text):
+        return False
     first = _normalize_newlines(text).splitlines()[:1]
     return bool(first and _HISTORY_RULES_MARKER_RE.match(first[0]))
 
 
 def _runtime_kind(text: str) -> str:
+    if not _has_marker(text):
+        return "ordinary"
     normalized = _normalize_newlines(text)
     lines = normalized.splitlines()
     if not lines or lines[0] != RUNTIME_HINT_MARKER:
@@ -327,7 +342,11 @@ def _merge_context_results(left: ContextRewriteResult, right: ContextRewriteResu
 
 
 _SIGNAL_HINT_MAP: dict[str, str] = {
-    "结构性表演": "先否定后肯定句式",
+    "翻案腔": "别用“不是A而是B”式对比，直接说肯定面",
+    "结尾拔高": "别在结尾升大命题，写完最后一件事实就停",
+    "假深沉回环": "别用“很久，久到”式回环，时间写具体变化",
+    "空转提示语": "删掉“核心是：”这类空转提示语，内容自然承接",
+    "揭示式破折号": "别用破折号制造揭晓，改成完整句",
     "模糊叠加": "可能或许等推测词堆叠",
     "编号小标题连发": "机械编号列表",
     "然而连发": "连用然而",

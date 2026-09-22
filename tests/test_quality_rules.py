@@ -56,8 +56,12 @@ class TestRewriteInterfaces(unittest.TestCase):
         from astrbot_plugin_human_chat_quality.signal_detectors import builtin_signal_names
 
         aggregate_signals = {
+            "翻案腔",
+            "结尾拔高",
+            "假深沉回环",
+            "空转提示语",
+            "揭示式破折号",
             "然而连发",
-            "结构性表演",
             "模糊叠加",
             "破折号",
             "感叹号",
@@ -70,6 +74,57 @@ class TestRewriteInterfaces(unittest.TestCase):
             set(_SIGNAL_HINT_MAP.keys()),
             "所有聚合检测信号必须在 quality_rules._SIGNAL_HINT_MAP 中配置模型端转义语！",
         )
+
+    def test_hint_map_keys_are_all_reachable(self):
+        """反向锁：提示表里的每个 key 都必须能在真实文本上被检测器产出。
+
+        防死条目——检测器改名或下线后，提示表若不同步，该 key 永远不会被渲染，
+        而"聚合信号都有转义语"的单向断言仍会通过。
+        """
+        from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
+        from astrbot_plugin_human_chat_quality.signal_detectors import detect_cliches
+
+        samples = {
+            "翻案腔": "不是优化而是重构。",
+            "结尾拔高": "这不仅是优化，更是对工程的追求。",
+            "假深沉回环": "他们看了很久，久到忘了时间。",
+            "空转提示语": "核心是：提高代码质量。",
+            "揭示式破折号": "他的答案是——那就是缓存。",
+            "模糊叠加": "可能或许要等正式通知。",
+            "编号小标题连发": "# 一、准备\n# 二、实施\n# 三、验收\n",
+            "然而连发": "然而a然而b",
+            "路标词堆砌": "事实上这样。实际上那样。换句话说都不行。",
+            "破折号": "a——b——c",
+            "感叹号": "太好了！太棒了！真厉害！冲啊！",
+        }
+        self.assertEqual(set(samples), set(_SIGNAL_HINT_MAP))
+        for key, text in samples.items():
+            with self.subTest(signal=key):
+                self.assertIn(key, detect_cliches(text), f"提示表条目 {key!r} 在检测器中已不可达")
+
+    def test_hint_map_never_tells_the_model_to_do_the_forbidden_thing(self):
+        """方向锁：转义语不得反向要求模型去做被检测的行为。
+
+        历史缺陷——感叹号超上限的转义语曾写成"多用感叹号"，与检测目标完全相反。
+        """
+        from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
+
+        for key, hint in _SIGNAL_HINT_MAP.items():
+            with self.subTest(signal=key):
+                self.assertNotIn("多用", hint)
+                self.assertNotIn("多打", hint)
+
+    def test_family_hints_are_imperative_prohibitions(self):
+        """新增语义族的转义语必须是祈使否定，不能只是名词标签。
+
+        历史缺陷——五类异质病灶共用一个标签时，除翻案腔外全部得到"先否定后肯定句式"
+        这条与病灶无关的指令，动态提醒实际失效。
+        """
+        from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
+
+        for key in ("翻案腔", "结尾拔高", "假深沉回环", "空转提示语", "揭示式破折号"):
+            with self.subTest(signal=key):
+                self.assertTrue(_SIGNAL_HINT_MAP[key].startswith(("别", "删")), _SIGNAL_HINT_MAP[key])
 
 
 class TestStableRewrite(unittest.TestCase):
@@ -266,7 +321,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 15)
+        self.assertEqual(RULES_VERSION, 16)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""
