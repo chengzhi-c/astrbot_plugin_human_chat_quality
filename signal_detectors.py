@@ -138,7 +138,7 @@ _DENSITY_CHECKS: tuple[tuple[str, re.Pattern[str], int], ...] = (
 
 # Tier3 铁律：按上游编号分族，标签即模型端修改指令的索引（精简高置信，去回溯风险：句内 [^。\n] 限长）
 _TIER3_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
-    # B1 翻案腔：自立靶子的先否定再肯定
+    # B1 翻案腔：没人主张过的先否定再肯定
     ("翻案腔", re.compile(r"不是[^。\n]{0,30}而是")),
     ("翻案腔", re.compile(r"不是[^。\n]{0,16}(?:[，,]\s*|——+)只是")),
     ("翻案腔", re.compile(r"不是[^。\n]{0,16}——+是")),
@@ -355,7 +355,7 @@ def detect_cliches(text: str, custom_cliches: tuple[str, ...] = ()) -> list[str]
 
 # 危害档位：1 = 损害回答可靠性（上游 D1 谄媚/D3 免责自我暴露/B1 翻案腔），2 = 仅影响观感。
 # avoid_openers 里混有词面（"作为AI"）与信号标签（"翻案腔"），两类都按此表排序。
-# 翻案腔入档 1：自立靶子的先否定再肯定属编造立场，_PLUGIN_EXTRAS 亦明文列为铁律，档位须与产品判断一致。
+# 翻案腔入档 1：没人主张过的先否定再肯定属编造立场。
 _PRIORITY_1_SIGNALS: frozenset[str] = frozenset(
     (*DEFAULT_AI_CLICHES, *DEFAULT_SYMPATHY_CLICHES, *DEFAULT_VAGUE_ATTRIBUTIONS, "翻案腔")
 )

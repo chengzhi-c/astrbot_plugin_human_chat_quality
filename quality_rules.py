@@ -18,7 +18,7 @@ from .protocols import ProviderRequestProtocol, TextPartFactoryProtocol
 INJECTED_MARKER_PREFIX = "[Human Chat Quality"
 # 规则版本：升级 natural-talk 时 +1。3.0.0 起 v1–v8 剥离签名表已退役。
 # 历史 user 内容里整段旧 Rules 块按行首 marker 删除；system_prompt 仍只按当前版本签名剥离。
-RULES_VERSION = 18
+RULES_VERSION = 19
 STABLE_RULE_MARKER = f"{INJECTED_MARKER_PREFIX} Rules v{RULES_VERSION}]"
 RUNTIME_HINT_MARKER = f"{INJECTED_MARKER_PREFIX} Runtime]"
 _RUNTIME_INSTRUCTION = "本轮避开这些重复项，换种自然说法，别提本提示："
@@ -41,7 +41,7 @@ _LITE_CORE = """natural-talk 轻量注入版（规范源：SKILL.md 日常对话
 
 句式检查：
 - 删"说白了""说穿了""先说结论""说到底""归根结底"；"先说结论：""直接给答案："是空壳，结论本身开场 [B10]
-- 彻底封杀翻案腔：严禁自立靶子搞“先否定再肯定”（不是……而是/其实不是……只是/与其说……不如说）；没有具体画面的“没有……只有……”“不在于……而在于……”同样直接说肯定面；删掉前半句否定与转折，直接正面陈述肯定事实。放行：用户提问中已陈述的前提算“真实主张过”，纠错/否证场景“不是A，是B”是信息本体，直接纠错 [B1]
+- 没人主张过 A，就禁止“不是A，而是B”（不是……而是/其实不是……只是/与其说……不如说）。没有具体画面的“没有……只有……”“不在于……而在于……”同样直接说肯定面。放行：用户提问里已经说过的前提算主张过，纠错时“不是A，是B”照写 [B1]
 - 写完最后一件事即停，禁止末段「这不仅是…更是/更关乎」式拔高 [C2]
 - 删"一句话总结：/核心是：/总结如下：/建议如下："等空转提示语加冒号引列表，自然承接 [B4]
 - 非首段的评论式开头必须能指出明确承接对象，恢复具体主语或删掉空评论，不机械补"这" [B3]
@@ -59,7 +59,7 @@ _PLUGIN_EXTRAS = (
     "- 保留事实、限制条件、安全提示和不确定性表述\n"
     "- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先\n"
     "- 不要把这些约束写进回复\n"
-    "- 铁律：自立靶子的先否定后肯定（不是/与其/看似）删否定留肯定，直接说肯定面；用户前提被证伪时的纠错句放行\n"
+    "- 铁律：没人主张过的“不是/与其/看似”直接说肯定面；用户前提被证伪时的纠错句照写\n"
     "- 铁律：日常对话严禁泛滥使用破折号（——）制造刻意停顿与揭晓"
 )
 _HISTORY_RULES_MARKER_RE = re.compile(r"^[ \t]*\[Human Chat Quality Rules v\d+\][ \t]*$")

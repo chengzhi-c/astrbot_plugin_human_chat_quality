@@ -319,7 +319,7 @@ class TestContextRewrite(unittest.TestCase):
 class TestStableRules(unittest.TestCase):
     def test_marker_current(self):
         self.assertIn(f"Rules v{RULES_VERSION}]", STABLE_RULE_MARKER)
-        self.assertEqual(RULES_VERSION, 18)
+        self.assertEqual(RULES_VERSION, 19)
 
     def test_metadata_version_declared(self):
         """发布契约：metadata.yaml 必须声明非占位版本号。"""
@@ -353,7 +353,7 @@ class TestStableRules(unittest.TestCase):
         self.assertIn("- 用户明确要求技术步骤、对比、正式文稿时，以任务完成为先", rules)
         self.assertIn("- 不要把这些约束写进回复", rules)
         self.assertIn(
-            "铁律：自立靶子的先否定后肯定（不是/与其/看似）删否定留肯定，直接说肯定面；用户前提被证伪时的纠错句放行",
+            "铁律：没人主张过的“不是/与其/看似”直接说肯定面；用户前提被证伪时的纠错句照写",
             rules,
         )
         self.assertNotIn("角色引号内除外", rules)
