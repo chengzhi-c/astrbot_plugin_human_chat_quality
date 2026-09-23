@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import subprocess
 import sys
@@ -64,6 +66,36 @@ class TestDetectorEvaluation(unittest.TestCase):
             for metrics in split["categories"].values():
                 self.assertEqual(set(metrics), {"precision", "recall", "fp", "fn", "n"})
                 self.assertEqual((metrics["fp"], metrics["fn"]), (0, 0))
+
+    def test_check_mode_exit_code_wiring(self):
+        """门禁接线锁：exit code 是发布门禁的承重点，必须实测 main() 而非只测纯函数。
+
+        回归目标——`return 1 if args.check and has_errors(...) else 0` 若写错（恒 0、
+        漏传 uncovered），build_release.py 的 eval_detector 门禁会静默失效但仍全绿。
+        """
+
+        def quiet_check() -> int:
+            with contextlib.redirect_stdout(io.StringIO()):
+                return eval_detector.main(["--check"])
+
+        self.assertEqual(quiet_check(), 0, "健康检测器在 --check 下应返回 0")
+
+        with mock.patch.object(eval_detector, "detect_cliches", return_value=[]):
+            self.assertEqual(quiet_check(), 1, "检测器退化（漏报）时 --check 必须返回 1")
+
+        with mock.patch.object(eval_detector, "builtin_signal_names", return_value=frozenset({"新信号"})):
+            self.assertEqual(quiet_check(), 1, "内置信号未被 fixture 覆盖时 --check 必须返回 1")
+
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(eval_detector.main([]), 0, "不带 --check 只输出报告，不承担门禁语义")
+
+        # 守卫锁：--check 是门禁语义的唯一开关。退化时报告模式仍须返回 0，
+        # 否则任何只想取报告的调用（含 CI 调试）都会被检测器状态误判成门禁失败。
+        with (
+            mock.patch.object(eval_detector, "detect_cliches", return_value=[]),
+            contextlib.redirect_stdout(io.StringIO()),
+        ):
+            self.assertEqual(eval_detector.main([]), 0, "退化时报告模式仍须返回 0")
 
     def test_check_mode_rejects_any_false_positive_or_negative(self):
         report = {

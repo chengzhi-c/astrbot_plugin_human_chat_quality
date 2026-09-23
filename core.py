@@ -219,10 +219,11 @@ class HumanChatQualityCore:
             hint = render_runtime_hint(selected_names)
 
         context_result = rewrite_context_injections(req, hint or None)
+        # 孤儿块（ambiguous）只影响"是否清理"，不影响"是否注入"：历史里存在无法核验的自家旧块时，
+        # 仍必须照常注入新提醒，否则该会话动态提醒永久静默（且该块按设计永不被清理，无法自愈）。
         if (
             hint
             and not context_result.runtime_satisfied
-            and not context_result.runtime_ambiguous
             and append_temp_text_part(req, hint, self.text_part_factory, marker=RUNTIME_HINT_MARKER)
         ):
             injected_hint = hint

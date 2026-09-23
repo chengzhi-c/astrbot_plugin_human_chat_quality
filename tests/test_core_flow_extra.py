@@ -17,6 +17,7 @@ from tests._support import (
 ensure_plugin_package()
 
 from astrbot_plugin_human_chat_quality import core as core_module
+from astrbot_plugin_human_chat_quality import quality_rules
 from astrbot_plugin_human_chat_quality.constants import MAX_AVOID_ITEMS, MAX_RUNTIME_HINT_CHARS
 from astrbot_plugin_human_chat_quality.core import AppConfig, HumanChatQualityCore
 from astrbot_plugin_human_chat_quality.quality_rules import (
@@ -36,6 +37,46 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.store = RuntimeStateStore(os.path.join(self.dir, "s.json"), 14, 8, ())
         self.core = HumanChatQualityCore(AppConfig.from_config(None), self.store, text_part_factory=FakePart)
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")
+
+    def test_long_rendered_signal_does_not_silence_runtime_hints(self):
+        """回归锁：含最长模型端指令的信号不得让动态提醒永久静默。
+
+        历史缺陷——「空转提示语」的指令 22 字 > MAX_AVOID_ITEM_LEN(20)，
+        其注入块被 _is_complete_runtime 判 ambiguous，成为历史里永不清理的孤儿块。
+        """
+        origin = self.ev.unified_msg_origin
+        self.store.sessions[origin] = SessionState(avoid_openers=["空转提示语"])
+
+        first = FakeReq()
+        asyncio.run(self.core.on_llm_request(self.ev, first))
+        self.assertEqual(len(first.extra_user_content_parts), 1, "首轮应注入动态提醒")
+        injected = first.extra_user_content_parts[0].text
+
+        # 宿主把注入块写回历史后回流（真实调用链：extra parts → 同一条 user message → 落库）
+        history = {"role": "user", "content": [{"type": "text", "text": "你好"}, {"type": "text", "text": injected}]}
+        second = FakeReq()
+        second.contexts = [history]
+        asyncio.run(self.core.on_llm_request(self.ev, second))
+        self.assertEqual(len(second.extra_user_content_parts), 1, "历史回流后仍应继续注入动态提醒")
+
+    def test_orphan_block_does_not_block_new_injection(self):
+        """孤儿块（无法核验的自家旧块）只影响清理、不影响注入。
+
+        回归目标——老用户历史里可能已有旧版本写入、当前判定为 ambiguous 的提示块
+        （如 3.10.0 的 extract_opener 会产出含顿号的项）。旧实现把这类块当成"已有提醒"，
+        此后每轮都拒绝注入，而该块按设计永不被清理 → 该会话动态提醒永久静默。
+        """
+        origin = self.ev.unified_msg_origin
+        self.store.sessions[origin] = SessionState(avoid_openers=["作为AI"])
+        orphan_block = quality_rules.render_runtime_hint(["你好呀、然后再说"] * 3)
+        self.assertEqual(quality_rules._runtime_kind(orphan_block), "ambiguous", "前置条件：构造出孤儿块")
+
+        req = FakeReq()
+        req.contexts = [{"role": "user", "content": [{"type": "text", "text": orphan_block}]}]
+        asyncio.run(self.core.on_llm_request(self.ev, req))
+        self.assertEqual(len(req.extra_user_content_parts), 1, "孤儿块存在时仍须注入本轮提醒")
+        # 孤儿块本身仍按设计保留（不误删用户可能手写的文本）
+        self.assertTrue(req.contexts[0]["content"], "孤儿块不应被清理")
 
     def test_overlong_custom_cliche_filtered_end_to_end(self):
         # 超长自定义词在 Store 构造期被过滤，Core 全流程不入 avoid_openers
@@ -448,6 +489,26 @@ class TestCoreFlowExtra(unittest.TestCase):
                 self.assertIn(signal, admitted, f"档 1 信号 {signal} 被挤出名额")
         dropped = [s for s in ("希望能帮到你", "好问题") if s not in admitted]
         self.assertTrue(dropped, "本用例需要一个档 2 信号被挤出以证明排序生效")
+
+    def test_detected_signals_win_slots_against_repeated_openers(self):
+        """重复开头不得挤占当轮检测信号的名额。
+
+        回归目标——旧实现把 repeated 排在 detected 之前合并，窗口一满（如 window=50 攒出 5 个重复开头），
+        当轮命中的档 1 可靠性信号会被整体挤出 avoid_openers，下一轮提示里只剩口头语。
+        """
+        store = RuntimeStateStore(os.path.join(self.dir, "b50.json"), 14, 50, ())
+        core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=FakePart)
+        origin = "aiocqhttp:GroupMessage:222"
+
+        # 攒满 5 个重复开头（各 3 次，达到 OPENER_REPEAT_THRESHOLD）
+        for index in range(15):
+            opener = ["确实", "当然", "哈哈", "对的", "没错"][index % 5]
+            asyncio.run(core.on_llm_response(FakeEvent(origin), FakeLLMResp(f"{opener}，回答{index}。")))
+        self.assertEqual(len(store.get(origin).avoid_openers), MAX_AVOID_ITEMS, "前置条件：名额已被重复开头占满")
+
+        asyncio.run(core.on_llm_response(FakeEvent(origin), FakeLLMResp("作为AI，我不确定边界在哪。")))
+        admitted = store.get(origin).avoid_openers
+        self.assertIn("作为AI", admitted, "档 1 可靠性信号被重复开头挤出名额")
 
     def test_each_signal_family_gets_its_own_hint(self):
         """提示指向病灶：各类异质病灶得到各自的修改指令，不能共用一条。"""

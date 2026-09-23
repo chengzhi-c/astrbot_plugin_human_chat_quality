@@ -271,7 +271,7 @@ def _is_complete_runtime(text: str) -> bool:
         return False
     items = text[len(_RUNTIME_PREFIX) :].split(_RUNTIME_ITEM_SEPARATOR)
     return 1 <= len(items) <= MAX_AVOID_ITEMS and all(
-        0 < len(item) <= MAX_AVOID_ITEM_LEN and "\n" not in item for item in items
+        0 < len(item) <= _RUNTIME_ITEM_MAX_LEN and "\n" not in item for item in items
     )
 
 
@@ -355,10 +355,25 @@ _SIGNAL_HINT_MAP: dict[str, str] = {
     "感叹号": "别堆感叹号",
 }
 
+# 块所有权校验的单项上限：按渲染后的实际产出推导。渲染会把信号名替换成 _SIGNAL_HINT_MAP 里的
+# 模型端指令（最长 22 字），故不得沿用入库口径 MAX_AVOID_ITEM_LEN——否则自己产出的块过不了
+# 自己的校验，被判 ambiguous（历史里永不清理的孤儿块，注入侧因此反复静默）。
+_RUNTIME_ITEM_MAX_LEN = max(MAX_AVOID_ITEM_LEN, *(len(value) for value in _SIGNAL_HINT_MAP.values()))
+
+# 渲染后不允许出现在单项内的字符：分隔符会让回转校验按错误边界切分（项数与长度失真）；
+# \r 与 \n 会被换行归一化折成换行，触发 _is_complete_runtime 的换行拒判。
+_RUNTIME_ITEM_FORBIDDEN = (_RUNTIME_ITEM_SEPARATOR, "\r", "\n")
+
 
 def select_runtime_hint_names(openers: Sequence[str], max_chars: int) -> list[str]:
-    # 超长自定义词不注入（record 入库侧已按 MAX_AVOID_ITEM_LEN 过滤，此处兜底旧状态文件里残留的超长词）
-    openers = [item for item in openers[:MAX_AVOID_ITEMS] if item and len(item) <= MAX_AVOID_ITEM_LEN]
+    # 先过滤后截断：截断前置会让前 N 位非法项白吃名额，后面合法项永远进不来。
+    # 超长自定义词不注入（record 入库侧已按 MAX_AVOID_ITEM_LEN 过滤，此处兜底旧状态文件里残留的超长词）；
+    # 含分隔符/换行的项同理过滤：它们渲染后无法通过 _is_complete_runtime 回转校验，注入即静默失效。
+    openers = [
+        item
+        for item in openers
+        if item and len(item) <= MAX_AVOID_ITEM_LEN and not any(char in item for char in _RUNTIME_ITEM_FORBIDDEN)
+    ][:MAX_AVOID_ITEMS]
     if not openers:
         return []
     prefix_len = len(_RUNTIME_PREFIX)

@@ -195,12 +195,14 @@ class RuntimeStateStore:
             opener = extract_opener(text)
             if opener:
                 state.recent_openers = [opener, *state.recent_openers][: self.recent_reply_window]
-            # 两路合并进动态提示清单：① 最近窗口里高频重复的开头；② 本轮命中的高置信度信号。
+            # 两路合并进动态提示清单：① 本轮命中的高置信度信号；② 最近窗口里高频重复的开头。
             # 检测只发生一次（调用方负责），store 只做合并，保证信号不被重复计入。
+            # 顺序：detected 优先占名额。调用方已按危害档位预排序，且单轮命中不重入；重复开头依赖窗口
+            # 累积、下轮可重入，故名额紧张时让后者先落选（否则窗口一满，档 1 可靠性信号被整体挤出）。
             repeated = repeated_items(state.recent_openers, limit=MAX_AVOID_ITEMS)
             previous = set(state.avoid_openers)
             merged: list[str] = []
-            for item in [*repeated, *detected_cliches]:
+            for item in [*detected_cliches, *repeated]:
                 if item and len(item) <= MAX_AVOID_ITEM_LEN and item not in merged:
                     merged.append(item)
             state.avoid_openers = merged[:MAX_AVOID_ITEMS]

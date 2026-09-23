@@ -10,7 +10,12 @@ from tests._support import ensure_plugin_package
 
 ensure_plugin_package()
 
-from astrbot_plugin_human_chat_quality.constants import MAX_RUNTIME_HINT_CHARS, MIN_RUNTIME_HINT_CHARS
+from astrbot_plugin_human_chat_quality.constants import (
+    MAX_RUNTIME_HINT_CHARS,
+    MAX_STATE_RETENTION_DAYS,
+    MIN_RUNTIME_HINT_CHARS,
+    MIN_STATE_RETENTION_DAYS,
+)
 from astrbot_plugin_human_chat_quality.core import AppConfig
 
 EXPECTED_MIN_RUNTIME_HINT_CHARS = 80
@@ -105,6 +110,13 @@ class TestConfigParse(unittest.TestCase):
                         (int(range_match.group(1)), int(range_match.group(2))),
                         (slider["min"], slider["max"]),
                     )
+
+    def test_state_retention_hint_range_matches_constants(self):
+        """范围锚定：无 slider 的数值项只能靠 hint 文本对外承诺，须与常量对锚（改常量忘改 hint 会红）。"""
+        schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"
+        schema = json.loads(schema_path.read_text(encoding="utf-8"))
+        hint = schema["state_retention_days"]["hint"]
+        self.assertIn(f"{MIN_STATE_RETENTION_DAYS}–{MAX_STATE_RETENTION_DAYS}", hint)
 
     def test_schema_conditions_and_numeric_controls_match_runtime_semantics(self):
         schema_path = Path(__file__).resolve().parents[1] / "_conf_schema.json"

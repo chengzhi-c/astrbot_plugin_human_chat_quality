@@ -436,6 +436,91 @@ class TestRuntimeHint(unittest.TestCase):
         self.assertNotIn("多用感叹号", hint)
 
 
+class TestRuntimeHintRoundTrip(unittest.TestCase):
+    """回转锁：注入块必须能被自身校验判为 owned。
+
+    回归目标——渲染会把信号名换成 _SIGNAL_HINT_MAP 里的模型端指令（比原名长），
+    若所有权校验沿用入库口径 MAX_AVOID_ITEM_LEN，自己产出的块会被判 ambiguous：
+    成为历史里永不清理的孤儿块，该会话动态提醒长期静默。
+    """
+
+    def test_ownership_limit_covers_longest_rendered_item(self):
+        """双向锁：上限必须覆盖最长映射值（否则自己产出的块被判 ambiguous），
+        同时不得比推导值更宽（放宽等于扩大"误删用户形似文本"窗口——只有下界锁时把上限写成 200 也能全绿）。
+        """
+        longest = max(len(value) for value in quality_rules._SIGNAL_HINT_MAP.values())
+        self.assertEqual(quality_rules._RUNTIME_ITEM_MAX_LEN, max(quality_rules.MAX_AVOID_ITEM_LEN, longest))
+
+    def test_hint_map_values_are_renderable_items(self):
+        """格式锁：映射值不得为空或含分隔符/换行，否则渲染后无法回转校验。"""
+        for key, value in quality_rules._SIGNAL_HINT_MAP.items():
+            with self.subTest(signal=key):
+                self.assertTrue(value.strip())
+                for char in quality_rules._RUNTIME_ITEM_FORBIDDEN:
+                    self.assertNotIn(char, value)
+
+    def test_every_signal_renders_to_owned_block(self):
+        for key in quality_rules._SIGNAL_HINT_MAP:
+            with self.subTest(signal=key):
+                text = build_runtime_hint([key], MAX_RUNTIME_HINT_CHARS)
+                self.assertEqual(quality_rules._runtime_kind(text), "owned", f"{key!r} 渲染后不是 owned 块")
+
+    def test_full_budget_selection_stays_owned(self):
+        """满预算组合亦须回转 owned（含最长映射值参与的情形）。"""
+        signals = list(quality_rules._SIGNAL_HINT_MAP)
+        for limit in (80, 120, MAX_RUNTIME_HINT_CHARS):
+            with self.subTest(limit=limit):
+                selected = quality_rules.select_runtime_hint_names(signals, limit)
+                self.assertTrue(selected)
+                text = quality_rules.render_runtime_hint(selected)
+                self.assertLessEqual(len(text), limit)
+                self.assertEqual(quality_rules._runtime_kind(text), "owned")
+
+    def test_items_with_separator_are_not_selected(self):
+        """含分隔符/换行的项注定无法回转校验，选择阶段即应排除（否则注入即静默失效）。"""
+        for bad in ("甲、乙", "甲\n乙", "甲\r乙"):
+            with self.subTest(item=bad):
+                self.assertEqual(quality_rules.select_runtime_hint_names([bad], MAX_RUNTIME_HINT_CHARS), [])
+        self.assertEqual(
+            quality_rules.select_runtime_hint_names(["甲、乙", "正常项"], MAX_RUNTIME_HINT_CHARS), ["正常项"]
+        )
+        self.assertEqual(
+            quality_rules.select_runtime_hint_names(["甲\r乙", "正常项"], MAX_RUNTIME_HINT_CHARS), ["正常项"]
+        )
+
+    def test_filter_covers_every_char_that_breaks_round_trip(self):
+        """覆盖锁：任何会让满载渲染块失去回转资格的字符，都必须出现在过滤集里。
+
+        字符集与判定条件必须同源——漏掉 \\r 时（\\r 会被换行归一化折成 \\n，
+        渲染块随即判 ambiguous）注入依旧会静默，而旧的 \\n-only 过滤看不出来。
+        判定用满载组合：含分隔符的项在单项时仍可能通过，组合越限才暴露（实测 3 项即 ambiguous）。
+        """
+        # 一次性覆盖 ASCII 控制符与常见全角标点，避免只挑已知字符造成的自证
+        candidates = [chr(code) for code in range(0x20)] + ["、", "，", "。", "｜", "|", " ", "："]
+        for char in candidates:
+            with self.subTest(char=repr(char)):
+                items = [f"甲{char}乙" for _ in range(quality_rules.MAX_AVOID_ITEMS)]
+                blocked = quality_rules._runtime_kind(quality_rules.render_runtime_hint(items)) != "owned"
+                if blocked:
+                    self.assertIn(char, quality_rules._RUNTIME_ITEM_FORBIDDEN, f"{char!r} 会破坏回转校验但未被过滤")
+                else:
+                    self.assertNotIn(char, quality_rules._RUNTIME_ITEM_FORBIDDEN, f"{char!r} 被过度过滤")
+
+    def test_filtered_items_never_reach_the_hint(self):
+        """被过滤字符的项不得出现在选择结果里（防过滤逻辑写对但断言漏掉）。"""
+        for char in quality_rules._RUNTIME_ITEM_FORBIDDEN:
+            with self.subTest(char=repr(char)):
+                self.assertEqual(quality_rules.select_runtime_hint_names([f"甲{char}乙"], MAX_RUNTIME_HINT_CHARS), [])
+
+    def test_filtering_happens_before_the_slot_truncation(self):
+        """过滤必须先于名额截断：反序会让前 N 位非法项白吃名额，后面合法项永远进不来。"""
+        junk = [f"甲{i}、乙{i}" for i in range(quality_rules.MAX_AVOID_ITEMS)]
+        self.assertEqual(
+            quality_rules.select_runtime_hint_names([*junk, "正常项"], MAX_RUNTIME_HINT_CHARS),
+            ["正常项"],
+        )
+
+
 class TestOwnershipEdges(unittest.TestCase):
     """所有权判定的边界与注入失败降级（此前全无覆盖）。"""
 
