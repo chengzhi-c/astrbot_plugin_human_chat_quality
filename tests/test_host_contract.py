@@ -180,6 +180,11 @@ class TestHostRegistration(unittest.TestCase):
         store.terminate.assert_awaited_once()
 
     def test_extra_parts_must_support_model_dump(self):
+        """extra part 走对象路径：宿主装配时直接调用 part.model_dump()。
+
+        4.23.x 对裸 dict 会抛 AttributeError（4.28 起宿主自行兼容），故插件只注入
+        ContentPart 对象，两版宿主都能装配。
+        """
         from astrbot.core.agent.message import TextPart
         from astrbot.core.provider.entities import ProviderRequest
 
@@ -192,10 +197,6 @@ class TestHostRegistration(unittest.TestCase):
         req.extra_user_content_parts = [part]
         assembled = asyncio.run(req.assemble_context())
         self.assertTrue(any(block.get("text") == "owned" for block in assembled["content"]))
-
-        req.extra_user_content_parts = [{"type": "text", "text": "owned"}]
-        with self.assertRaises(AttributeError):
-            asyncio.run(req.assemble_context())
 
     def test_stale_extra_text_part_is_rewritten_then_assembled(self):
         from astrbot.core.agent.message import TextPart
