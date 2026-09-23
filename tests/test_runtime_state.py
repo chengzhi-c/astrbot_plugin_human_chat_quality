@@ -411,7 +411,7 @@ class TestStore(unittest.TestCase):
 
 
 class TestWindowThresholdBoundaries(unittest.TestCase):
-    """C3：窗口与重复阈值的边界行为。"""
+    """窗口与重复阈值的边界行为。"""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -446,7 +446,7 @@ class TestWindowThresholdBoundaries(unittest.TestCase):
 
 
 class TestReset(unittest.TestCase):
-    """C9：reset 清空目标会话并持久化，不影响其它会话。"""
+    """reset 清空目标会话并持久化，不影响其它会话。"""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -468,7 +468,7 @@ class TestReset(unittest.TestCase):
 
 
 class TestPruneExpired(unittest.TestCase):
-    """C9：过期会话按 retention 清理（时间轴经 _now 注入）。"""
+    """过期会话按 retention 清理（时间轴经 _now 注入）。"""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -552,7 +552,7 @@ class TestPruneExpired(unittest.TestCase):
 
 
 class TestBackupRotation(unittest.TestCase):
-    """C9：损坏备份按 mtime 轮转，只保留最近 5 份。"""
+    """损坏备份按 mtime 轮转，只保留最近 5 份。"""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -624,7 +624,7 @@ class TestSaveFailureIsolation(unittest.TestCase):
             store = RuntimeStateStore(path, 14, 8, ())
             payload = {"sessions": {}, "disabled_sessions": []}
             store._write_snapshot_sync(payload)
-            # 瞬时锁必须被重试覆盖；只断言"至少重试一次"，实现加大重试预算不该让用例假红
+            # 瞬时锁必须被重试覆盖；只断言"至少重试一次"，使重试预算可调而不锁死实现
             self.assertGreaterEqual(calls, 2, "瞬时锁未触发重试")
             self.assertTrue(os.path.exists(path))
 
@@ -831,7 +831,7 @@ class TestConcurrentPersistence(unittest.TestCase):
 
 
 class TestThreadedSave(unittest.TestCase):
-    """C10：状态写盘经 asyncio.to_thread 在工作线程执行。"""
+    """状态写盘经 asyncio.to_thread 在工作线程执行。"""
 
     def setUp(self):
         self.dir = temporary_directory(self)
@@ -854,7 +854,7 @@ class TestThreadedSave(unittest.TestCase):
 
 
 class TestDisabledMatch(unittest.TestCase):
-    """C8：disabled_sessions 匹配形态（origin 全串/群号/前缀/# base/大小写）。"""
+    """disabled_sessions 匹配形态（origin 全串/群号/前缀/# base/大小写）。"""
 
     def test_match_keys_all_shapes(self):
         keys = match_keys("aiocqhttp:GroupMessage:222", "222")

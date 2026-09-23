@@ -19,7 +19,7 @@ class TestDetectorEvaluation(unittest.TestCase):
         self.fixture = self.repo / "tests" / "fixtures" / "detector_eval.json"
 
     def test_fixture_is_frozen_and_covers_required_categories(self):
-        """契约锁：fixture 与实现同源演进，此测试锁"实现未变 + 覆盖面下限"，不是泛化证据。
+        """fixture 与实现同源演进，此测试锁"实现未变 + 覆盖面下限"，不构成泛化证据。
 
         新增样例须逐条可解释（rationale 写清判据），独立泛化验证靠人工标注的 holdout。
         """
@@ -68,10 +68,10 @@ class TestDetectorEvaluation(unittest.TestCase):
                 self.assertEqual((metrics["fp"], metrics["fn"]), (0, 0))
 
     def test_check_mode_exit_code_wiring(self):
-        """门禁接线锁：exit code 是发布门禁的承重点，必须实测 main() 而非只测纯函数。
+        """exit code 是发布门禁的承重点，必须覆盖 main() 而非只测纯函数。
 
-        回归目标——`return 1 if args.check and has_errors(...) else 0` 若写错（恒 0、
-        漏传 uncovered），build_release.py 的 eval_detector 门禁会静默失效但仍全绿。
+        `return 1 if args.check and has_errors(...) else 0` 若写错（恒 0、漏传 uncovered），
+        build_release.py 的 eval_detector 门禁会静默失效而不报错。
         """
 
         def quiet_check() -> int:
@@ -89,7 +89,7 @@ class TestDetectorEvaluation(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             self.assertEqual(eval_detector.main([]), 0, "不带 --check 只输出报告，不承担门禁语义")
 
-        # 守卫锁：--check 是门禁语义的唯一开关。退化时报告模式仍须返回 0，
+        # --check 是门禁语义的唯一开关。退化时报告模式仍须返回 0，
         # 否则任何只想取报告的调用（含 CI 调试）都会被检测器状态误判成门禁失败。
         with (
             mock.patch.object(eval_detector, "detect_cliches", return_value=[]),

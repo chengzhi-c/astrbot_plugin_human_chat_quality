@@ -40,7 +40,7 @@ class TestStrictRunner(unittest.TestCase):
         self.assertEqual(registered - discovered, set(), "套件登记了不存在的测试模块")
 
     def test_upstream_sync_lists_come_from_single_source(self):
-        """check_upstream_sync 的标签/禁词清单单源化到 anchors fixture，不得再有第二份字面量。"""
+        """check_upstream_sync 的标签/禁词清单取自 anchors fixture，不得再有第二份字面量。"""
         import inspect
 
         self.assertEqual(check_upstream_sync._ANCHORS_PATH.name, "stable-rules-anchors.json")

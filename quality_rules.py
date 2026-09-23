@@ -356,8 +356,8 @@ _SIGNAL_HINT_MAP: dict[str, str] = {
 }
 
 # 块所有权校验的单项上限：按渲染后的实际产出推导。渲染会把信号名替换成 _SIGNAL_HINT_MAP 里的
-# 模型端指令（最长 22 字），故不得沿用入库口径 MAX_AVOID_ITEM_LEN——否则自己产出的块过不了
-# 自己的校验，被判 ambiguous（历史里永不清理的孤儿块，注入侧因此反复静默）。
+# 模型端指令（最长 22 字），沿用入库口径 MAX_AVOID_ITEM_LEN 时，自己产出的块过不了自己的校验，
+# 被判 ambiguous（历史里永不清理的孤儿块，注入侧因此反复静默）。
 _RUNTIME_ITEM_MAX_LEN = max(MAX_AVOID_ITEM_LEN, *(len(value) for value in _SIGNAL_HINT_MAP.values()))
 
 # 渲染后不允许出现在单项内的字符：分隔符会让回转校验按错误边界切分（项数与长度失真）；

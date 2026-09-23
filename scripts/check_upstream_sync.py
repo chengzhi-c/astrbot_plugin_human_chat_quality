@@ -10,7 +10,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[1]
 
-# 清单单源：上游必备准绳标签与禁入词以 tests/fixtures/stable-rules-anchors.json 为准
+# 清单来源：上游必备准绳标签与禁入词以 tests/fixtures/stable-rules-anchors.json 为准
 _ANCHORS_PATH = REPO / "tests" / "fixtures" / "stable-rules-anchors.json"
 
 

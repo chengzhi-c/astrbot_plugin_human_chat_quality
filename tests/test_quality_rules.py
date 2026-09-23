@@ -75,7 +75,7 @@ class TestRewriteInterfaces(unittest.TestCase):
         )
 
     def test_hint_map_keys_are_all_reachable(self):
-        """反向锁：提示表里的每个 key 都必须能在真实文本上被检测器产出。
+        """提示表里的每个 key 都必须能在真实文本上被检测器产出。
 
         防死条目——检测器改名或下线后，提示表若不同步，该 key 永远不会被渲染，
         而"聚合信号都有转义语"的单向断言仍会通过。
@@ -101,9 +101,9 @@ class TestRewriteInterfaces(unittest.TestCase):
                 self.assertIn(key, detect_cliches(text), f"提示表条目 {key!r} 在检测器中已不可达")
 
     def test_hint_map_never_tells_the_model_to_do_the_forbidden_thing(self):
-        """方向锁：转义语不得反向要求模型去做被检测的行为。
+        """转义语不得反向要求模型去做被检测的行为。
 
-        历史缺陷——感叹号超上限的转义语曾写成"多用感叹号"，与检测目标完全相反。
+        反例：感叹号超上限若配成"多用感叹号"，即与检测目标完全相反。
         """
         from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
 
@@ -115,8 +115,7 @@ class TestRewriteInterfaces(unittest.TestCase):
     def test_family_hints_are_imperative_prohibitions(self):
         """新增语义族的转义语必须是祈使否定，不能只是名词标签。
 
-        历史缺陷——五类异质病灶共用一个标签时，除翻案腔外全部得到"先否定后肯定句式"
-        这条与病灶无关的指令，动态提醒实际失效。
+        若多类异质病灶共用一个标签，除首个外其余会得到与病灶无关的指令，动态提醒随之失效。
         """
         from astrbot_plugin_human_chat_quality.quality_rules import _SIGNAL_HINT_MAP
 
@@ -437,17 +436,15 @@ class TestRuntimeHint(unittest.TestCase):
 
 
 class TestRuntimeHintRoundTrip(unittest.TestCase):
-    """回转锁：注入块必须能被自身校验判为 owned。
+    """注入块必须能被自身校验判为 owned。
 
-    回归目标——渲染会把信号名换成 _SIGNAL_HINT_MAP 里的模型端指令（比原名长），
-    若所有权校验沿用入库口径 MAX_AVOID_ITEM_LEN，自己产出的块会被判 ambiguous：
-    成为历史里永不清理的孤儿块，该会话动态提醒长期静默。
+    渲染会把信号名换成 _SIGNAL_HINT_MAP 里的模型端指令（比原名长）。若所有权校验沿用
+    入库口径 MAX_AVOID_ITEM_LEN，插件自己产出的块会被判 ambiguous，成为历史里永不清理的
+    孤儿块，该会话动态提醒随之静默。
     """
 
     def test_ownership_limit_covers_longest_rendered_item(self):
-        """双向锁：上限必须覆盖最长映射值（否则自己产出的块被判 ambiguous），
-        同时不得比推导值更宽（放宽等于扩大"误删用户形似文本"窗口——只有下界锁时把上限写成 200 也能全绿）。
-        """
+        """上限必须恰好覆盖最长映射值：低于它则自产块被判 ambiguous，高于它则无谓扩大误删窗口。"""
         longest = max(len(value) for value in quality_rules._SIGNAL_HINT_MAP.values())
         self.assertEqual(quality_rules._RUNTIME_ITEM_MAX_LEN, max(quality_rules.MAX_AVOID_ITEM_LEN, longest))
 
@@ -489,13 +486,12 @@ class TestRuntimeHintRoundTrip(unittest.TestCase):
         )
 
     def test_filter_covers_every_char_that_breaks_round_trip(self):
-        """覆盖锁：任何会让满载渲染块失去回转资格的字符，都必须出现在过滤集里。
+        """任何会让满载渲染块失去回转资格的字符，都必须出现在过滤集里。
 
-        字符集与判定条件必须同源——漏掉 \\r 时（\\r 会被换行归一化折成 \\n，
-        渲染块随即判 ambiguous）注入依旧会静默，而旧的 \\n-only 过滤看不出来。
-        判定用满载组合：含分隔符的项在单项时仍可能通过，组合越限才暴露（实测 3 项即 ambiguous）。
+        字符集与判定条件必须同源。例如 \\r 会被换行归一化折成 \\n，渲染块随即判 ambiguous，
+        仅过滤 \\n 不足以覆盖。判定用满载组合：含分隔符的项在单项时仍可能通过，组合越限才暴露。
         """
-        # 一次性覆盖 ASCII 控制符与常见全角标点，避免只挑已知字符造成的自证
+        # 一次性覆盖 ASCII 控制符与常见全角标点，避免只挑已知字符而漏检
         candidates = [chr(code) for code in range(0x20)] + ["、", "，", "。", "｜", "|", " ", "："]
         for char in candidates:
             with self.subTest(char=repr(char)):

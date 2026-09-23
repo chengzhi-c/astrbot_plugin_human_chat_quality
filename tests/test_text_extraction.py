@@ -10,7 +10,7 @@ from astrbot_plugin_human_chat_quality.core import extract_response_text
 
 
 class TestResponseTextExtraction(unittest.TestCase):
-    """C11：回复文本提取的 result_chain 兜底路径。"""
+    """回复文本提取的 result_chain 兜底路径。"""
 
     def test_completion_text_used_first(self):
         self.assertEqual(extract_response_text(FakeLLMResp("正文")), "正文")

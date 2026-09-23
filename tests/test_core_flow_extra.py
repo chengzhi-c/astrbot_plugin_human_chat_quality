@@ -39,10 +39,10 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.ev = FakeEvent("aiocqhttp:GroupMessage:111")
 
     def test_long_rendered_signal_does_not_silence_runtime_hints(self):
-        """回归锁：含最长模型端指令的信号不得让动态提醒永久静默。
+        """含最长模型端指令的信号不得让动态提醒静默。
 
-        历史缺陷——「空转提示语」的指令 22 字 > MAX_AVOID_ITEM_LEN(20)，
-        其注入块被 _is_complete_runtime 判 ambiguous，成为历史里永不清理的孤儿块。
+        「空转提示语」的模型端指令长 22 字，超出入库口径 MAX_AVOID_ITEM_LEN(20)；
+        若所有权校验沿用入库口径，该注入块会被判为孤儿块（ambiguous）而长期留在历史里。
         """
         origin = self.ev.unified_msg_origin
         self.store.sessions[origin] = SessionState(avoid_openers=["空转提示语"])
@@ -62,9 +62,9 @@ class TestCoreFlowExtra(unittest.TestCase):
     def test_orphan_block_does_not_block_new_injection(self):
         """孤儿块（无法核验的自家旧块）只影响清理、不影响注入。
 
-        回归目标——老用户历史里可能已有旧版本写入、当前判定为 ambiguous 的提示块
-        （如 3.10.0 的 extract_opener 会产出含顿号的项）。旧实现把这类块当成"已有提醒"，
-        此后每轮都拒绝注入，而该块按设计永不被清理 → 该会话动态提醒永久静默。
+        历史里可能存在按当前判定为 ambiguous 的注入块（例如旧版 extract_opener 会产出含顿号的项）。
+        这类块只影响清理统计；若把它当作"已有提醒"而跳过注入，该会话动态提醒将长期静默，
+        且该块按设计永不被清理，无从自愈。
         """
         origin = self.ev.unified_msg_origin
         self.store.sessions[origin] = SessionState(avoid_openers=["作为AI"])
@@ -228,7 +228,7 @@ class TestCoreFlowExtra(unittest.TestCase):
         self.assertEqual(self.core.stats.stale_hints_removed, 2)
 
     def test_runtime_hint_missed_counter_removed(self):
-        """P1 删链路后：QualityStats 不再有 missed 字段（防回归再引入）。"""
+        """QualityStats 不再有 missed 字段（防回归再引入）。"""
         self.assertFalse(hasattr(self.core.stats, "runtime_hint_missed"))
 
     def test_runtime_hint_budget_fits_only_prefix_items(self):
@@ -274,7 +274,7 @@ class TestCoreFlowExtra(unittest.TestCase):
             "帮我写个通知",
             "写一份通知",
             "拟一份会议纪要",
-            # 量词全覆盖（旧实现只认「写个/写一份」，其余漏让位）
+            # 量词全覆盖：写个/写份/写一封/写一篇/拟个/拟一份/拟一篇 均须让位
             "写份通知",
             "写一封通知",
             "写一篇通知",
@@ -472,8 +472,8 @@ class TestCoreFlowExtra(unittest.TestCase):
     def test_reliability_signals_survive_admission_truncation(self):
         """阶位保名额：同轮命中超过 MAX_AVOID_ITEMS 时，档 1 不得被档 2 挤出。
 
-        回归目标——旧实现按 detect_cliches 的分层返回顺序截断，末位的档 1 信号会被丢弃，
-        而注入侧排序发生在截断之后，救不回来。
+        截断按 detect_cliches 的分层返回顺序执行，而注入侧排序发生在截断之后。
+        若截断先于排序丢弃档 1 信号，注入侧无从找回。
         """
         reply = (
             "好问题，让我来梳理。说白了，我直接说。作为AI，我需要说明边界。"
@@ -493,8 +493,9 @@ class TestCoreFlowExtra(unittest.TestCase):
     def test_detected_signals_win_slots_against_repeated_openers(self):
         """重复开头不得挤占当轮检测信号的名额。
 
-        回归目标——旧实现把 repeated 排在 detected 之前合并，窗口一满（如 window=50 攒出 5 个重复开头），
-        当轮命中的档 1 可靠性信号会被整体挤出 avoid_openers，下一轮提示里只剩口头语。
+        重复开头由窗口累积、下轮可重入；当轮检测信号单轮命中不重入。若合并时把重复开头
+        排在前面，窗口一满（如 window=50 攒出 5 个重复开头），档 1 可靠性信号会被整体挤出，
+        下一轮提示里只剩口头语。
         """
         store = RuntimeStateStore(os.path.join(self.dir, "b50.json"), 14, 50, ())
         core = HumanChatQualityCore(AppConfig.from_config(None), store, text_part_factory=FakePart)
